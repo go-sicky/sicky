@@ -30,12 +30,43 @@
 
 package server
 
-// Server : service abstraction
+import (
+	"github.com/gofiber/fiber/v2"
+	"google.golang.org/grpc"
+)
+
+type HandlerGRPC struct {
+	Desc     *grpc.ServiceDesc
+	Instance interface{}
+}
+
+// Handler : server handler
+type Handler struct {
+	grpc []*HandlerGRPC
+}
+
+func NewHandler() *Handler {
+	return new(Handler)
+}
+
+func (h *Handler) RegisterGRPC(d *grpc.ServiceDesc, ins interface{}) {
+	h.grpc = append(h.grpc, &HandlerGRPC{Desc: d, Instance: ins})
+}
+
+func (h *Handler) GRPC() []*HandlerGRPC {
+	return h.grpc
+}
+
+type HandlerHTTP interface {
+	Register(*fiber.App)
+}
+
+// Server : server abstraction
 type Server interface {
 	// Server options
 	Options() *Options
 	// Server handler register
-	Handle() error
+	Handle(*Handler) error
 	// Start the server
 	Start() error
 	// Stop the server
@@ -44,6 +75,10 @@ type Server interface {
 	String() string
 	// Get name
 	Name() string
+	// RegisterService : for GRPC
+	RegisterService(*grpc.ServiceDesc, any)
+	// RegisterHandler : for HTTP
+	RegisterHandler(HandlerHTTP)
 }
 
 /*

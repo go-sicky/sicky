@@ -58,7 +58,14 @@ type ConfigGlobal struct {
 	App interface{} `json:"app" yaml:"app" mapstructure:"app"`
 }
 
-//var defaultConfig = map[string]interface{}{}
+// var defaultConfig = map[string]interface{}{}
+func DefaultConfig(name, version string) *ConfigGlobal {
+	cfg := new(ConfigGlobal)
+	cfg.Sicky.Service.Name = name
+	cfg.Sicky.Service.Version = version
+
+	return cfg
+}
 
 /*
  * Local variables:

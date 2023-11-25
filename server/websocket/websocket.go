@@ -40,6 +40,7 @@ import (
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 )
 
 // WebsocketServer : Server definition
@@ -97,7 +98,7 @@ func (srv *WebsocketServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *WebsocketServer) Handle() error {
+func (srv *WebsocketServer) Handle(*server.Handler) error {
 	return nil
 }
 
@@ -174,6 +175,14 @@ func (srv *WebsocketServer) String() string {
 
 func (srv *WebsocketServer) Name() string {
 	return srv.options.Name
+}
+
+func (srv *WebsocketServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
+	// Did nothing
+}
+
+func (srv *WebsocketServer) RegisterHandler(hdl server.HandlerHTTP) {
+	// Did nothing
 }
 
 /*

@@ -45,6 +45,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
 	slogfiber "github.com/samber/slog-fiber"
+	"google.golang.org/grpc"
 )
 
 // HTTPServer : Server definition
@@ -133,7 +134,7 @@ func (srv *HTTPServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *HTTPServer) Handle() error {
+func (srv *HTTPServer) Handle(*server.Handler) error {
 	return nil
 }
 
@@ -220,6 +221,14 @@ func (srv *HTTPServer) String() string {
 
 func (srv *HTTPServer) Name() string {
 	return srv.options.Name
+}
+
+func (srv *HTTPServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
+	// Did noting
+}
+
+func (srv *HTTPServer) RegisterHandler(hdl server.HandlerHTTP) {
+	hdl.Register(srv.app)
 }
 
 /*

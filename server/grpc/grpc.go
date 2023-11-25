@@ -128,7 +128,11 @@ func (srv *GRPCServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *GRPCServer) Handle() error {
+func (srv *GRPCServer) Handle(hdl *server.Handler) error {
+	for _, g := range hdl.GRPC() {
+		srv.app.RegisterService(g.Desc, g.Instance)
+	}
+
 	return nil
 }
 
@@ -215,6 +219,14 @@ func (srv *GRPCServer) String() string {
 
 func (srv *GRPCServer) Name() string {
 	return srv.options.Name
+}
+
+func (srv *GRPCServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
+	srv.app.RegisterService(desc, impl)
+}
+
+func (srv *GRPCServer) RegisterHandler(hdl server.HandlerHTTP) {
+	// Did nothing
 }
 
 /*
