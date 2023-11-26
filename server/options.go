@@ -37,18 +37,15 @@ import (
 	"net"
 )
 
-const (
-	DefaultServerName = "sicky.server"
-)
-
 // Options of server
 type Options struct {
 	Context context.Context
-	Name    string
-	ID      string
-	Addr    net.Addr
-	TLS     *tls.Config
-	Logger  *slog.Logger
+
+	Name   string
+	ID     string
+	Addr   net.Addr
+	TLS    *tls.Config
+	Logger *slog.Logger
 }
 
 type Option func(*Options)

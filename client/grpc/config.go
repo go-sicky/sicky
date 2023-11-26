@@ -30,10 +30,30 @@
 
 package grpc
 
+import "time"
+
+const (
+	DefaultNetwork = "tcp"
+	DefaultAddr    = "127.0.0.1:9991"
+)
+
 type Config struct {
-	Name    string `json:"name" yaml:"name" mapstructure:"name"`
-	Network string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Name              string        `json:"name" yaml:"name" mapstructure:"name"`
+	Network           string        `json:"network" yaml:"network" mapstructure:"network"`
+	Addr              string        `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Timeout           time.Duration `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	MaxHeaderListSize uint32        `json:"max_header_list_size" yaml:"max_header_list_size" mapstructure:"max_header_list_size"`
+	MaxMsgSize        int           `json:"max_msg_size" yaml:"max_msg_size" mapstructure:"max_msg_size"`
+	ReadBufferSize    int           `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
+	WriteBufferSize   int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+}
+
+func DefaultConfig(name string) *Config {
+	return &Config{
+		Name:    name,
+		Network: DefaultNetwork,
+		Addr:    DefaultAddr,
+	}
 }
 
 /*

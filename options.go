@@ -40,12 +40,12 @@ import (
 
 type Options struct {
 	Context context.Context
+	Service *Service
+
 	Name    string
 	ID      string
 	Version string
 	Logger  *slog.Logger
-
-	Service *Service
 }
 
 type Option func(*Options)
@@ -78,14 +78,18 @@ func Logger(l *slog.Logger) Option {
 func Server(srv server.Server) Option {
 	return func(opts *Options) {
 		// Append server
-		opts.Service.servers[srv.Options().Name] = srv
+		if srv != nil {
+			opts.Service.servers[srv.Options().Name] = srv
+		}
 	}
 }
 
 func Client(clt client.Client) Option {
 	return func(opts *Options) {
 		// Append client
-		opts.Service.clients[clt.Options().Name] = clt
+		if clt != nil {
+			opts.Service.clients[clt.Options().Name] = clt
+		}
 	}
 }
 

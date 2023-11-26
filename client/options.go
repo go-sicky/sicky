@@ -32,22 +32,40 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
+	"net"
 )
 
 // Options of client
 type Options struct {
 	Context context.Context
-	Name    string
-	Logger  *slog.Logger
+
+	Name   string
+	ID     string
+	Addr   net.Addr
+	TLS    *tls.Config
+	Logger *slog.Logger
 }
 
 type Option func(*Options)
 
 /* {{{ [Options] */
+func ID(id string) Option {
+	return func(opts *Options) {
+		opts.ID = id
+	}
+}
+
 func Context(ctx context.Context) Option {
 	return func(opts *Options) {
 		opts.Context = ctx
+	}
+}
+
+func TLS(tls *tls.Config) Option {
+	return func(opts *Options) {
+		opts.TLS = tls
 	}
 }
 

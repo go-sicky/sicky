@@ -35,30 +35,28 @@ import (
 	"google.golang.org/grpc"
 )
 
-type HandlerGRPC struct {
-	Desc     *grpc.ServiceDesc
-	Instance interface{}
-}
-
 // Handler : server handler
 type Handler struct {
-	grpc []*HandlerGRPC
+	Type string
+	Hdl  any
 }
 
-func NewHandler() *Handler {
-	return new(Handler)
-}
-
-func (h *Handler) RegisterGRPC(d *grpc.ServiceDesc, ins interface{}) {
-	h.grpc = append(h.grpc, &HandlerGRPC{Desc: d, Instance: ins})
-}
-
-func (h *Handler) GRPC() []*HandlerGRPC {
-	return h.grpc
+func NewHandler(hdl any) *Handler {
+	return &Handler{
+		Hdl: hdl,
+	}
 }
 
 type HandlerHTTP interface {
 	Register(*fiber.App)
+	Name() string
+	Type() string
+}
+
+type HandlerGRPC interface {
+	Register(*grpc.Server)
+	Name() string
+	Type() string
 }
 
 // Server : server abstraction
@@ -75,10 +73,6 @@ type Server interface {
 	String() string
 	// Get name
 	Name() string
-	// RegisterService : for GRPC
-	RegisterService(*grpc.ServiceDesc, any)
-	// RegisterHandler : for HTTP
-	RegisterHandler(HandlerHTTP)
 }
 
 /*

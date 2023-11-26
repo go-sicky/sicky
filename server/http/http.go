@@ -36,6 +36,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"reflect"
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
@@ -45,16 +46,16 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
 	slogfiber "github.com/samber/slog-fiber"
-	"google.golang.org/grpc"
 )
 
 // HTTPServer : Server definition
 type HTTPServer struct {
-	ctx     context.Context
-	app     *fiber.App
-	runing  bool
-	logger  *slog.Logger
-	options *server.Options
+	ctx      context.Context
+	app      *fiber.App
+	runing   bool
+	logger   *slog.Logger
+	options  *server.Options
+	handlers []*server.Handler
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -134,7 +135,9 @@ func (srv *HTTPServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *HTTPServer) Handle(*server.Handler) error {
+func (srv *HTTPServer) Handle(hdl *server.Handler) error {
+	srv.handlers = append(srv.handlers, hdl)
+
 	return nil
 }
 
@@ -150,6 +153,19 @@ func (srv *HTTPServer) Start() error {
 	if srv.runing {
 		// Runing
 		return nil
+	}
+
+	if srv.handlers != nil {
+		tt := reflect.TypeOf((*server.HandlerHTTP)(nil)).Elem()
+		for _, hdl := range srv.handlers {
+			ht := reflect.TypeOf(hdl.Hdl)
+			if ht.Implements(tt) {
+				tg, ok := hdl.Hdl.(server.HandlerHTTP)
+				if ok {
+					tg.Register(srv.app)
+				}
+			}
+		}
 	}
 
 	if srv.options.TLS != nil {
@@ -221,14 +237,6 @@ func (srv *HTTPServer) String() string {
 
 func (srv *HTTPServer) Name() string {
 	return srv.options.Name
-}
-
-func (srv *HTTPServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
-	// Did noting
-}
-
-func (srv *HTTPServer) RegisterHandler(hdl server.HandlerHTTP) {
-	hdl.Register(srv.app)
 }
 
 /*

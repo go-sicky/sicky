@@ -33,29 +33,92 @@ package grpc
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // GRPCClient : Client definition
 type GRPCClient struct {
 	ctx     context.Context
+	conn    *grpc.ClientConn
 	logger  *slog.Logger
 	options *client.Options
 }
 
 // New GRPC client
-func NewClient(cfg Config, opts ...client.Option) client.Client {
+func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	// TCP default
+	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	clt := &GRPCClient{
 		ctx:    ctx,
 		logger: logger,
 		options: &client.Options{
 			Name: cfg.Name,
+			Addr: addr,
 		},
 	}
+
+	for _, opt := range opts {
+		opt(clt.options)
+	}
+
+	// Set logger
+	if clt.options.Logger != nil {
+		clt.logger = clt.options.Logger
+	} else {
+		clt.options.Logger = logger
+	}
+
+	// Set global context
+	if clt.options.Context != nil {
+		clt.ctx = clt.options.Context
+	} else {
+		clt.options.Context = ctx
+	}
+
+	// Set ID
+	clt.options.ID = uuid.New().String()
+
+	gopts := make([]grpc.DialOption, 0)
+	if clt.options.TLS != nil {
+		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS)))
+	} else {
+		gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	if cfg.MaxHeaderListSize > 0 {
+		gopts = append(gopts, grpc.WithMaxHeaderListSize(cfg.MaxHeaderListSize))
+	}
+
+	if cfg.MaxMsgSize != 0 {
+		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize)))
+		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(cfg.MaxMsgSize)))
+	}
+
+	if cfg.ReadBufferSize != 0 {
+		gopts = append(gopts, grpc.WithReadBufferSize(cfg.ReadBufferSize))
+	}
+
+	if cfg.WriteBufferSize != 0 {
+		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
+	}
+
+	conn, err := grpc.Dial(addr.String(), gopts...)
+	if err != nil {
+		logger.Error(err.Error())
+
+		return nil
+	}
+
+	clt.conn = conn
 
 	return clt
 }
@@ -74,6 +137,14 @@ func (clt *GRPCClient) String() string {
 
 func (clt *GRPCClient) Name() string {
 	return clt.options.Name
+}
+
+func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
+	return clt.conn.Invoke(ctx, method, args, reply, opts...)
+}
+
+func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	return clt.conn.NewStream(ctx, desc, method, opts...)
 }
 
 /*

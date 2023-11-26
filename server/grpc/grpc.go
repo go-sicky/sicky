@@ -36,20 +36,23 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"reflect"
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // GRPCServer : Server definition
 type GRPCServer struct {
-	ctx     context.Context
-	app     *grpc.Server
-	runing  bool
-	logger  *slog.Logger
-	options *server.Options
+	ctx      context.Context
+	app      *grpc.Server
+	runing   bool
+	logger   *slog.Logger
+	options  *server.Options
+	handlers []*server.Handler
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -93,6 +96,10 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	srv.options.ID = uuid.New().String()
 
 	gopts := make([]grpc.ServerOption, 0)
+	if srv.options.TLS != nil {
+		gopts = append(gopts, grpc.Creds(credentials.NewTLS(srv.options.TLS)))
+	}
+
 	if cfg.MaxConcurrentStreams > 0 {
 		gopts = append(gopts, grpc.MaxConcurrentStreams(cfg.MaxConcurrentStreams))
 	}
@@ -117,6 +124,19 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
+	gopts = append(gopts, grpc.ChainUnaryInterceptor(
+		func(
+			ctx context.Context,
+			req any,
+			info *grpc.UnaryServerInfo,
+			handler grpc.UnaryHandler,
+		) (any, error) {
+			srv.logger.InfoContext(ctx, "RPC served", "method", info.FullMethod)
+
+			return handler(ctx, req)
+		},
+	))
+
 	app := grpc.NewServer(gopts...)
 
 	srv.app = app
@@ -129,9 +149,7 @@ func (srv *GRPCServer) Options() *server.Options {
 }
 
 func (srv *GRPCServer) Handle(hdl *server.Handler) error {
-	for _, g := range hdl.GRPC() {
-		srv.app.RegisterService(g.Desc, g.Instance)
-	}
+	srv.handlers = append(srv.handlers, hdl)
 
 	return nil
 }
@@ -148,6 +166,19 @@ func (srv *GRPCServer) Start() error {
 	if srv.runing {
 		// Runing
 		return nil
+	}
+
+	if srv.handlers != nil {
+		tt := reflect.TypeOf((*server.HandlerGRPC)(nil)).Elem()
+		for _, hdl := range srv.handlers {
+			ht := reflect.TypeOf(hdl.Hdl)
+			if ht.Implements(tt) {
+				tg, ok := hdl.Hdl.(server.HandlerGRPC)
+				if ok {
+					tg.Register(srv.app)
+				}
+			}
+		}
 	}
 
 	if srv.options.TLS != nil {
@@ -219,14 +250,6 @@ func (srv *GRPCServer) String() string {
 
 func (srv *GRPCServer) Name() string {
 	return srv.options.Name
-}
-
-func (srv *GRPCServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
-	srv.app.RegisterService(desc, impl)
-}
-
-func (srv *GRPCServer) RegisterHandler(hdl server.HandlerHTTP) {
-	// Did nothing
 }
 
 /*

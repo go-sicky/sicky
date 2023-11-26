@@ -58,6 +58,8 @@ type Service struct {
 	afterStop   []ServiceWrapper
 }
 
+var DefaultService *Service
+
 const (
 	DefaultServiceName    = "sicky.service"
 	DefaultServiceVersion = "v0.0.0"
@@ -101,6 +103,9 @@ func NewService(cfg *ConfigService, opts ...Option) *Service {
 
 	// Set ID
 	svc.options.ID = uuid.New().String()
+
+	// Override
+	DefaultService = svc
 
 	return svc
 }
