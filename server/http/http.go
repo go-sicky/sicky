@@ -33,19 +33,17 @@ package http
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
-	"os"
 	"reflect"
 	"sync"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
-	slogfiber "github.com/samber/slog-fiber"
 )
 
 // HTTPServer : Server definition
@@ -53,7 +51,7 @@ type HTTPServer struct {
 	ctx      context.Context
 	app      *fiber.App
 	runing   bool
-	logger   *slog.Logger
+	logger   logger.GeneralLogger
 	options  *server.Options
 	handlers []*server.Handler
 
@@ -64,13 +62,13 @@ type HTTPServer struct {
 // New HTTP server (go-fiber)
 func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	baseLogger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &HTTPServer{
 		ctx:    ctx,
 		runing: false,
-		logger: logger,
+		logger: baseLogger,
 		options: &server.Options{
 			Name: cfg.Name,
 			Addr: addr,
@@ -85,7 +83,7 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	if srv.options.Logger != nil {
 		srv.logger = srv.options.Logger
 	} else {
-		srv.options.Logger = logger
+		srv.options.Logger = baseLogger
 	}
 
 	// Set global context
@@ -115,6 +113,7 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 			WriteBufferSize:       cfg.WriteBufferSize,
 		},
 	)
+
 	app.Use(recover.New(
 		recover.ConfigDefault,
 	))
@@ -124,7 +123,10 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	app.Use(requestid.New(
 		requestid.ConfigDefault,
 	))
-	app.Use(slogfiber.New(srv.options.Logger))
+	app.Use(logger.NewFiberMiddleware(
+		logger.FiberMiddlewareConfigDefault,
+	))
+	//app.Use(slogfiber.New(srv.options.Logger))
 
 	srv.app = app
 

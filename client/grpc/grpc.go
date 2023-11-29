@@ -32,11 +32,10 @@ package grpc
 
 import (
 	"context"
-	"log/slog"
 	"net"
-	"os"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -47,14 +46,14 @@ import (
 type GRPCClient struct {
 	ctx     context.Context
 	conn    *grpc.ClientConn
-	logger  *slog.Logger
+	logger  logger.GeneralLogger
 	options *client.Options
 }
 
 // New GRPC client
 func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	clt := &GRPCClient{

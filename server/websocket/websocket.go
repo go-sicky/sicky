@@ -33,11 +33,10 @@ package websocket
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
-	"os"
 	"sync"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -47,7 +46,7 @@ import (
 type WebsocketServer struct {
 	ctx     context.Context
 	runing  bool
-	logger  *slog.Logger
+	logger  logger.GeneralLogger
 	options *server.Options
 
 	sync.RWMutex
@@ -57,7 +56,7 @@ type WebsocketServer struct {
 // New Websocket server
 func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &WebsocketServer{

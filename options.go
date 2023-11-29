@@ -32,9 +32,9 @@ package sicky
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 )
 
@@ -45,7 +45,7 @@ type Options struct {
 	Name    string
 	ID      string
 	Version string
-	Logger  *slog.Logger
+	Logger  logger.GeneralLogger
 }
 
 type Option func(*Options)
@@ -69,9 +69,9 @@ func Version(v string) Option {
 	}
 }
 
-func Logger(l *slog.Logger) Option {
+func Logger(logger logger.GeneralLogger) Option {
 	return func(opts *Options) {
-		opts.Logger = l
+		opts.Logger = logger
 	}
 }
 

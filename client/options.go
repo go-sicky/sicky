@@ -33,8 +33,9 @@ package client
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
 // Options of client
@@ -45,7 +46,7 @@ type Options struct {
 	ID     string
 	Addr   net.Addr
 	TLS    *tls.Config
-	Logger *slog.Logger
+	Logger logger.GeneralLogger
 }
 
 type Option func(*Options)
@@ -69,7 +70,7 @@ func TLS(tls *tls.Config) Option {
 	}
 }
 
-func Logger(logger *slog.Logger) Option {
+func Logger(logger logger.GeneralLogger) Option {
 	return func(opts *Options) {
 		opts.Logger = logger
 	}

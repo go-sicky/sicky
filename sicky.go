@@ -32,12 +32,12 @@ package sicky
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 )
@@ -47,7 +47,7 @@ type ServiceWrapper func() error
 // Service definition
 type Service struct {
 	ctx     context.Context
-	logger  *slog.Logger
+	logger  logger.GeneralLogger
 	servers map[string]server.Server
 	clients map[string]client.Client
 	options *Options
@@ -68,7 +68,7 @@ const (
 // NewService creates new micro service
 func NewService(cfg *ConfigService, opts ...Option) *Service {
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := logger.Logger
 	// Default initialize
 	svc := &Service{
 		ctx:     ctx,

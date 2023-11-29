@@ -33,12 +33,11 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
-	"os"
 	"reflect"
 	"sync"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -50,7 +49,7 @@ type GRPCServer struct {
 	ctx      context.Context
 	app      *grpc.Server
 	runing   bool
-	logger   *slog.Logger
+	logger   logger.GeneralLogger
 	options  *server.Options
 	handlers []*server.Handler
 
@@ -61,7 +60,7 @@ type GRPCServer struct {
 // New GRPC server
 func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	ctx := context.Background()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &GRPCServer{
