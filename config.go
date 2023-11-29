@@ -31,10 +31,14 @@
 package sicky
 
 import (
+	"strings"
+
 	cgrpc "github.com/go-sicky/sicky/client/grpc"
+	"github.com/go-sicky/sicky/driver"
 	sgrpc "github.com/go-sicky/sicky/server/grpc"
 	shttp "github.com/go-sicky/sicky/server/http"
 	swebsocket "github.com/go-sicky/sicky/server/websocket"
+	"github.com/spf13/viper"
 )
 
 type ConfigService struct {
@@ -44,18 +48,59 @@ type ConfigService struct {
 
 type ConfigGlobal struct {
 	Sicky struct {
-		Service ConfigService `json:"service" yaml:"service" mapstructure:"service"`
+		Service *ConfigService `json:"service" yaml:"service" mapstructure:"service"`
 		Servers struct {
-			HTTP      map[string]shttp.Config      `json:"http" yaml:"http" mapstructure:"http"`
-			GRPC      map[string]sgrpc.Config      `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
-			Websocket map[string]swebsocket.Config `json:"websocket" yaml:"websocket" mapstructure:"websocket"`
+			HTTP      map[string]*shttp.Config      `json:"http" yaml:"http" mapstructure:"http"`
+			GRPC      map[string]*sgrpc.Config      `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
+			Websocket map[string]*swebsocket.Config `json:"websocket" yaml:"websocket" mapstructure:"websocket"`
 		} `json:"servers" yaml:"servers" mapstructure:"servers"`
 		Clients struct {
-			GRPC map[string]cgrpc.Config `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
+			GRPC map[string]*cgrpc.Config `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
 		} `json:"clients" yaml:"clients" mapstructure:"clients"`
-		Debug bool `json:"debug" yaml:"debug" mapstructure:"debug"`
+		Drivers struct {
+			Bun   *driver.BunConfig   `json:"bun" yaml:"bun" mapstructure:"bun"`
+			Nats  *driver.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
+			Redis *driver.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
+		} `json:"drivers" yaml:"drivers" mapstructure:"drivers"`
+		LogLevel string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
 	} `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
 	App interface{} `json:"app" yaml:"app" mapstructure:"app"`
+}
+
+func (cg *ConfigGlobal) HTTPServer(name string) *shttp.Config {
+	cfg := cg.Sicky.Servers.HTTP[name]
+	if cfg == nil {
+		cfg = shttp.DefaultConfig(name)
+	}
+
+	return cfg
+}
+
+func (cg *ConfigGlobal) GRPCServer(name string) *sgrpc.Config {
+	cfg := cg.Sicky.Servers.GRPC[name]
+	if cfg == nil {
+		cfg = sgrpc.DefaultConfig(name)
+	}
+
+	return cfg
+}
+
+func (cg *ConfigGlobal) WebsocketServer(name string) *swebsocket.Config {
+	cfg := cg.Sicky.Servers.Websocket[name]
+	if cfg == nil {
+		cfg = swebsocket.DefaultConfig(name)
+	}
+
+	return cfg
+}
+
+func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
+	cfg := cg.Sicky.Clients.GRPC[name]
+	if cfg == nil {
+		cfg = cgrpc.DefaultConfig(name)
+	}
+
+	return cfg
 }
 
 // var defaultConfig = map[string]interface{}{}
@@ -63,8 +108,30 @@ func DefaultConfig(name, version string) *ConfigGlobal {
 	cfg := new(ConfigGlobal)
 	cfg.Sicky.Service.Name = name
 	cfg.Sicky.Service.Version = version
+	cfg.Sicky.LogLevel = "info"
 
 	return cfg
+}
+
+func LoadConfig(name string) (*ConfigGlobal, error) {
+	cfg := viper.New()
+	cfg.SetConfigName(name)
+	cfg.SetConfigType("json")
+	cfg.AddConfigPath("/etc/" + name)
+	cfg.AddConfigPath("$HOME/." + name)
+	cfg.AddConfigPath(".")
+	err := cfg.ReadInConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	cfg.AutomaticEnv()
+
+	g := new(ConfigGlobal)
+	err = cfg.Unmarshal(g)
+
+	return g, err
 }
 
 /*

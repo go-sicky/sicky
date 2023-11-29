@@ -53,12 +53,12 @@ type GRPCClient struct {
 // New GRPC client
 func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	ctx := context.Background()
-	logger := logger.Logger
+	baseLogger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	clt := &GRPCClient{
 		ctx:    ctx,
-		logger: logger,
+		logger: baseLogger,
 		options: &client.Options{
 			Name: cfg.Name,
 			Addr: addr,
@@ -73,7 +73,7 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	if clt.options.Logger != nil {
 		clt.logger = clt.options.Logger
 	} else {
-		clt.options.Logger = logger
+		clt.options.Logger = baseLogger
 	}
 
 	// Set global context
@@ -110,9 +110,11 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
 	}
 
+	gopts = append(gopts, grpc.WithChainUnaryInterceptor(logger.GRPCClientMiddleware))
+
 	conn, err := grpc.Dial(addr.String(), gopts...)
 	if err != nil {
-		logger.Error(err.Error())
+		baseLogger.Error(err.Error())
 
 		return nil
 	}

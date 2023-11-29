@@ -123,10 +123,12 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	app.Use(requestid.New(
 		requestid.ConfigDefault,
 	))
+	app.Use(NewMetadataMiddleware(
+		MetadataConfigDefault,
+	))
 	app.Use(logger.NewFiberMiddleware(
 		logger.FiberMiddlewareConfigDefault,
 	))
-	//app.Use(slogfiber.New(srv.options.Logger))
 
 	srv.app = app
 

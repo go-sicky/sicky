@@ -126,7 +126,7 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 		}
 
 		l := cfg.DefaultLevel
-		msg := "http request"
+		msg := "http.request"
 		if chainErr != nil {
 			if status >= fiber.StatusInternalServerError {
 				l = cfg.ServerErrorLevel

@@ -37,9 +37,13 @@ import (
 	"syscall"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/driver"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
+	"github.com/redis/go-redis/v9"
+	"github.com/uptrace/bun"
 )
 
 type ServiceWrapper func() error
@@ -50,6 +54,11 @@ type Service struct {
 	logger  logger.GeneralLogger
 	servers map[string]server.Server
 	clients map[string]client.Client
+	drivers struct {
+		bun   *bun.DB
+		nats  *nats.Conn
+		redis *redis.Client
+	}
 	options *Options
 
 	beforeStart []ServiceWrapper
@@ -66,7 +75,8 @@ const (
 )
 
 // NewService creates new micro service
-func NewService(cfg *ConfigService, opts ...Option) *Service {
+func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
+	var err error
 	ctx := context.Background()
 	logger := logger.Logger
 	// Default initialize
@@ -76,13 +86,12 @@ func NewService(cfg *ConfigService, opts ...Option) *Service {
 		servers: make(map[string]server.Server),
 		clients: make(map[string]client.Client),
 		options: &Options{
-			Name:    cfg.Name,
-			Version: cfg.Version,
+			Name:    cfg.Sicky.Service.Name,
+			Version: cfg.Sicky.Service.Version,
 		},
 	}
 
 	svc.options.Service = svc
-
 	for _, opt := range opts {
 		opt(svc.options)
 	}
@@ -103,6 +112,28 @@ func NewService(cfg *ConfigService, opts ...Option) *Service {
 
 	// Set ID
 	svc.options.ID = uuid.New().String()
+
+	// Load drivers
+	if cfg.Sicky.Drivers.Nats != nil {
+		svc.drivers.nats, err = driver.InitNats(cfg.Sicky.Drivers.Nats)
+		if err != nil {
+			svc.logger.Fatalf("Initialize nats failed : %s", err)
+		}
+	}
+
+	if cfg.Sicky.Drivers.Redis != nil {
+		svc.drivers.redis, err = driver.InitRedis(cfg.Sicky.Drivers.Redis)
+		if err != nil {
+			svc.logger.Fatalf("Initialize redis failed : %s", err)
+		}
+	}
+
+	if cfg.Sicky.Drivers.Bun != nil {
+		svc.drivers.bun, err = driver.InitBun(cfg.Sicky.Drivers.Bun)
+		if err != nil {
+			svc.logger.Fatalf("Initialize database failed : %s", err)
+		}
+	}
 
 	// Override
 	DefaultService = svc
@@ -200,6 +231,18 @@ func (svc *Service) Client(name string) client.Client {
 	}
 
 	return clt
+}
+
+func (svc *Service) Nats() *nats.Conn {
+	return svc.drivers.nats
+}
+
+func (svc *Service) Redis() *redis.Client {
+	return svc.drivers.redis
+}
+
+func (svc *Service) Bun() *bun.DB {
+	return svc.drivers.bun
 }
 
 /*

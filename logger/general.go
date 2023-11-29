@@ -115,7 +115,7 @@ func NewGeneral(l ...*slog.Logger) GeneralLogger {
 			slog.NewJSONHandler(
 				os.Stdout,
 				&slog.HandlerOptions{
-					AddSource: true,
+					AddSource: false,
 					Level:     level,
 					ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 						if a.Key == slog.LevelKey {

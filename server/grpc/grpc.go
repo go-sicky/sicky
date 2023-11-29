@@ -60,13 +60,13 @@ type GRPCServer struct {
 // New GRPC server
 func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	ctx := context.Background()
-	logger := logger.Logger
+	baseLogger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &GRPCServer{
 		ctx:    ctx,
 		runing: false,
-		logger: logger,
+		logger: baseLogger,
 		options: &server.Options{
 			Name: cfg.Name,
 			Addr: addr,
@@ -81,7 +81,7 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	if srv.options.Logger != nil {
 		srv.logger = srv.options.Logger
 	} else {
-		srv.options.Logger = logger
+		srv.options.Logger = baseLogger
 	}
 
 	// Set global context
@@ -123,19 +123,7 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	gopts = append(gopts, grpc.ChainUnaryInterceptor(
-		func(
-			ctx context.Context,
-			req any,
-			info *grpc.UnaryServerInfo,
-			handler grpc.UnaryHandler,
-		) (any, error) {
-			srv.logger.InfoContext(ctx, "RPC served", "method", info.FullMethod)
-
-			return handler(ctx, req)
-		},
-	))
-
+	gopts = append(gopts, grpc.ChainUnaryInterceptor(logger.GRPCServerMiddlware))
 	app := grpc.NewServer(gopts...)
 
 	srv.app = app

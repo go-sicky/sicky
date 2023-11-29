@@ -30,7 +30,10 @@
 
 package logger
 
-import "log/slog"
+import (
+	"log/slog"
+	"strings"
+)
 
 var Logger GeneralLogger
 
@@ -73,6 +76,25 @@ func (l Level) String() string {
 	}
 
 	return "unknown"
+}
+
+func LogLevel(l string) Level {
+	switch strings.ToLower(l) {
+	case "trace":
+		return TraceLevel
+	case "debug":
+		return DebugLevel
+	case "notice":
+		return NoticeLevel
+	case "warn":
+		return WarnLevel
+	case "error":
+		return ErrorLevel
+	case "fatal":
+		return FatalLevel
+	default:
+		return InfoLevel
+	}
 }
 
 // Hack for log/slog
