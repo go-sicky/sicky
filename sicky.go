@@ -32,6 +32,7 @@ package sicky
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -42,6 +43,8 @@ import (
 	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 )
@@ -50,8 +53,11 @@ type ServiceWrapper func() error
 
 // Service definition
 type Service struct {
+	options *Options
+	config  *ConfigGlobal
 	ctx     context.Context
 	logger  logger.GeneralLogger
+
 	servers map[string]server.Server
 	clients map[string]client.Client
 	drivers struct {
@@ -59,7 +65,9 @@ type Service struct {
 		nats  *nats.Conn
 		redis *redis.Client
 	}
-	options *Options
+
+	metricsRegistry *prometheus.Registry
+	metricsServer   *http.Server
 
 	beforeStart []ServiceWrapper
 	afterStart  []ServiceWrapper
@@ -68,11 +76,6 @@ type Service struct {
 }
 
 var DefaultService *Service
-
-const (
-	DefaultServiceName    = "sicky.service"
-	DefaultServiceVersion = "v0.0.0"
-)
 
 // NewService creates new micro service
 func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
@@ -89,6 +92,7 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 			Name:    cfg.Sicky.Service.Name,
 			Version: cfg.Sicky.Service.Version,
 		},
+		config: cfg,
 	}
 
 	svc.options.Service = svc
@@ -135,6 +139,19 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 		}
 	}
 
+	// Prometheus metrics
+	svc.metricsRegistry = prometheus.NewRegistry()
+	svc.metricsServer = &http.Server{Addr: cfg.Sicky.Metrics.Exporter.Addr}
+	http.Handle(
+		cfg.Sicky.Metrics.Exporter.Path,
+		promhttp.HandlerFor(
+			svc.metricsRegistry,
+			promhttp.HandlerOpts{
+				Registry: svc.metricsRegistry,
+			},
+		),
+	)
+
 	// Override
 	DefaultService = svc
 
@@ -161,6 +178,14 @@ func (svc *Service) Start() error {
 		}
 	}
 
+	go func() {
+		svc.logger.DebugContext(svc.ctx, "Starting prometheus exporter", "addr", svc.config.Sicky.Metrics.Exporter.Addr)
+		err := svc.metricsServer.ListenAndServe()
+		if err != nil {
+			svc.logger.ErrorContext(svc.ctx, "Listen prometheus exporter failed", "error", err)
+		}
+	}()
+
 	return nil
 }
 
@@ -182,6 +207,12 @@ func (svc *Service) Stop() []error {
 		if err := fn(); err != nil {
 			errs = append(errs, err)
 		}
+	}
+
+	svc.logger.DebugContext(svc.ctx, "Stopping prometheus exporter")
+	err := svc.metricsServer.Shutdown(svc.ctx)
+	if err != nil {
+		errs = append(errs, err)
 	}
 
 	return errs
@@ -243,6 +274,10 @@ func (svc *Service) Redis() *redis.Client {
 
 func (svc *Service) Bun() *bun.DB {
 	return svc.drivers.bun
+}
+
+func (svc *Service) RegisterMetrics(s prometheus.Collector) {
+	svc.metricsRegistry.MustRegister(s)
 }
 
 /*

@@ -41,6 +41,14 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	DefaultServiceName         = "sicky.service"
+	DefaultServiceVersion      = "latest"
+	DefaultMetricsExporterPath = "/metrics"
+	DefaultMetricsExporterAddr = ":9999"
+	DefaultLogLevel            = "info"
+)
+
 type ConfigService struct {
 	Name    string `json:"name" yaml:"name" mapstructure:"name"`
 	Version string `json:"version" yaml:"version" mapstructure:"version"`
@@ -48,7 +56,7 @@ type ConfigService struct {
 
 type ConfigGlobal struct {
 	Sicky struct {
-		Service *ConfigService `json:"service" yaml:"service" mapstructure:"service"`
+		Service ConfigService `json:"service" yaml:"service" mapstructure:"service"`
 		Servers struct {
 			HTTP      map[string]*shttp.Config      `json:"http" yaml:"http" mapstructure:"http"`
 			GRPC      map[string]*sgrpc.Config      `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
@@ -62,6 +70,12 @@ type ConfigGlobal struct {
 			Nats  *driver.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
 			Redis *driver.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
 		} `json:"drivers" yaml:"drivers" mapstructure:"drivers"`
+		Metrics struct {
+			Exporter struct {
+				Addr string `json:"addr" yaml:"addr" mapstructure:"addr"`
+				Path string `json:"path" yaml:"path" mapstructure:"path"`
+			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
+		} `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
 		LogLevel string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
 	} `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
 	App interface{} `json:"app" yaml:"app" mapstructure:"app"`
@@ -108,7 +122,9 @@ func DefaultConfig(name, version string) *ConfigGlobal {
 	cfg := new(ConfigGlobal)
 	cfg.Sicky.Service.Name = name
 	cfg.Sicky.Service.Version = version
-	cfg.Sicky.LogLevel = "info"
+	cfg.Sicky.LogLevel = DefaultLogLevel
+	cfg.Sicky.Metrics.Exporter.Addr = DefaultMetricsExporterAddr
+	cfg.Sicky.Metrics.Exporter.Path = DefaultMetricsExporterPath
 
 	return cfg
 }
@@ -128,7 +144,7 @@ func LoadConfig(name string) (*ConfigGlobal, error) {
 	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	cfg.AutomaticEnv()
 
-	g := new(ConfigGlobal)
+	g := DefaultConfig(DefaultServiceName, DefaultServiceVersion)
 	err = cfg.Unmarshal(g)
 
 	return g, err
