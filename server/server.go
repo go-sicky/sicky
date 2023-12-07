@@ -63,8 +63,6 @@ type HandlerGRPC interface {
 type Server interface {
 	// Server options
 	Options() *Options
-	// Server handler register
-	Handle(*Handler) error
 	// Start the server
 	Start() error
 	// Stop the server
@@ -73,6 +71,8 @@ type Server interface {
 	String() string
 	// Get name
 	Name() string
+	// Get ID
+	ID() string
 }
 
 /*

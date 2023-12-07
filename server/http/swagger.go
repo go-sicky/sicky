@@ -22,80 +22,42 @@
  */
 
 /**
- * @file options.go
- * @package client
+ * @file swagger.go
+ * @package http
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 12/07/2023
  */
 
-package client
+package http
 
 import (
-	"context"
-	"crypto/tls"
-
-	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
 )
 
-// Options of client
-type Options struct {
-	ctx    context.Context
-	id     string
-	tls    *tls.Config
-	logger logger.GeneralLogger
+type Swagger struct {
+	name string
 }
 
-func (o *Options) ID() string {
-	return o.id
-}
-
-func (o *Options) Context() context.Context {
-	return o.ctx
-}
-
-func (o *Options) TLS() *tls.Config {
-	return o.tls
-}
-
-func (o *Options) Logger() logger.GeneralLogger {
-	return o.logger
-}
-
-func NewOptions() *Options {
-	return &Options{
-		id: uuid.New().String(),
+func NewSwagger(name string) *Swagger {
+	h := &Swagger{
+		name: name,
 	}
+
+	return h
 }
 
-type Option func(*Options)
-
-/* {{{ [Options] */
-func ID(id string) Option {
-	return func(opts *Options) {
-		opts.id = id
-	}
+func (h *Swagger) Register(app *fiber.App) {
+	app.All("/docs/*", swagger.New(swagger.ConfigDefault))
 }
 
-func Context(ctx context.Context) Option {
-	return func(opts *Options) {
-		opts.ctx = ctx
-	}
+func (h *Swagger) Name() string {
+	return h.name
 }
 
-func TLS(tls *tls.Config) Option {
-	return func(opts *Options) {
-		opts.tls = tls
-	}
+func (h *Swagger) Type() string {
+	return "http"
 }
-
-func Logger(logger logger.GeneralLogger) Option {
-	return func(opts *Options) {
-		opts.logger = logger
-	}
-}
-
-/* }}} */
 
 /*
  * Local variables:

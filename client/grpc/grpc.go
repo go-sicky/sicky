@@ -36,7 +36,6 @@ import (
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -44,25 +43,23 @@ import (
 
 // GRPCClient : Client definition
 type GRPCClient struct {
+	config  *Config
+	options *client.Options
 	ctx     context.Context
 	conn    *grpc.ClientConn
-	logger  logger.GeneralLogger
-	options *client.Options
+	addr    net.Addr
 }
 
 // New GRPC client
 func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	ctx := context.Background()
-	baseLogger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	clt := &GRPCClient{
-		ctx:    ctx,
-		logger: baseLogger,
-		options: &client.Options{
-			Name: cfg.Name,
-			Addr: addr,
-		},
+		config:  cfg,
+		ctx:     ctx,
+		addr:    addr,
+		options: client.NewOptions(),
 	}
 
 	for _, opt := range opts {
@@ -70,25 +67,20 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	}
 
 	// Set logger
-	if clt.options.Logger != nil {
-		clt.logger = clt.options.Logger
-	} else {
-		clt.options.Logger = baseLogger
+	if clt.options.Logger() == nil {
+		client.Logger(logger.Logger)(clt.options)
 	}
 
 	// Set global context
-	if clt.options.Context != nil {
-		clt.ctx = clt.options.Context
+	if clt.options.Context() != nil {
+		clt.ctx = clt.options.Context()
 	} else {
-		clt.options.Context = ctx
+		client.Context(ctx)(clt.options)
 	}
 
-	// Set ID
-	clt.options.ID = uuid.New().String()
-
 	gopts := make([]grpc.DialOption, 0)
-	if clt.options.TLS != nil {
-		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS)))
+	if clt.options.TLS() != nil {
+		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
 	} else {
 		gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
@@ -111,10 +103,9 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	}
 
 	gopts = append(gopts, grpc.WithChainUnaryInterceptor(logger.GRPCClientMiddleware))
-
 	conn, err := grpc.Dial(addr.String(), gopts...)
 	if err != nil {
-		baseLogger.Error(err.Error())
+		clt.options.Logger().ErrorContext(clt.ctx, "GRPC dial failed", "error", err.Error())
 
 		return nil
 	}
@@ -137,7 +128,11 @@ func (clt *GRPCClient) String() string {
 }
 
 func (clt *GRPCClient) Name() string {
-	return clt.options.Name
+	return clt.config.Name
+}
+
+func (clt *GRPCClient) ID() string {
+	return clt.options.ID()
 }
 
 func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {

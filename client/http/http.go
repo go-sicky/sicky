@@ -22,80 +22,13 @@
  */
 
 /**
- * @file options.go
- * @package client
+ * @file http.go
+ * @package http
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 12/08/2023
  */
 
-package client
-
-import (
-	"context"
-	"crypto/tls"
-
-	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
-)
-
-// Options of client
-type Options struct {
-	ctx    context.Context
-	id     string
-	tls    *tls.Config
-	logger logger.GeneralLogger
-}
-
-func (o *Options) ID() string {
-	return o.id
-}
-
-func (o *Options) Context() context.Context {
-	return o.ctx
-}
-
-func (o *Options) TLS() *tls.Config {
-	return o.tls
-}
-
-func (o *Options) Logger() logger.GeneralLogger {
-	return o.logger
-}
-
-func NewOptions() *Options {
-	return &Options{
-		id: uuid.New().String(),
-	}
-}
-
-type Option func(*Options)
-
-/* {{{ [Options] */
-func ID(id string) Option {
-	return func(opts *Options) {
-		opts.id = id
-	}
-}
-
-func Context(ctx context.Context) Option {
-	return func(opts *Options) {
-		opts.ctx = ctx
-	}
-}
-
-func TLS(tls *tls.Config) Option {
-	return func(opts *Options) {
-		opts.tls = tls
-	}
-}
-
-func Logger(logger logger.GeneralLogger) Option {
-	return func(opts *Options) {
-		opts.logger = logger
-	}
-}
-
-/* }}} */
+package http
 
 /*
  * Local variables:

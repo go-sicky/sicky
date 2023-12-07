@@ -22,80 +22,23 @@
  */
 
 /**
- * @file options.go
- * @package client
+ * @file config.go
+ * @package nats
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 12/08/2023
  */
 
-package client
+package nats
 
-import (
-	"context"
-	"crypto/tls"
-
-	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
-)
-
-// Options of client
-type Options struct {
-	ctx    context.Context
-	id     string
-	tls    *tls.Config
-	logger logger.GeneralLogger
+type Config struct {
+	Name string `json:"name" yaml:"name" mapstructure:"name"`
 }
 
-func (o *Options) ID() string {
-	return o.id
-}
-
-func (o *Options) Context() context.Context {
-	return o.ctx
-}
-
-func (o *Options) TLS() *tls.Config {
-	return o.tls
-}
-
-func (o *Options) Logger() logger.GeneralLogger {
-	return o.logger
-}
-
-func NewOptions() *Options {
-	return &Options{
-		id: uuid.New().String(),
+func DefaultConfig(name string) *Config {
+	return &Config{
+		Name: name,
 	}
 }
-
-type Option func(*Options)
-
-/* {{{ [Options] */
-func ID(id string) Option {
-	return func(opts *Options) {
-		opts.id = id
-	}
-}
-
-func Context(ctx context.Context) Option {
-	return func(opts *Options) {
-		opts.ctx = ctx
-	}
-}
-
-func TLS(tls *tls.Config) Option {
-	return func(opts *Options) {
-		opts.tls = tls
-	}
-}
-
-func Logger(logger logger.GeneralLogger) Option {
-	return func(opts *Options) {
-		opts.logger = logger
-	}
-}
-
-/* }}} */
 
 /*
  * Local variables:

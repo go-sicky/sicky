@@ -34,9 +34,12 @@ import (
 	"strings"
 
 	cgrpc "github.com/go-sicky/sicky/client/grpc"
+	chttp "github.com/go-sicky/sicky/client/http"
+	cnats "github.com/go-sicky/sicky/client/nats"
 	"github.com/go-sicky/sicky/driver"
 	sgrpc "github.com/go-sicky/sicky/server/grpc"
 	shttp "github.com/go-sicky/sicky/server/http"
+	snats "github.com/go-sicky/sicky/server/nats"
 	swebsocket "github.com/go-sicky/sicky/server/websocket"
 	"github.com/spf13/viper"
 )
@@ -61,9 +64,12 @@ type ConfigGlobal struct {
 			HTTP      map[string]*shttp.Config      `json:"http" yaml:"http" mapstructure:"http"`
 			GRPC      map[string]*sgrpc.Config      `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
 			Websocket map[string]*swebsocket.Config `json:"websocket" yaml:"websocket" mapstructure:"websocket"`
+			Nats      map[string]*snats.Config      `json:"nats" yaml:"nats" mapstructure:"nats"`
 		} `json:"servers" yaml:"servers" mapstructure:"servers"`
 		Clients struct {
+			HTTP map[string]*chttp.Config `json:"http" yaml:"http" mapstructure:"http"`
 			GRPC map[string]*cgrpc.Config `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
+			Nats map[string]*cnats.Config `json:"nats" yaml:"nats" mapstructure:"nats"`
 		} `json:"clients" yaml:"clients" mapstructure:"clients"`
 		Drivers struct {
 			Bun   *driver.BunConfig   `json:"bun" yaml:"bun" mapstructure:"bun"`
@@ -76,7 +82,8 @@ type ConfigGlobal struct {
 				Path string `json:"path" yaml:"path" mapstructure:"path"`
 			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
 		} `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-		LogLevel string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
+		Trace    struct{} `json:"trace" yaml:"trace" mapstructure:"trace"`
+		LogLevel string   `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
 	} `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
 	App interface{} `json:"app" yaml:"app" mapstructure:"app"`
 }
@@ -108,6 +115,24 @@ func (cg *ConfigGlobal) WebsocketServer(name string) *swebsocket.Config {
 	return cfg
 }
 
+func (cg *ConfigGlobal) NatsServer(name string) *snats.Config {
+	cfg := cg.Sicky.Servers.Nats[name]
+	if cfg == nil {
+		cfg = snats.DefaultConfig(name)
+	}
+
+	return cfg
+}
+
+func (cg *ConfigGlobal) HTTPClient(name string) *chttp.Config {
+	cfg := cg.Sicky.Clients.HTTP[name]
+	if cfg == nil {
+		cfg = chttp.DefaultConfig(name)
+	}
+
+	return cfg
+}
+
 func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
 	cfg := cg.Sicky.Clients.GRPC[name]
 	if cfg == nil {
@@ -117,7 +142,15 @@ func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
 	return cfg
 }
 
-// var defaultConfig = map[string]interface{}{}
+func (cg *ConfigGlobal) NatsClient(name string) *cnats.Config {
+	cfg := cg.Sicky.Clients.Nats[name]
+	if cfg == nil {
+		cfg = cnats.DefaultConfig(name)
+	}
+
+	return cfg
+}
+
 func DefaultConfig(name, version string) *ConfigGlobal {
 	cfg := new(ConfigGlobal)
 	cfg.Sicky.Service.Name = name
@@ -129,7 +162,8 @@ func DefaultConfig(name, version string) *ConfigGlobal {
 	return cfg
 }
 
-func LoadConfig(name string) (*ConfigGlobal, error) {
+func LoadConfig(name, version string) (*ConfigGlobal, error) {
+	g := DefaultConfig(name, version)
 	cfg := viper.New()
 	cfg.SetConfigName(name)
 	cfg.SetConfigType("json")
@@ -138,13 +172,12 @@ func LoadConfig(name string) (*ConfigGlobal, error) {
 	cfg.AddConfigPath(".")
 	err := cfg.ReadInConfig()
 	if err != nil {
-		return nil, err
+		return g, err
 	}
 
 	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	cfg.AutomaticEnv()
 
-	g := DefaultConfig(DefaultServiceName, DefaultServiceVersion)
 	err = cfg.Unmarshal(g)
 
 	return g, err

@@ -36,42 +36,43 @@ import (
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
+	"github.com/google/uuid"
 )
 
 type Options struct {
-	Context context.Context
-	Service *Service
+	service *Service
 
-	Name    string
-	ID      string
-	Version string
-	Logger  logger.GeneralLogger
+	ctx         context.Context
+	id          string
+	logger      logger.GeneralLogger
+	servers     map[string]server.Server
+	clients     map[string]client.Client
+	beforeStart []ServiceWrapper
+	afterStart  []ServiceWrapper
+	beforeStop  []ServiceWrapper
+	afterStop   []ServiceWrapper
+}
+
+func NewOptions() *Options {
+	return &Options{
+		servers: make(map[string]server.Server),
+		clients: make(map[string]client.Client),
+		id:      uuid.New().String(),
+	}
 }
 
 type Option func(*Options)
 
 /* {{{ [Options] */
-func Name(n string) Option {
-	return func(opts *Options) {
-		opts.Name = n
-	}
-}
-
 func ID(id string) Option {
 	return func(opts *Options) {
-		opts.ID = id
-	}
-}
-
-func Version(v string) Option {
-	return func(opts *Options) {
-		opts.Version = v
+		opts.id = id
 	}
 }
 
 func Logger(logger logger.GeneralLogger) Option {
 	return func(opts *Options) {
-		opts.Logger = logger
+		opts.logger = logger
 	}
 }
 
@@ -79,7 +80,7 @@ func Server(srv server.Server) Option {
 	return func(opts *Options) {
 		// Append server
 		if srv != nil {
-			opts.Service.servers[srv.Options().Name] = srv
+			opts.servers[srv.Name()] = srv
 		}
 	}
 }
@@ -88,32 +89,32 @@ func Client(clt client.Client) Option {
 	return func(opts *Options) {
 		// Append client
 		if clt != nil {
-			opts.Service.clients[clt.Options().Name] = clt
+			opts.clients[clt.Name()] = clt
 		}
 	}
 }
 
 func BeforeStart(fn ServiceWrapper) Option {
 	return func(opts *Options) {
-		opts.Service.beforeStart = append(opts.Service.beforeStart, fn)
+		opts.beforeStart = append(opts.beforeStart, fn)
 	}
 }
 
 func AfterStart(fn ServiceWrapper) Option {
 	return func(opts *Options) {
-		opts.Service.afterStart = append(opts.Service.afterStart, fn)
+		opts.afterStart = append(opts.afterStart, fn)
 	}
 }
 
 func BeforeStop(fn ServiceWrapper) Option {
 	return func(opts *Options) {
-		opts.Service.beforeStop = append(opts.Service.beforeStop, fn)
+		opts.beforeStop = append(opts.beforeStop, fn)
 	}
 }
 
 func AfterStop(fn ServiceWrapper) Option {
 	return func(opts *Options) {
-		opts.Service.afterStop = append(opts.Service.afterStop, fn)
+		opts.afterStop = append(opts.afterStop, fn)
 	}
 }
 

@@ -49,7 +49,7 @@ type Envelope struct {
 	Data      interface{} `json:"data,omitempty"`
 }
 
-func WrapResponse(data interface{}) *Envelope {
+func WrapHTTPResponse(data interface{}) *Envelope {
 	e := &Envelope{
 		Code:      CodeOK,
 		Status:    fiber.StatusOK,

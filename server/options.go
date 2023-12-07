@@ -33,20 +33,44 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"net"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/google/uuid"
 )
 
 // Options of server
 type Options struct {
-	Context context.Context
+	ctx      context.Context
+	id       string
+	tls      *tls.Config
+	logger   logger.GeneralLogger
+	handlers []*Handler
+}
 
-	Name   string
-	ID     string
-	Addr   net.Addr
-	TLS    *tls.Config
-	Logger logger.GeneralLogger
+func (o *Options) ID() string {
+	return o.id
+}
+
+func (o *Options) Context() context.Context {
+	return o.ctx
+}
+
+func (o *Options) TLS() *tls.Config {
+	return o.tls
+}
+
+func (o *Options) Logger() logger.GeneralLogger {
+	return o.logger
+}
+
+func (o *Options) Handlers() []*Handler {
+	return o.handlers
+}
+
+func NewOptions() *Options {
+	return &Options{
+		id: uuid.New().String(),
+	}
 }
 
 type Option func(*Options)
@@ -54,25 +78,31 @@ type Option func(*Options)
 /* {{{ [Options] */
 func ID(id string) Option {
 	return func(opts *Options) {
-		opts.ID = id
+		opts.id = id
 	}
 }
 
 func Context(ctx context.Context) Option {
 	return func(opts *Options) {
-		opts.Context = ctx
+		opts.ctx = ctx
 	}
 }
 
 func TLS(tls *tls.Config) Option {
 	return func(opts *Options) {
-		opts.TLS = tls
+		opts.tls = tls
 	}
 }
 
 func Logger(logger logger.GeneralLogger) Option {
 	return func(opts *Options) {
-		opts.Logger = logger
+		opts.logger = logger
+	}
+}
+
+func Handle(handler *Handler) Option {
+	return func(opts *Options) {
+		opts.handlers = append(opts.handlers, handler)
 	}
 }
 

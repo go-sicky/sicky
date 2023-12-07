@@ -43,17 +43,16 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
-	"github.com/google/uuid"
 )
 
 // HTTPServer : Server definition
 type HTTPServer struct {
-	ctx      context.Context
-	app      *fiber.App
-	runing   bool
-	logger   logger.GeneralLogger
-	options  *server.Options
-	handlers []*server.Handler
+	config  *Config
+	options *server.Options
+	ctx     context.Context
+	app     *fiber.App
+	runing  bool
+	addr    net.Addr
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -62,17 +61,14 @@ type HTTPServer struct {
 // New HTTP server (go-fiber)
 func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	ctx := context.Background()
-	baseLogger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &HTTPServer{
-		ctx:    ctx,
-		runing: false,
-		logger: baseLogger,
-		options: &server.Options{
-			Name: cfg.Name,
-			Addr: addr,
-		},
+		config:  cfg,
+		ctx:     ctx,
+		addr:    addr,
+		runing:  false,
+		options: server.NewOptions(),
 	}
 
 	for _, opt := range opts {
@@ -80,21 +76,25 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	}
 
 	// Set logger
-	if srv.options.Logger != nil {
-		srv.logger = srv.options.Logger
-	} else {
-		srv.options.Logger = baseLogger
+	if srv.options.Logger() == nil {
+		server.Logger(logger.Logger)(srv.options)
 	}
 
 	// Set global context
-	if srv.options.Context != nil {
-		srv.ctx = srv.options.Context
+	if srv.options.Context() != nil {
+		srv.ctx = srv.options.Context()
 	} else {
-		srv.options.Context = ctx
+		server.Context(ctx)(srv.options)
 	}
 
-	// Set ID
-	srv.options.ID = uuid.New().String()
+	// Register swagger
+	if cfg.EnableSwagger {
+		server.Handle(
+			server.NewHandler(
+				NewSwagger("swagger"),
+			),
+		)
+	}
 
 	app := fiber.New(
 		fiber.Config{
@@ -139,12 +139,6 @@ func (srv *HTTPServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *HTTPServer) Handle(hdl *server.Handler) error {
-	srv.handlers = append(srv.handlers, hdl)
-
-	return nil
-}
-
 func (srv *HTTPServer) Start() error {
 	var (
 		listener net.Listener
@@ -159,9 +153,9 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
-	if srv.handlers != nil {
+	if srv.options.Handlers() != nil {
 		tt := reflect.TypeOf((*server.HandlerHTTP)(nil)).Elem()
-		for _, hdl := range srv.handlers {
+		for _, hdl := range srv.options.Handlers() {
 			ht := reflect.TypeOf(hdl.Hdl)
 			if ht.Implements(tt) {
 				tg, ok := hdl.Hdl.(server.HandlerHTTP)
@@ -172,48 +166,59 @@ func (srv *HTTPServer) Start() error {
 		}
 	}
 
-	if srv.options.TLS != nil {
+	if srv.options.TLS() != nil {
 		listener, err = tls.Listen(
-			srv.options.Addr.Network(),
-			srv.options.Addr.String(),
-			srv.options.TLS,
+			srv.addr.Network(),
+			srv.addr.String(),
+			srv.options.TLS(),
 		)
 
 		if err != nil {
-			srv.logger.Error("HTTP server with TLS listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server with TLS listen failed", "error", err.Error())
 
 			return err
 		}
 	} else {
 		listener, err = net.Listen(
-			srv.options.Addr.Network(),
-			srv.options.Addr.String(),
+			srv.addr.Network(),
+			srv.addr.String(),
 		)
 
 		if err != nil {
-			srv.logger.Error("HTTP server listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server listen failed", "error", err.Error())
 
 			return err
 		}
 	}
 
-	srv.options.Addr = listener.Addr()
+	srv.addr = listener.Addr()
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Listener(listener)
 		if err != nil {
-			srv.logger.Error("HTTP server listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server listen failed", "error", err.Error())
 
 			return err
 		}
 
-		srv.logger.Info("HTTP server closed", "server", srv.options.Name)
+		srv.options.Logger().InfoContext(
+			srv.ctx,
+			"HTTP server closed",
+			"id", srv.options.ID(),
+			"server", srv.config.Name,
+		)
 		srv.wg.Done()
 
 		return nil
 	}()
 
-	srv.logger.Info("HTTP server listened", "server", srv.options.Name, "addr", srv.options.Addr.String())
+	srv.options.Logger().InfoContext(
+		srv.ctx,
+		"HTTP server listened",
+		"id", srv.options.ID(),
+		"server", srv.config.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = true
 
 	return nil
@@ -240,7 +245,11 @@ func (srv *HTTPServer) String() string {
 }
 
 func (srv *HTTPServer) Name() string {
-	return srv.options.Name
+	return srv.config.Name
+}
+
+func (srv *HTTPServer) ID() string {
+	return srv.options.ID()
 }
 
 /*

@@ -38,16 +38,15 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
-	"github.com/google/uuid"
-	"google.golang.org/grpc"
 )
 
 // WebsocketServer : Server definition
 type WebsocketServer struct {
+	config  *Config
+	options *server.Options
 	ctx     context.Context
 	runing  bool
-	logger  logger.GeneralLogger
-	options *server.Options
+	addr    net.Addr
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -56,17 +55,14 @@ type WebsocketServer struct {
 // New Websocket server
 func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	ctx := context.Background()
-	logger := logger.Logger
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &WebsocketServer{
-		ctx:    ctx,
-		runing: false,
-		logger: logger,
-		options: &server.Options{
-			Name: cfg.Name,
-			Addr: addr,
-		},
+		config:  cfg,
+		ctx:     ctx,
+		addr:    addr,
+		runing:  false,
+		options: server.NewOptions(),
 	}
 
 	for _, opt := range opts {
@@ -74,31 +70,22 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	}
 
 	// Set logger
-	if srv.options.Logger != nil {
-		srv.logger = srv.options.Logger
-	} else {
-		srv.options.Logger = logger
+	if srv.options.Logger() == nil {
+		server.Logger(logger.Logger)(srv.options)
 	}
 
 	// Set global context
-	if srv.options.Context != nil {
-		srv.ctx = srv.options.Context
+	if srv.options.Context() != nil {
+		srv.ctx = srv.options.Context()
 	} else {
-		srv.options.Context = ctx
+		server.Context(ctx)(srv.options)
 	}
-
-	// Set ID
-	srv.options.ID = uuid.New().String()
 
 	return srv
 }
 
 func (srv *WebsocketServer) Options() *server.Options {
 	return srv.options
-}
-
-func (srv *WebsocketServer) Handle(*server.Handler) error {
-	return nil
 }
 
 func (srv *WebsocketServer) Start() error {
@@ -115,32 +102,32 @@ func (srv *WebsocketServer) Start() error {
 		return nil
 	}
 
-	if srv.options.TLS != nil {
+	if srv.options.TLS() != nil {
 		listener, err = tls.Listen(
-			srv.options.Addr.Network(),
-			srv.options.Addr.String(),
-			srv.options.TLS,
+			srv.addr.Network(),
+			srv.addr.String(),
+			srv.options.TLS(),
 		)
 
 		if err != nil {
-			srv.logger.Error("HTTP server with TLS listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server with TLS listen failed", "error", err.Error())
 
 			return err
 		}
 	} else {
 		listener, err = net.Listen(
-			srv.options.Addr.Network(),
-			srv.options.Addr.String(),
+			srv.addr.Network(),
+			srv.addr.String(),
 		)
 
 		if err != nil {
-			srv.logger.Error("HTTP server listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server listen failed", "error", err.Error())
 
 			return err
 		}
 	}
 
-	srv.options.Addr = listener.Addr()
+	srv.addr = listener.Addr()
 	srv.wg.Add(1)
 	go func() error {
 		srv.wg.Done()
@@ -173,15 +160,11 @@ func (srv *WebsocketServer) String() string {
 }
 
 func (srv *WebsocketServer) Name() string {
-	return srv.options.Name
+	return srv.config.Name
 }
 
-func (srv *WebsocketServer) RegisterService(desc *grpc.ServiceDesc, impl any) {
-	// Did nothing
-}
-
-func (srv *WebsocketServer) RegisterHandler(hdl server.HandlerHTTP) {
-	// Did nothing
+func (srv *WebsocketServer) ID() string {
+	return srv.options.ID()
 }
 
 /*
