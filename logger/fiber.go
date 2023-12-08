@@ -97,8 +97,13 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 		}
 
 		start := time.Now()
-		requestIDv := c.Locals(cfg.ContextKey)
-		requestID, _ := requestIDv.(string)
+		// Request-ID
+		requestID := c.Get("X-Request-ID")
+
+		// B3 Trace headers
+		traceID := c.Get("X-B3-Traceid")
+		spanID := c.Get("X-B3-Spanid")
+		parentSpanID := c.Get("X-B3-Parentspanid")
 
 		chainErr := c.Next()
 		end := time.Now()
@@ -116,7 +121,10 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 			"user-agent": string(c.Request().Header.UserAgent()),
 			"referer":    c.Request().Header.Referer(),
 
-			"request-id": requestID,
+			"request-id":     requestID,
+			"trace-id":       traceID,
+			"span-id":        spanID,
+			"parent-span-id": parentSpanID,
 		}
 
 		// Extract attributes

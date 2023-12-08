@@ -22,93 +22,41 @@
  */
 
 /**
- * @file options.go
- * @package client
+ * @file grpc.go
+ * @package tracer
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 12/08/2023
  */
 
-package client
+package tracer
 
 import (
 	"context"
-	"crypto/tls"
 
-	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
 )
 
-// Options of client
-type Options struct {
-	ctx    context.Context
-	id     string
-	tls    *tls.Config
-	logger logger.GeneralLogger
+// ServerOption wrapper
+func NewGRPCServerInterceptor(tracer trace.Tracer) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		_, span := tracer.Start(ctx, info.FullMethod)
+		resp, err := handler(ctx, req)
+		span.End()
 
-	traceProvider *sdktrace.TracerProvider
-}
-
-func (o *Options) ID() string {
-	return o.id
-}
-
-func (o *Options) Context() context.Context {
-	return o.ctx
-}
-
-func (o *Options) TLS() *tls.Config {
-	return o.tls
-}
-
-func (o *Options) Logger() logger.GeneralLogger {
-	return o.logger
-}
-
-func (o *Options) TraceProvider() *sdktrace.TracerProvider {
-	return o.traceProvider
-}
-
-func NewOptions() *Options {
-	return &Options{
-		id: uuid.New().String(),
+		return resp, err
 	}
 }
 
-type Option func(*Options)
+func NewGRPCClientInterceptor(tracer trace.Tracer) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		_, span := tracer.Start(ctx, method)
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		span.End()
 
-/* {{{ [Options] */
-func ID(id string) Option {
-	return func(opts *Options) {
-		opts.id = id
+		return err
 	}
 }
-
-func Context(ctx context.Context) Option {
-	return func(opts *Options) {
-		opts.ctx = ctx
-	}
-}
-
-func TLS(tls *tls.Config) Option {
-	return func(opts *Options) {
-		opts.tls = tls
-	}
-}
-
-func Logger(logger logger.GeneralLogger) Option {
-	return func(opts *Options) {
-		opts.logger = logger
-	}
-}
-
-func TraceProvider(tp *sdktrace.TracerProvider) Option {
-	return func(opts *Options) {
-		opts.traceProvider = tp
-	}
-}
-
-/* }}} */
 
 /*
  * Local variables:

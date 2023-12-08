@@ -39,6 +39,8 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -54,6 +56,8 @@ type GRPCServer struct {
 
 	sync.RWMutex
 	wg sync.WaitGroup
+
+	tracer trace.Tracer
 }
 
 // New GRPC server
@@ -85,6 +89,11 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		server.Context(ctx)(srv.options)
 	}
 
+	// Set tracer
+	if srv.options.TraceProvider() != nil {
+		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
+	}
+
 	gopts := make([]grpc.ServerOption, 0)
 	if srv.options.TLS() != nil {
 		gopts = append(gopts, grpc.Creds(credentials.NewTLS(srv.options.TLS())))
@@ -114,7 +123,10 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	gopts = append(gopts, grpc.ChainUnaryInterceptor(logger.GRPCServerMiddlware))
+	gopts = append(gopts, grpc.ChainUnaryInterceptor(
+		tracer.NewGRPCServerInterceptor(srv.tracer),
+		logger.NewGRPCServerInterceptor(srv.options.Logger()),
+	))
 	app := grpc.NewServer(gopts...)
 
 	srv.app = app

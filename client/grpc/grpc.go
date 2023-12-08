@@ -36,6 +36,8 @@ import (
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/tracer"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -48,6 +50,8 @@ type GRPCClient struct {
 	ctx     context.Context
 	conn    *grpc.ClientConn
 	addr    net.Addr
+
+	tracer trace.Tracer
 }
 
 // New GRPC client
@@ -78,6 +82,11 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 		client.Context(ctx)(clt.options)
 	}
 
+	// Set tracer
+	if clt.options.TraceProvider() != nil {
+		clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
+	}
+
 	gopts := make([]grpc.DialOption, 0)
 	if clt.options.TLS() != nil {
 		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
@@ -102,7 +111,10 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	gopts = append(gopts, grpc.WithChainUnaryInterceptor(logger.GRPCClientMiddleware))
+	gopts = append(gopts, grpc.WithChainUnaryInterceptor(
+		tracer.NewGRPCClientInterceptor(clt.tracer),
+		logger.NewGRPCClientInterceptor(clt.options.Logger()),
+	))
 	conn, err := grpc.Dial(addr.String(), gopts...)
 	if err != nil {
 		clt.options.Logger().ErrorContext(clt.ctx, "GRPC dial failed", "error", err.Error())

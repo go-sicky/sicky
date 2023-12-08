@@ -36,6 +36,7 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // Options of server
@@ -45,6 +46,8 @@ type Options struct {
 	tls      *tls.Config
 	logger   logger.GeneralLogger
 	handlers []*Handler
+
+	traceProvider *sdktrace.TracerProvider
 }
 
 func (o *Options) ID() string {
@@ -65,6 +68,10 @@ func (o *Options) Logger() logger.GeneralLogger {
 
 func (o *Options) Handlers() []*Handler {
 	return o.handlers
+}
+
+func (o *Options) TraceProvider() *sdktrace.TracerProvider {
+	return o.traceProvider
 }
 
 func NewOptions() *Options {
@@ -103,6 +110,12 @@ func Logger(logger logger.GeneralLogger) Option {
 func Handle(handler *Handler) Option {
 	return func(opts *Options) {
 		opts.handlers = append(opts.handlers, handler)
+	}
+}
+
+func TraceProvider(tp *sdktrace.TracerProvider) Option {
+	return func(opts *Options) {
+		opts.traceProvider = tp
 	}
 }
 

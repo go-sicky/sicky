@@ -22,74 +22,64 @@
  */
 
 /**
- * @file metadata.go
- * @package http
+ * @file fiber.go
+ * @package tracer
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 12/08/2023
  */
 
-package http
+package tracer
 
 import (
 	"github.com/gofiber/fiber/v2"
-	"google.golang.org/grpc/metadata"
+	"go.opentelemetry.io/otel/trace"
 )
 
-type MetadataConfig struct {
-	Next                   func(c *fiber.Ctx) bool
-	RequestIDContextKey    string
-	TraceIDContextKey      string
-	SpanIDContextKey       string
-	ParentSpanIDContextKey string
+type FiberMiddlewareConfig struct {
+	Next func(c *fiber.Ctx) bool
+
+	Tracer trace.Tracer
 }
 
-var MetadataConfigDefault = MetadataConfig{
-	Next:                   nil,
-	RequestIDContextKey:    "requestid",
-	TraceIDContextKey:      "traceid",
-	SpanIDContextKey:       "spanid",
-	ParentSpanIDContextKey: "parentspanid",
+var FiberMiddlewareConfigDefault = &FiberMiddlewareConfig{
+	Next: nil,
 }
 
-func metadataConfigDefault(config ...MetadataConfig) MetadataConfig {
+func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddlewareConfig {
 	if len(config) < 1 {
-		return MetadataConfigDefault
+		return FiberMiddlewareConfigDefault
 	}
 
 	cfg := config[0]
 
-	if cfg.RequestIDContextKey == "" {
-		cfg.RequestIDContextKey = MetadataConfigDefault.RequestIDContextKey
+	if cfg.Next == nil {
+		cfg.Next = FiberMiddlewareConfigDefault.Next
+	}
+
+	if cfg.Tracer == nil {
+		cfg.Tracer = FiberMiddlewareConfigDefault.Tracer
 	}
 
 	return cfg
 }
 
-func NewMetadataMiddleware(config ...MetadataConfig) fiber.Handler {
-	cfg := metadataConfigDefault(config...)
+func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
+	cfg := fiberMiddlewareConfigDefault(config...)
 
 	return func(c *fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
 
-		requestID := c.Get("X-Request-ID")
-		traceID := c.Get("X-B3-Traceid")
-		spanID := c.Get("X-B3-Spanid")
-		parentSpanID := c.Get("X-B3-Parentspanid")
+		if cfg.Tracer == nil {
+			return c.Next()
+		}
 
-		md := metadata.New(
-			map[string]string{
-				cfg.RequestIDContextKey:    requestID,
-				cfg.TraceIDContextKey:      traceID,
-				cfg.SpanIDContextKey:       spanID,
-				cfg.ParentSpanIDContextKey: parentSpanID,
-			},
-		)
+		_, span := cfg.Tracer.Start(c.Context(), c.Path())
+		c.Next()
+		span.End()
 
-		c.SetUserContext(metadata.NewOutgoingContext(c.Context(), md))
-
-		return c.Next()
+		return nil
 	}
 }
 

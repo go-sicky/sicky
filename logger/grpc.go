@@ -149,72 +149,90 @@ func (gl *grpcLogger) V(l int) bool {
 }
 
 // ServerOption wrapper
-func GRPCServerMiddlware(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	requestID := ""
-	userAgent := ""
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ids := md.Get("requestid")
-		if len(ids) > 0 {
-			requestID = ids[0]
+func NewGRPCServerInterceptor(logger GeneralLogger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		requestID := ""
+		traceID := ""
+		spanID := ""
+		userAgent := ""
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			rids := md.Get("requestid")
+			if len(rids) > 0 {
+				requestID = rids[0]
+			}
+
+			tids := md.Get("traceid")
+			if len(tids) > 0 {
+				traceID = tids[0]
+			}
+
+			sids := md.Get("spanid")
+			if len(sids) > 0 {
+				spanID = sids[0]
+			}
+
+			uas := md.Get("user-agent")
+			if len(uas) > 0 {
+				userAgent = uas[0]
+			}
 		}
 
-		uas := md.Get("user-agent")
-		if len(uas) > 0 {
-			userAgent = uas[0]
+		start := time.Now()
+		resp, err := handler(ctx, req)
+		end := time.Now()
+
+		attributes := map[string]any{
+			"pid":        os.Getpid(),
+			"status":     200,
+			"latency":    end.Sub(start),
+			"method":     info.FullMethod,
+			"user-agent": userAgent,
+
+			"request-id":     requestID,
+			"trace-id":       traceID,
+			"parent-span-id": spanID,
 		}
+
+		// Extract attributes
+		var args []any
+		for k, v := range attributes {
+			args = append(args, k, v)
+		}
+
+		l := DebugLevel
+		msg := "grpc.request"
+		if err != nil {
+			l = ErrorLevel
+
+			msg = err.Error()
+		}
+
+		logger.LogContext(ctx, l, msg, args...)
+
+		return resp, err
 	}
-
-	start := time.Now()
-	resp, err := handler(ctx, req)
-	end := time.Now()
-
-	attributes := map[string]any{
-		"pid":        os.Getpid(),
-		"status":     200,
-		"latency":    end.Sub(start),
-		"method":     info.FullMethod,
-		"user-agent": userAgent,
-
-		"request-id": requestID,
-	}
-
-	// Extract attributes
-	var args []any
-	for k, v := range attributes {
-		args = append(args, k, v)
-	}
-
-	l := DebugLevel
-	msg := "grpc.request"
-	if err != nil {
-		l = ErrorLevel
-
-		msg = err.Error()
-	}
-
-	Logger.LogContext(ctx, l, msg, args...)
-
-	return resp, err
 }
 
-func GRPCClientMiddleware(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	attributes := map[string]any{
-		"method": method,
-		"target": cc.Target(),
+func NewGRPCClientInterceptor(logger GeneralLogger) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		attributes := map[string]any{
+			"method": method,
+			"target": cc.Target(),
+		}
+
+		// Extract attributes
+		var args []any
+		for k, v := range attributes {
+			args = append(args, k, v)
+		}
+
+		l := TraceLevel
+		msg := "grpc.call"
+		logger.LogContext(ctx, l, msg, args...)
+
+		return invoker(ctx, method, req, reply, cc, opts...)
 	}
-
-	// Extract attributes
-	var args []any
-	for k, v := range attributes {
-		args = append(args, k, v)
-	}
-
-	l := TraceLevel
-	msg := "grpc.call"
-	Logger.LogContext(ctx, l, msg, args...)
-
-	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
 /*

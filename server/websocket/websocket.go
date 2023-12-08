@@ -38,6 +38,7 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // WebsocketServer : Server definition
@@ -50,6 +51,8 @@ type WebsocketServer struct {
 
 	sync.RWMutex
 	wg sync.WaitGroup
+
+	tracer trace.Tracer
 }
 
 // New Websocket server
@@ -81,6 +84,11 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		server.Context(ctx)(srv.options)
 	}
 
+	// Set tracer
+	if srv.options.TraceProvider() != nil {
+		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
+	}
+
 	return srv
 }
 
@@ -110,7 +118,7 @@ func (srv *WebsocketServer) Start() error {
 		)
 
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server with TLS listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "Websocket server with TLS listen failed", "error", err.Error())
 
 			return err
 		}
@@ -121,7 +129,7 @@ func (srv *WebsocketServer) Start() error {
 		)
 
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server listen failed", "error", err.Error())
+			srv.options.Logger().ErrorContext(srv.ctx, "Websocket server listen failed", "error", err.Error())
 
 			return err
 		}

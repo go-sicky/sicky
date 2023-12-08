@@ -45,11 +45,12 @@ import (
 )
 
 const (
-	DefaultServiceName         = "sicky.service"
-	DefaultServiceVersion      = "latest"
-	DefaultMetricsExporterPath = "/metrics"
-	DefaultMetricsExporterAddr = ":9999"
-	DefaultLogLevel            = "info"
+	DefaultServiceName           = "sicky.service"
+	DefaultServiceVersion        = "latest"
+	DefaultMetricExporterPath    = "/metrics"
+	DefaultMetricExporterAddr    = ":9999"
+	DefaultTraceExporterEndpoint = "stdout"
+	DefaultLogLevel              = "info"
 )
 
 type ConfigService struct {
@@ -76,14 +77,18 @@ type ConfigGlobal struct {
 			Nats  *driver.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
 			Redis *driver.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
 		} `json:"drivers" yaml:"drivers" mapstructure:"drivers"`
-		Metrics struct {
+		Metric struct {
 			Exporter struct {
 				Addr string `json:"addr" yaml:"addr" mapstructure:"addr"`
 				Path string `json:"path" yaml:"path" mapstructure:"path"`
 			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
-		} `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-		Trace    struct{} `json:"trace" yaml:"trace" mapstructure:"trace"`
-		LogLevel string   `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
+		} `json:"metric" yaml:"metric" mapstructure:"metric"`
+		Trace struct {
+			Exporter struct {
+				Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
+		} `json:"trace" yaml:"trace" mapstructure:"trace"`
+		LogLevel string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
 	} `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
 	App interface{} `json:"app" yaml:"app" mapstructure:"app"`
 }
@@ -92,6 +97,8 @@ func (cg *ConfigGlobal) HTTPServer(name string) *shttp.Config {
 	cfg := cg.Sicky.Servers.HTTP[name]
 	if cfg == nil {
 		cfg = shttp.DefaultConfig(name)
+	} else {
+		cfg.Name = name
 	}
 
 	return cfg
@@ -103,6 +110,8 @@ func (cg *ConfigGlobal) GRPCServer(name string) *sgrpc.Config {
 		cfg = sgrpc.DefaultConfig(name)
 	}
 
+	cfg.Name = name
+
 	return cfg
 }
 
@@ -111,6 +120,8 @@ func (cg *ConfigGlobal) WebsocketServer(name string) *swebsocket.Config {
 	if cfg == nil {
 		cfg = swebsocket.DefaultConfig(name)
 	}
+
+	cfg.Name = name
 
 	return cfg
 }
@@ -121,6 +132,8 @@ func (cg *ConfigGlobal) NatsServer(name string) *snats.Config {
 		cfg = snats.DefaultConfig(name)
 	}
 
+	cfg.Name = name
+
 	return cfg
 }
 
@@ -129,6 +142,8 @@ func (cg *ConfigGlobal) HTTPClient(name string) *chttp.Config {
 	if cfg == nil {
 		cfg = chttp.DefaultConfig(name)
 	}
+
+	cfg.Name = name
 
 	return cfg
 }
@@ -139,6 +154,8 @@ func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
 		cfg = cgrpc.DefaultConfig(name)
 	}
 
+	cfg.Name = name
+
 	return cfg
 }
 
@@ -148,6 +165,8 @@ func (cg *ConfigGlobal) NatsClient(name string) *cnats.Config {
 		cfg = cnats.DefaultConfig(name)
 	}
 
+	cfg.Name = name
+
 	return cfg
 }
 
@@ -156,8 +175,9 @@ func DefaultConfig(name, version string) *ConfigGlobal {
 	cfg.Sicky.Service.Name = name
 	cfg.Sicky.Service.Version = version
 	cfg.Sicky.LogLevel = DefaultLogLevel
-	cfg.Sicky.Metrics.Exporter.Addr = DefaultMetricsExporterAddr
-	cfg.Sicky.Metrics.Exporter.Path = DefaultMetricsExporterPath
+	cfg.Sicky.Metric.Exporter.Addr = DefaultMetricExporterAddr
+	cfg.Sicky.Metric.Exporter.Path = DefaultMetricExporterPath
+	cfg.Sicky.Trace.Exporter.Endpoint = DefaultTraceExporterEndpoint
 
 	return cfg
 }

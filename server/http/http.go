@@ -39,10 +39,12 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTPServer : Server definition
@@ -56,6 +58,8 @@ type HTTPServer struct {
 
 	sync.RWMutex
 	wg sync.WaitGroup
+
+	tracer trace.Tracer
 }
 
 // New HTTP server (go-fiber)
@@ -87,13 +91,18 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		server.Context(ctx)(srv.options)
 	}
 
+	// Set tracer
+	if srv.options.TraceProvider() != nil {
+		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
+	}
+
 	// Register swagger
 	if cfg.EnableSwagger {
 		server.Handle(
 			server.NewHandler(
 				NewSwagger("swagger"),
 			),
-		)
+		)(srv.options)
 	}
 
 	app := fiber.New(
@@ -125,6 +134,11 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	))
 	app.Use(NewMetadataMiddleware(
 		MetadataConfigDefault,
+	))
+	app.Use(tracer.NewFiberMiddleware(
+		&tracer.FiberMiddlewareConfig{
+			Tracer: srv.tracer,
+		},
 	))
 	app.Use(logger.NewFiberMiddleware(
 		logger.FiberMiddlewareConfigDefault,
@@ -160,6 +174,7 @@ func (srv *HTTPServer) Start() error {
 			if ht.Implements(tt) {
 				tg, ok := hdl.Hdl.(server.HandlerHTTP)
 				if ok {
+					srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.config.Name, "name", tg.Name())
 					tg.Register(srv.app)
 				}
 			}
