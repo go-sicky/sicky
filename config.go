@@ -45,12 +45,12 @@ import (
 )
 
 const (
-	DefaultServiceName           = "sicky.service"
-	DefaultServiceVersion        = "latest"
-	DefaultMetricExporterPath    = "/metrics"
-	DefaultMetricExporterAddr    = ":9999"
-	DefaultTraceExporterEndpoint = "stdout"
-	DefaultLogLevel              = "info"
+	DefaultServiceName        = "sicky.service"
+	DefaultServiceVersion     = "latest"
+	DefaultMetricExporterPath = "/metrics"
+	DefaultMetricExporterAddr = ":9999"
+	DefaultTraceType          = "stdout"
+	DefaultLogLevel           = "info"
 )
 
 type ConfigService struct {
@@ -84,8 +84,18 @@ type ConfigGlobal struct {
 			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
 		} `json:"metric" yaml:"metric" mapstructure:"metric"`
 		Trace struct {
+			Name     string `json:"name" yaml:"name" mapstructure:"name"`
+			Type     string `json:"type" yaml:"time" mapstructure:"type"`
 			Exporter struct {
-				Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+				Stdout struct {
+					PrettyPrint bool `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
+					Timestamps  bool `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
+				} `json:"stdout" yaml:"stdout" mapstructure:"stdout"`
+				GRPC struct {
+					Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+					Compress bool   `json:"compress" yaml:"compress" mapstructure:"compress"`
+					Timeout  int    `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+				}
 			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
 		} `json:"trace" yaml:"trace" mapstructure:"trace"`
 		LogLevel string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
@@ -177,7 +187,7 @@ func DefaultConfig(name, version string) *ConfigGlobal {
 	cfg.Sicky.LogLevel = DefaultLogLevel
 	cfg.Sicky.Metric.Exporter.Addr = DefaultMetricExporterAddr
 	cfg.Sicky.Metric.Exporter.Path = DefaultMetricExporterPath
-	cfg.Sicky.Trace.Exporter.Endpoint = DefaultTraceExporterEndpoint
+	cfg.Sicky.Trace.Type = DefaultTraceType
 
 	return cfg
 }

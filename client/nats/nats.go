@@ -30,6 +30,94 @@
 
 package nats
 
+import (
+	"context"
+
+	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/logger"
+	"go.opentelemetry.io/otel/trace"
+)
+
+// NatsClient : Client definition
+type NatsClient struct {
+	config  *Config
+	options *client.Options
+	ctx     context.Context
+
+	tracer trace.Tracer
+}
+
+var (
+	clients = make(map[string]*NatsClient, 0)
+)
+
+func Instance(name string, clt ...*NatsClient) *NatsClient {
+	if len(clt) > 0 {
+		// Set value
+		clients[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return clients[name]
+}
+
+// New HTTP client
+func NewClient(cfg *Config, opts ...client.Option) *NatsClient {
+	ctx := context.Background()
+	clt := &NatsClient{
+		config:  cfg,
+		ctx:     ctx,
+		options: client.NewOptions(),
+	}
+
+	for _, opt := range opts {
+		opt(clt.options)
+	}
+
+	// Set logger
+	if clt.options.Logger() == nil {
+		client.Logger(logger.Logger)(clt.options)
+	}
+
+	// Set global context
+	if clt.options.Context() != nil {
+		clt.ctx = clt.options.Context()
+	} else {
+		client.Context(ctx)(clt.options)
+	}
+
+	// Set tracer
+	if clt.options.TraceProvider() != nil {
+		clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
+	}
+
+	client.Instance(clt.Name(), clt)
+	Instance(clt.Name(), clt)
+
+	return clt
+}
+
+func (clt *NatsClient) Options() *client.Options {
+	return clt.options
+}
+
+func (clt *NatsClient) Call() error {
+	return nil
+}
+
+func (clt *NatsClient) String() string {
+	return "nats"
+}
+
+func (clt *NatsClient) Name() string {
+	return clt.config.Name
+}
+
+func (clt *NatsClient) ID() string {
+	return clt.options.ID()
+}
+
 /*
  * Local variables:
  * tab-width: 4

@@ -47,11 +47,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 )
 
 type ServiceWrapper func() error
@@ -70,17 +65,30 @@ type Service struct {
 	// Prometheus exporter
 	metricRegistry *prometheus.Registry
 	metricServer   *http.Server
-
-	// OTEL
-	traceProvider *sdktrace.TracerProvider
 }
 
-var DefaultService *Service
+var (
+	services = make(map[string]*Service, 0)
+)
+
+func Instance(name string, svc ...*Service) *Service {
+	if len(svc) > 0 {
+		// Set value
+		services[name] = svc[0]
+
+		return svc[0]
+	}
+
+	return services[name]
+}
 
 // NewService creates new micro service
 func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
-	var err error
-	ctx := context.Background()
+	var (
+		err error
+		ctx = context.Background()
+	)
+
 	// Default initialize
 	svc := &Service{
 		config:  cfg,
@@ -140,44 +148,9 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 		),
 	)
 
-	// OTEL trace
-	var exporter sdktrace.SpanExporter
-	if cfg.Sicky.Trace.Exporter.Endpoint == "stdout" {
-		exporter, err = stdouttrace.New(
-			stdouttrace.WithPrettyPrint(),
-			stdouttrace.WithoutTimestamps(),
-		)
-	} else {
-		exporter, err = otlptracegrpc.New(
-			svc.ctx,
-			otlptracegrpc.WithInsecure(),
-			otlptracegrpc.WithEndpoint(cfg.Sicky.Trace.Exporter.Endpoint),
-		)
-	}
-
-	if err != nil {
-		svc.Logger().Fatalf("Create otel exporter failed : %s", err)
-	}
-
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(cfg.Sicky.Service.Name),
-			semconv.ServiceVersion(cfg.Sicky.Service.Version),
-		),
-	)
-	if err != nil {
-		svc.Logger().Fatalf("Create otel resource failed : %s", err)
-	}
-
-	svc.traceProvider = sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-
 	// Override
-	DefaultService = svc
+	//DefaultService = svc
+	Instance(svc.Name(), svc)
 
 	return svc
 }
@@ -247,11 +220,6 @@ func (svc *Service) Stop() []error {
 		errs = append(errs, err)
 	}
 
-	err = svc.traceProvider.Shutdown(svc.ctx)
-	if err != nil {
-		errs = append(errs, err)
-	}
-
 	return errs
 }
 
@@ -312,10 +280,6 @@ func (svc *Service) Version() string {
 
 func (svc *Service) Logger() logger.GeneralLogger {
 	return svc.options.logger
-}
-
-func (svc *Service) TraceProvider() *sdktrace.TracerProvider {
-	return svc.traceProvider
 }
 
 func (svc *Service) Server(name string) server.Server {

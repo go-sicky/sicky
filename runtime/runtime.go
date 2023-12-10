@@ -30,6 +30,52 @@
 
 package runtime
 
+import (
+	"github.com/go-sicky/sicky/logger"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
+)
+
+// Lock-less maps here
+var (
+	loggers        = make(map[string]*logger.GeneralLogger, 0)
+	traceProviders = make(map[string]*sdktrace.TracerProvider, 0)
+	tracers        = make(map[string]trace.Tracer, 0)
+)
+
+func Logger(name string, l ...*logger.GeneralLogger) *logger.GeneralLogger {
+	if len(l) > 0 {
+		// Set value
+		loggers[name] = l[0]
+
+		return l[0]
+	}
+
+	return loggers[name]
+}
+
+func TraceProvider(name string, tp ...*sdktrace.TracerProvider) *sdktrace.TracerProvider {
+	if len(tp) > 0 {
+		// Set value
+		traceProviders[name] = tp[0]
+
+		return tp[0]
+	}
+
+	return traceProviders[name]
+}
+
+func Tracer(name string, t ...trace.Tracer) trace.Tracer {
+	if len(t) > 0 {
+		// Set value
+		tracers[name] = t[0]
+
+		return t[0]
+	}
+
+	return tracers[name]
+}
+
 /*
  * Local variables:
  * tab-width: 4

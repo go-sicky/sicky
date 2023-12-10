@@ -43,6 +43,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/reflection"
 )
 
 // GRPCServer : Server definition
@@ -60,8 +61,23 @@ type GRPCServer struct {
 	tracer trace.Tracer
 }
 
+var (
+	servers = make(map[string]*GRPCServer, 0)
+)
+
+func Instance(name string, clt ...*GRPCServer) *GRPCServer {
+	if len(clt) > 0 {
+		// Set value
+		servers[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return servers[name]
+}
+
 // New GRPC server
-func NewServer(cfg *Config, opts ...server.Option) server.Server {
+func NewServer(cfg *Config, opts ...server.Option) *GRPCServer {
 	ctx := context.Background()
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
@@ -128,8 +144,11 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 		logger.NewGRPCServerInterceptor(srv.options.Logger()),
 	))
 	app := grpc.NewServer(gopts...)
+	reflection.Register(app)
 
 	srv.app = app
+	server.Instance(srv.Name(), srv)
+	Instance(srv.Name(), srv)
 
 	return srv
 }

@@ -53,6 +53,18 @@ type Options struct {
 	afterStop   []ServiceWrapper
 }
 
+func (o *Options) ID() string {
+	return o.id
+}
+
+func (o *Options) Context() context.Context {
+	return o.ctx
+}
+
+func (o *Options) Logger() logger.GeneralLogger {
+	return o.logger
+}
+
 func NewOptions() *Options {
 	return &Options{
 		servers: make(map[string]server.Server),

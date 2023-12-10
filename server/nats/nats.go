@@ -51,8 +51,23 @@ type NatsServer struct {
 	tracer trace.Tracer
 }
 
+var (
+	servers = make(map[string]*NatsServer, 0)
+)
+
+func Instance(name string, clt ...*NatsServer) *NatsServer {
+	if len(clt) > 0 {
+		// Set value
+		servers[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return servers[name]
+}
+
 // New NATs server
-func NewServer(cfg *Config, opts ...server.Option) server.Server {
+func NewServer(cfg *Config, opts ...server.Option) *NatsServer {
 	ctx := context.Background()
 	srv := &NatsServer{
 		config:  cfg,
@@ -81,6 +96,9 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	if srv.options.TraceProvider() != nil {
 		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
 	}
+
+	server.Instance(srv.Name(), srv)
+	Instance(srv.Name(), srv)
 
 	return srv
 }

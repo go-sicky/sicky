@@ -54,8 +54,23 @@ type GRPCClient struct {
 	tracer trace.Tracer
 }
 
+var (
+	clients = make(map[string]*GRPCClient, 0)
+)
+
+func Instance(name string, clt ...*GRPCClient) *GRPCClient {
+	if len(clt) > 0 {
+		// Set value
+		clients[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return clients[name]
+}
+
 // New GRPC client
-func NewClient(cfg *Config, opts ...client.Option) client.Client {
+func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 	ctx := context.Background()
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
@@ -123,6 +138,8 @@ func NewClient(cfg *Config, opts ...client.Option) client.Client {
 	}
 
 	clt.conn = conn
+	client.Instance(clt.Name(), clt)
+	Instance(clt.Name(), clt)
 
 	return clt
 }

@@ -75,6 +75,21 @@ type Server interface {
 	ID() string
 }
 
+var (
+	servers = make(map[string]Server, 0)
+)
+
+func Instance(name string, srv ...Server) Server {
+	if len(srv) > 0 {
+		// Set value
+		servers[name] = srv[0]
+
+		return srv[0]
+	}
+
+	return servers[name]
+}
+
 /*
  * Local variables:
  * tab-width: 4

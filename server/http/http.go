@@ -62,8 +62,23 @@ type HTTPServer struct {
 	tracer trace.Tracer
 }
 
+var (
+	servers = make(map[string]*HTTPServer, 0)
+)
+
+func Instance(name string, clt ...*HTTPServer) *HTTPServer {
+	if len(clt) > 0 {
+		// Set value
+		servers[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return servers[name]
+}
+
 // New HTTP server (go-fiber)
-func NewServer(cfg *Config, opts ...server.Option) server.Server {
+func NewServer(cfg *Config, opts ...server.Option) *HTTPServer {
 	ctx := context.Background()
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
@@ -145,6 +160,8 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	))
 
 	srv.app = app
+	server.Instance(srv.Name(), srv)
+	Instance(srv.Name(), srv)
 
 	return srv
 }

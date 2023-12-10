@@ -30,12 +30,6 @@
 
 package client
 
-import (
-	"context"
-
-	"google.golang.org/grpc"
-)
-
 // Client : service callee
 type Client interface {
 	// Client options
@@ -49,8 +43,23 @@ type Client interface {
 	// Get ID
 	ID() string
 	// For GRPC
-	Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error
-	NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error)
+	//Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error
+	//NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error)
+}
+
+var (
+	clients = make(map[string]Client, 0)
+)
+
+func Instance(name string, clt ...Client) Client {
+	if len(clt) > 0 {
+		// Set value
+		clients[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return clients[name]
 }
 
 /*

@@ -55,8 +55,23 @@ type WebsocketServer struct {
 	tracer trace.Tracer
 }
 
+var (
+	servers = make(map[string]*WebsocketServer, 0)
+)
+
+func Instance(name string, clt ...*WebsocketServer) *WebsocketServer {
+	if len(clt) > 0 {
+		// Set value
+		servers[name] = clt[0]
+
+		return clt[0]
+	}
+
+	return servers[name]
+}
+
 // New Websocket server
-func NewServer(cfg *Config, opts ...server.Option) server.Server {
+func NewServer(cfg *Config, opts ...server.Option) *WebsocketServer {
 	ctx := context.Background()
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
@@ -88,6 +103,9 @@ func NewServer(cfg *Config, opts ...server.Option) server.Server {
 	if srv.options.TraceProvider() != nil {
 		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
 	}
+
+	server.Instance(srv.Name(), srv)
+	Instance(srv.Name(), srv)
 
 	return srv
 }
