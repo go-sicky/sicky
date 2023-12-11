@@ -31,28 +31,26 @@
 package http
 
 import (
-	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/swagger"
 )
 
-type Swagger struct {
-	name string
-}
+type Swagger struct{}
 
-func NewSwagger(name string) *Swagger {
-	h := &Swagger{
-		name: name,
-	}
+func NewSwagger() *Swagger {
+	h := &Swagger{}
 
 	return h
 }
 
-func (h *Swagger) Register(app *fiber.App) {
-	app.All("/docs/*", swagger.New(swagger.ConfigDefault))
+func (h *Swagger) Register(name string) {
+	srv := Instance(name)
+	if srv != nil {
+		srv.App().All("/docs/*", swagger.New(swagger.ConfigDefault))
+	}
 }
 
 func (h *Swagger) Name() string {
-	return h.name
+	return "swagger"
 }
 
 func (h *Swagger) Type() string {

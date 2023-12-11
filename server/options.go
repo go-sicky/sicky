@@ -45,7 +45,7 @@ type Options struct {
 	id       string
 	tls      *tls.Config
 	logger   logger.GeneralLogger
-	handlers []*Handler
+	handlers []Handler
 
 	traceProvider *sdktrace.TracerProvider
 }
@@ -66,7 +66,7 @@ func (o *Options) Logger() logger.GeneralLogger {
 	return o.logger
 }
 
-func (o *Options) Handlers() []*Handler {
+func (o *Options) Handlers() []Handler {
 	return o.handlers
 }
 
@@ -107,7 +107,7 @@ func Logger(logger logger.GeneralLogger) Option {
 	}
 }
 
-func Handle(handler *Handler) Option {
+func Handle(handler Handler) Option {
 	return func(opts *Options) {
 		opts.handlers = append(opts.handlers, handler)
 	}

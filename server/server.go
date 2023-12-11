@@ -30,31 +30,32 @@
 
 package server
 
-import (
-	"github.com/gofiber/fiber/v2"
-	"google.golang.org/grpc"
-)
-
 // Handler : server handler
-type Handler struct {
-	Type string
-	Hdl  any
-}
+// type Handler struct {
+// 	Type string
+// 	Hdl  any
+// }
 
-func NewHandler(hdl any) *Handler {
-	return &Handler{
-		Hdl: hdl,
-	}
+// func NewHandler(hdl any) *Handler {
+// 	return &Handler{
+// 		Hdl: hdl,
+// 	}
+// }
+
+type Handler interface {
+	Register(string)
+	Name() string
+	Type() string
 }
 
 type HandlerHTTP interface {
-	Register(*fiber.App)
+	Register(Server)
 	Name() string
 	Type() string
 }
 
 type HandlerGRPC interface {
-	Register(*grpc.Server)
+	Register(Server)
 	Name() string
 	Type() string
 }

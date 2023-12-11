@@ -34,7 +34,6 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
-	"reflect"
 	"sync"
 
 	"github.com/go-sicky/sicky/logger"
@@ -171,16 +170,24 @@ func (srv *GRPCServer) Start() error {
 		return nil
 	}
 
+	// if srv.options.Handlers() != nil {
+	// 	tt := reflect.TypeOf((*server.HandlerGRPC)(nil)).Elem()
+	// 	for _, hdl := range srv.options.Handlers() {
+	// 		ht := reflect.TypeOf(hdl.Hdl)
+	// 		if ht.Implements(tt) {
+	// 			tg, ok := hdl.Hdl.(server.HandlerGRPC)
+	// 			if ok {
+	// 				srv.options.Logger().DebugContext(srv.ctx, "Register GRPC handler", "server", srv.Name(), "name", tg.Name())
+	// 				hdl.Type = srv.String()
+	// 				tg.Register(srv)
+	// 			}
+	// 		}
+	// 	}
+	// }
 	if srv.options.Handlers() != nil {
-		tt := reflect.TypeOf((*server.HandlerGRPC)(nil)).Elem()
 		for _, hdl := range srv.options.Handlers() {
-			ht := reflect.TypeOf(hdl.Hdl)
-			if ht.Implements(tt) {
-				tg, ok := hdl.Hdl.(server.HandlerGRPC)
-				if ok {
-					tg.Register(srv.app)
-				}
-			}
+			srv.options.Logger().DebugContext(srv.ctx, "Register GRPC handler", "server", srv.Name(), "name", hdl.Name())
+			hdl.Register(srv.Name())
 		}
 	}
 
@@ -267,6 +274,10 @@ func (srv *GRPCServer) Name() string {
 
 func (srv *GRPCServer) ID() string {
 	return srv.options.ID()
+}
+
+func (srv *GRPCServer) App() *grpc.Server {
+	return srv.app
 }
 
 /*

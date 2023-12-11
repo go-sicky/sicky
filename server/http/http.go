@@ -34,7 +34,6 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
-	"reflect"
 	"sync"
 
 	"github.com/go-sicky/sicky/logger"
@@ -113,11 +112,7 @@ func NewServer(cfg *Config, opts ...server.Option) *HTTPServer {
 
 	// Register swagger
 	if cfg.EnableSwagger {
-		server.Handle(
-			server.NewHandler(
-				NewSwagger("swagger"),
-			),
-		)(srv.options)
+		server.Handle(NewSwagger())(srv.options)
 	}
 
 	app := fiber.New(
@@ -184,16 +179,25 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
+	// if srv.options.Handlers() != nil {
+	// 	tt := reflect.TypeOf((*server.HandlerHTTP)(nil)).Elem()
+	// 	for _, hdl := range srv.options.Handlers() {
+	// 		ht := reflect.TypeOf(hdl.Hdl)
+	// 		if ht.Implements(tt) {
+	// 			tg, ok := hdl.Hdl.(server.HandlerHTTP)
+	// 			if ok {
+	// 				srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.Name(), "name", tg.Name())
+	// 				hdl.Type = srv.String()
+	// 				tg.Register(srv)
+	// 			}
+	// 		}
+	// 	}
+	// }
 	if srv.options.Handlers() != nil {
-		tt := reflect.TypeOf((*server.HandlerHTTP)(nil)).Elem()
 		for _, hdl := range srv.options.Handlers() {
-			ht := reflect.TypeOf(hdl.Hdl)
-			if ht.Implements(tt) {
-				tg, ok := hdl.Hdl.(server.HandlerHTTP)
-				if ok {
-					srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.config.Name, "name", tg.Name())
-					tg.Register(srv.app)
-				}
+			if hdl.Type() == srv.String() {
+				srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.Name(), "name", hdl.Name())
+				hdl.Register(srv.Name())
 			}
 		}
 	}
@@ -282,6 +286,10 @@ func (srv *HTTPServer) Name() string {
 
 func (srv *HTTPServer) ID() string {
 	return srv.options.ID()
+}
+
+func (srv *HTTPServer) App() *fiber.App {
+	return srv.app
 }
 
 /*
