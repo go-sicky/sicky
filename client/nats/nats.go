@@ -94,6 +94,7 @@ func NewClient(cfg *Config, opts ...client.Option) *NatsClient {
 
 	client.Instance(clt.Name(), clt)
 	Instance(clt.Name(), clt)
+	clt.options.Logger().InfoContext(clt.ctx, "Nats client created", "id", clt.ID(), "name", clt.Name())
 
 	return clt
 }

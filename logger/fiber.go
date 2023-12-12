@@ -34,25 +34,35 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-sicky/sicky/runtime"
 	"github.com/gofiber/fiber/v2"
 )
 
 type FiberMiddlewareConfig struct {
-	Next func(c *fiber.Ctx) bool
+	Next                   func(c *fiber.Ctx) bool
+	RequestIDContextKey    string
+	TraceIDContextKey      string
+	SpanIDContextKey       string
+	ParentSpanIDContextKey string
+	SampledContextKey      string
 
 	DefaultLevel     Level
 	ClientErrorLevel Level
 	ServerErrorLevel Level
-	ContextKey       string
 	Logger           GeneralLogger
 }
 
 var FiberMiddlewareConfigDefault = &FiberMiddlewareConfig{
-	Next:             nil,
+	Next:                   nil,
+	RequestIDContextKey:    "requestid",
+	TraceIDContextKey:      "traceid",
+	SpanIDContextKey:       "spanid",
+	ParentSpanIDContextKey: "parentspanid",
+	SampledContextKey:      "sampled",
+
 	DefaultLevel:     DebugLevel,
 	ClientErrorLevel: WarnLevel,
 	ServerErrorLevel: ErrorLevel,
-	ContextKey:       "requestid",
 }
 
 func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddlewareConfig {
@@ -61,13 +71,28 @@ func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddle
 	}
 
 	cfg := config[0]
-
 	if cfg.Next == nil {
 		cfg.Next = FiberMiddlewareConfigDefault.Next
 	}
 
-	if cfg.ContextKey == "" {
-		cfg.ContextKey = FiberMiddlewareConfigDefault.ContextKey
+	if cfg.RequestIDContextKey == "" {
+		cfg.RequestIDContextKey = FiberMiddlewareConfigDefault.RequestIDContextKey
+	}
+
+	if cfg.TraceIDContextKey == "" {
+		cfg.TraceIDContextKey = FiberMiddlewareConfigDefault.TraceIDContextKey
+	}
+
+	if cfg.SpanIDContextKey == "" {
+		cfg.SpanIDContextKey = FiberMiddlewareConfigDefault.SpanIDContextKey
+	}
+
+	if cfg.ParentSpanIDContextKey == "" {
+		cfg.ParentSpanIDContextKey = FiberMiddlewareConfigDefault.ParentSpanIDContextKey
+	}
+
+	if cfg.SampledContextKey == "" {
+		cfg.SampledContextKey = FiberMiddlewareConfigDefault.SampledContextKey
 	}
 
 	if cfg.DefaultLevel == 0 {
@@ -92,20 +117,30 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 	}
 
 	return func(c *fiber.Ctx) error {
+		// Metric
+		runtime.NumHTTPServerAccessCounter.Inc()
+
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
 
 		start := time.Now()
-		// Request-ID
-		requestID := c.Get("X-Request-ID")
-
-		// B3 Trace headers
-		traceID := c.Get("X-B3-Traceid")
-		spanID := c.Get("X-B3-Spanid")
-		parentSpanID := c.Get("X-B3-Parentspanid")
+		rv := c.Locals(cfg.RequestIDContextKey)
+		requestID, _ := rv.(string)
+		tv := c.Locals(cfg.TraceIDContextKey)
+		traceID, _ := tv.(string)
+		sv := c.Locals(cfg.SpanIDContextKey)
+		spanID, _ := sv.(string)
+		pv := c.Locals(cfg.ParentSpanIDContextKey)
+		parentSpanID, _ := pv.(string)
+		av := c.Locals(cfg.SampledContextKey)
+		sampled, _ := av.(string)
 
 		chainErr := c.Next()
+		if chainErr != nil {
+			_ = c.App().Config().ErrorHandler(c, chainErr)
+		}
+
 		end := time.Now()
 		status := c.Response().Header.StatusCode()
 
@@ -125,6 +160,7 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 			"trace-id":       traceID,
 			"span-id":        spanID,
 			"parent-span-id": parentSpanID,
+			"sampled":        sampled,
 		}
 
 		// Extract attributes

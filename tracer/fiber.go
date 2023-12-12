@@ -31,18 +31,26 @@
 package tracer
 
 import (
+	"context"
+	"net/http"
+
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/utils"
+	"go.opentelemetry.io/contrib/propagators/b3"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type FiberMiddlewareConfig struct {
-	Next func(c *fiber.Ctx) bool
-
-	Tracer trace.Tracer
+	Next             func(c *fiber.Ctx) bool
+	Tracer           trace.Tracer
+	SpanIDContextKey string
 }
 
 var FiberMiddlewareConfigDefault = &FiberMiddlewareConfig{
-	Next: nil,
+	Next:             nil,
+	Tracer:           nil,
+	SpanIDContextKey: "spanid",
 }
 
 func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddlewareConfig {
@@ -51,7 +59,6 @@ func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddle
 	}
 
 	cfg := config[0]
-
 	if cfg.Next == nil {
 		cfg.Next = FiberMiddlewareConfigDefault.Next
 	}
@@ -60,11 +67,16 @@ func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddle
 		cfg.Tracer = FiberMiddlewareConfigDefault.Tracer
 	}
 
+	if cfg.SpanIDContextKey == "" {
+		cfg.SpanIDContextKey = FiberMiddlewareConfigDefault.SpanIDContextKey
+	}
+
 	return cfg
 }
 
 func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 	cfg := fiberMiddlewareConfigDefault(config...)
+	pg := b3.New()
 
 	return func(c *fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
@@ -75,11 +87,31 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 			return c.Next()
 		}
 
-		_, span := cfg.Tracer.Start(c.Context(), c.Path())
-		c.Next()
-		span.End()
+		savedCtx, cancel := context.WithCancel(c.UserContext())
+		reqHeader := make(http.Header)
+		c.Request().Header.VisitAll(func(k, v []byte) {
+			reqHeader.Add(string(k), string(v))
+		})
 
-		return nil
+		newCtx := pg.Extract(savedCtx, propagation.HeaderCarrier(reqHeader))
+		spanedCtx, span := cfg.Tracer.Start(newCtx, utils.CopyString(c.Path()))
+		defer func() {
+			cancel()
+			span.End()
+		}()
+
+		self := span.SpanContext()
+		spanID := self.SpanID().String()
+		c.Locals(cfg.SpanIDContextKey, spanID)
+		c.SetUserContext(spanedCtx)
+
+		err := c.Next()
+		if err != nil {
+			span.RecordError(err)
+			_ = c.App().Config().ErrorHandler(c, err)
+		}
+
+		return err
 	}
 }
 

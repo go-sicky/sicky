@@ -79,6 +79,10 @@ func NewTraceProvider(cfg *ConfigGlobal, opts ...Option) *sdktrace.TracerProvide
 			))
 		}
 
+		if !cfg.Sicky.Trace.Exporter.GRPC.TLS {
+			opts = append(opts, otlptracegrpc.WithInsecure())
+		}
+
 		opts = append(opts, otlptracegrpc.WithEndpoint(cfg.Sicky.Trace.Exporter.GRPC.Endpoint))
 		exporter, err = otlptracegrpc.New(
 			context.Background(),

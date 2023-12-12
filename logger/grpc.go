@@ -37,6 +37,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-sicky/sicky/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/metadata"
@@ -151,6 +152,9 @@ func (gl *grpcLogger) V(l int) bool {
 // ServerOption wrapper
 func NewGRPCServerInterceptor(logger GeneralLogger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		// Metric
+		runtime.NumGRPCServerAccessCounter.Inc()
+
 		requestID := ""
 		traceID := ""
 		spanID := ""
@@ -216,6 +220,9 @@ func NewGRPCServerInterceptor(logger GeneralLogger) grpc.UnaryServerInterceptor 
 
 func NewGRPCClientInterceptor(logger GeneralLogger) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		// Metric
+		runtime.NumGRPCClientCallCounter.Inc()
+
 		attributes := map[string]any{
 			"method": method,
 			"target": cc.Target(),

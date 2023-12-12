@@ -22,13 +22,43 @@
  */
 
 /**
- * @file runtime.go
+ * @file metrics.go
  * @package runtime
  * @author Dr.NP <np@herewe.tech>
  * @since 11/20/2023
  */
 
 package runtime
+
+import "github.com/prometheus/client_golang/prometheus"
+
+var (
+	NumGRPCServerAccessCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_grpc_server_access",
+			Help: "Number of grpc access",
+		},
+	)
+	NumHTTPServerAccessCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_http_server_access",
+			Help: "Number of http access",
+		},
+	)
+
+	NumGRPCClientCallCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_grpc_client_call",
+			Help: "Number of grpc call",
+		},
+	)
+	NumHTTPClientCallCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_http_client_call",
+			Help: "Number of http call",
+		},
+	)
+)
 
 /*
  * Local variables:

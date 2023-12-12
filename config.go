@@ -84,7 +84,6 @@ type ConfigGlobal struct {
 			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
 		} `json:"metric" yaml:"metric" mapstructure:"metric"`
 		Trace struct {
-			Name     string `json:"name" yaml:"name" mapstructure:"name"`
 			Type     string `json:"type" yaml:"time" mapstructure:"type"`
 			Exporter struct {
 				Stdout struct {
@@ -95,6 +94,7 @@ type ConfigGlobal struct {
 					Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
 					Compress bool   `json:"compress" yaml:"compress" mapstructure:"compress"`
 					Timeout  int    `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+					TLS      bool   `json:"tls" yaml:"tls" mapstructure:"tls"`
 				}
 			} `json:"exporter" yaml:"exporter" mapstructure:"exporter"`
 		} `json:"trace" yaml:"trace" mapstructure:"trace"`

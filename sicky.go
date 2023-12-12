@@ -41,6 +41,7 @@ import (
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/driver"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -137,6 +138,12 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 
 	// Prometheus metrics
 	svc.metricRegistry = prometheus.NewRegistry()
+	svc.metricRegistry.MustRegister(
+		runtime.NumGRPCServerAccessCounter,
+		runtime.NumHTTPServerAccessCounter,
+		runtime.NumGRPCClientCallCounter,
+		runtime.NumHTTPServerAccessCounter,
+	)
 	svc.metricServer = &http.Server{Addr: svc.config.Sicky.Metric.Exporter.Addr}
 	http.Handle(
 		svc.config.Sicky.Metric.Exporter.Path,

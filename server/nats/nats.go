@@ -99,6 +99,7 @@ func NewServer(cfg *Config, opts ...server.Option) *NatsServer {
 
 	server.Instance(srv.Name(), srv)
 	Instance(srv.Name(), srv)
+	srv.options.Logger().InfoContext(srv.ctx, "Nats server created", "id", srv.ID(), "name", srv.Name())
 
 	return srv
 }

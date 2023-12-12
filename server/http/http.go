@@ -42,7 +42,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -133,30 +132,33 @@ func NewServer(cfg *Config, opts ...server.Option) *HTTPServer {
 		},
 	)
 
-	app.Use(recover.New(
-		recover.ConfigDefault,
-	))
-	app.Use(cors.New(
-		cors.ConfigDefault,
-	))
-	app.Use(requestid.New(
-		requestid.ConfigDefault,
-	))
-	app.Use(NewMetadataMiddleware(
-		MetadataConfigDefault,
-	))
-	app.Use(tracer.NewFiberMiddleware(
-		&tracer.FiberMiddlewareConfig{
-			Tracer: srv.tracer,
-		},
-	))
-	app.Use(logger.NewFiberMiddleware(
-		logger.FiberMiddlewareConfigDefault,
-	))
+	if cfg.EnableStackTrace {
+		app.Use(recover.New(
+			recover.Config{
+				EnableStackTrace: true,
+			},
+		))
+	} else {
+		app.Use(recover.New(
+			recover.ConfigDefault,
+		))
+	}
+	app.Use(
+		cors.New(),
+		NewPropagationMiddleware(),
+		tracer.NewFiberMiddleware(
+			&tracer.FiberMiddlewareConfig{
+				Tracer: srv.tracer,
+			},
+		),
+		logger.NewFiberMiddleware(),
+		NewMetadataMiddleware(),
+	)
 
 	srv.app = app
 	server.Instance(srv.Name(), srv)
 	Instance(srv.Name(), srv)
+	srv.options.Logger().InfoContext(srv.ctx, "HTTP server created", "id", srv.ID(), "name", srv.Name(), "addr", addr.String())
 
 	return srv
 }
@@ -179,20 +181,6 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
-	// if srv.options.Handlers() != nil {
-	// 	tt := reflect.TypeOf((*server.HandlerHTTP)(nil)).Elem()
-	// 	for _, hdl := range srv.options.Handlers() {
-	// 		ht := reflect.TypeOf(hdl.Hdl)
-	// 		if ht.Implements(tt) {
-	// 			tg, ok := hdl.Hdl.(server.HandlerHTTP)
-	// 			if ok {
-	// 				srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.Name(), "name", tg.Name())
-	// 				hdl.Type = srv.String()
-	// 				tg.Register(srv)
-	// 			}
-	// 		}
-	// 	}
-	// }
 	if srv.options.Handlers() != nil {
 		for _, hdl := range srv.options.Handlers() {
 			if hdl.Type() == srv.String() {

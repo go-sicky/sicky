@@ -72,12 +72,10 @@ func Instance(name string, clt ...*GRPCClient) *GRPCClient {
 // New GRPC client
 func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 	ctx := context.Background()
-	// TCP default
-	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
+
 	clt := &GRPCClient{
 		config:  cfg,
 		ctx:     ctx,
-		addr:    addr,
 		options: client.NewOptions(),
 	}
 
@@ -102,6 +100,13 @@ func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 		clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
 	}
 
+	// TCP default
+	addr, err := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
+	if err != nil {
+		clt.options.Logger().ErrorContext(clt.ctx, "Resolve GRPC endpoint address failed", "error", err)
+	}
+
+	clt.addr = addr
 	gopts := make([]grpc.DialOption, 0)
 	if clt.options.TLS() != nil {
 		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
@@ -126,11 +131,15 @@ func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	gopts = append(gopts, grpc.WithChainUnaryInterceptor(
-		tracer.NewGRPCClientInterceptor(clt.tracer),
-		logger.NewGRPCClientInterceptor(clt.options.Logger()),
-	))
-	conn, err := grpc.Dial(addr.String(), gopts...)
+	gopts = append(gopts,
+		grpc.WithChainUnaryInterceptor(
+			tracer.NewGRPCClientInterceptor(clt.tracer),
+			logger.NewGRPCClientInterceptor(clt.options.Logger()),
+		),
+		grpc.WithDefaultServiceConfig(`{ "loadBalancingPolicy": "round_robin" }`),
+	)
+	// Issue : DNS round-robin load balancing support
+	conn, err := grpc.Dial("dns:///"+cfg.Addr, gopts...)
 	if err != nil {
 		clt.options.Logger().ErrorContext(clt.ctx, "GRPC dial failed", "error", err.Error())
 
@@ -140,6 +149,7 @@ func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 	clt.conn = conn
 	client.Instance(clt.Name(), clt)
 	Instance(clt.Name(), clt)
+	clt.options.Logger().InfoContext(clt.ctx, "GRPC client created", "id", clt.ID(), "name", clt.Name(), "addr", addr.String())
 
 	return clt
 }

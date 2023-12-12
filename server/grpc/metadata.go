@@ -22,13 +22,36 @@
  */
 
 /**
- * @file runtime.go
- * @package runtime
+ * @file metadata.go
+ * @package grpc
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 12/11/2023
  */
 
-package runtime
+package grpc
+
+import (
+	"context"
+	"fmt"
+
+	"go.opentelemetry.io/otel/propagation"
+	"google.golang.org/grpc"
+)
+
+func NewMetadataInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		md := propagation.HeaderCarrier{}
+		pg := propagation.Baggage{}
+		pg.Extract(ctx, &md)
+		for k, v := range md {
+			fmt.Println(k, "=>", v)
+		}
+
+		resp, err := handler(ctx, req)
+
+		return resp, err
+	}
+}
 
 /*
  * Local variables:

@@ -94,6 +94,7 @@ func NewClient(cfg *Config, opts ...client.Option) *HTTPClient {
 
 	client.Instance(clt.Name(), clt)
 	Instance(clt.Name(), clt)
+	clt.options.Logger().InfoContext(clt.ctx, "HTTP client created", "id", clt.ID(), "name", clt.Name())
 
 	return clt
 }

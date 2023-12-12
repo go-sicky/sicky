@@ -48,6 +48,7 @@ type Config struct {
 	WriteBufferSize  int    `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
 	DisableKeepAlive bool   `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
 	EnableSwagger    bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	EnableStackTrace bool   `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
 }
 
 func DefaultConfig(name string) *Config {

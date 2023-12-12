@@ -148,6 +148,7 @@ func NewServer(cfg *Config, opts ...server.Option) *GRPCServer {
 	srv.app = app
 	server.Instance(srv.Name(), srv)
 	Instance(srv.Name(), srv)
+	srv.options.Logger().InfoContext(srv.ctx, "GRPC server created", "id", srv.ID(), "name", srv.Name(), "addr", addr.String())
 
 	return srv
 }

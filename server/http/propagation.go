@@ -22,20 +22,20 @@
  */
 
 /**
- * @file metadata.go
+ * @file propagation.go
  * @package http
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 11/20/2023
  */
 
 package http
 
 import (
 	"github.com/gofiber/fiber/v2"
-	"google.golang.org/grpc/metadata"
+	"github.com/google/uuid"
 )
 
-type MetadataConfig struct {
+type PropagationConfig struct {
 	Next                   func(c *fiber.Ctx) bool
 	RequestIDContextKey    string
 	TraceIDContextKey      string
@@ -49,7 +49,7 @@ type MetadataConfig struct {
 	SampledHeader          string
 }
 
-var MetadataConfigDefault = MetadataConfig{
+var PropagationConfigDefault = PropagationConfig{
 	Next:                   nil,
 	RequestIDContextKey:    "requestid",
 	TraceIDContextKey:      "traceid",
@@ -63,88 +63,84 @@ var MetadataConfigDefault = MetadataConfig{
 	SampledHeader:          "X-B3-Sampled",
 }
 
-func metadataConfigDefault(config ...MetadataConfig) MetadataConfig {
+func propagationConfigDefault(config ...PropagationConfig) PropagationConfig {
 	if len(config) < 1 {
-		return MetadataConfigDefault
+		return PropagationConfigDefault
 	}
 
 	cfg := config[0]
 	if cfg.Next == nil {
-		cfg.Next = MetadataConfigDefault.Next
+		cfg.Next = PropagationConfigDefault.Next
 	}
 
 	if cfg.RequestIDContextKey == "" {
-		cfg.RequestIDContextKey = MetadataConfigDefault.RequestIDContextKey
+		cfg.RequestIDContextKey = PropagationConfigDefault.RequestIDContextKey
 	}
 
 	if cfg.TraceIDContextKey == "" {
-		cfg.TraceIDContextKey = MetadataConfigDefault.TraceIDContextKey
+		cfg.TraceIDContextKey = PropagationConfigDefault.TraceIDContextKey
 	}
 
 	if cfg.SpanIDContextKey == "" {
-		cfg.SpanIDContextKey = MetadataConfigDefault.SpanIDContextKey
+		cfg.SpanIDContextKey = PropagationConfigDefault.SpanIDContextKey
 	}
 
 	if cfg.ParentSpanIDContextKey == "" {
-		cfg.ParentSpanIDContextKey = MetadataConfigDefault.ParentSpanIDContextKey
+		cfg.ParentSpanIDContextKey = PropagationConfigDefault.ParentSpanIDContextKey
 	}
 
 	if cfg.SampledContextKey == "" {
-		cfg.SampledContextKey = MetadataConfigDefault.SampledContextKey
+		cfg.SampledContextKey = PropagationConfigDefault.SampledContextKey
 	}
 
 	if cfg.RequestIDHeader == "" {
-		cfg.RequestIDHeader = MetadataConfigDefault.RequestIDHeader
+		cfg.RequestIDHeader = PropagationConfigDefault.RequestIDHeader
 	}
 
 	if cfg.TraceIDHeader == "" {
-		cfg.TraceIDHeader = MetadataConfigDefault.TraceIDHeader
+		cfg.TraceIDHeader = PropagationConfigDefault.TraceIDHeader
 	}
 
 	if cfg.SpanIDHeader == "" {
-		cfg.SpanIDHeader = MetadataConfigDefault.SpanIDHeader
+		cfg.SpanIDHeader = PropagationConfigDefault.SpanIDHeader
 	}
 
 	if cfg.ParentSpanIDHeader == "" {
-		cfg.ParentSpanIDHeader = MetadataConfigDefault.ParentSpanIDHeader
+		cfg.ParentSpanIDHeader = PropagationConfigDefault.ParentSpanIDHeader
 	}
 
 	if cfg.SampledHeader == "" {
-		cfg.SampledHeader = MetadataConfigDefault.SampledHeader
+		cfg.SampledHeader = PropagationConfigDefault.SampledHeader
 	}
 
 	return cfg
 }
 
-func NewMetadataMiddleware(config ...MetadataConfig) fiber.Handler {
-	cfg := metadataConfigDefault(config...)
+func NewPropagationMiddleware(config ...PropagationConfig) fiber.Handler {
+	cfg := propagationConfigDefault(config...)
 
 	return func(c *fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
 
-		rv := c.Locals(cfg.RequestIDContextKey)
-		requestID, _ := rv.(string)
-		tv := c.Locals(cfg.TraceIDContextKey)
-		traceID, _ := tv.(string)
-		sv := c.Locals(cfg.SpanIDContextKey)
-		spanID, _ := sv.(string)
-		pv := c.Locals(cfg.ParentSpanIDContextKey)
-		parentSpanID, _ := pv.(string)
-		av := c.Locals(cfg.SampledContextKey)
-		sampled, _ := av.(string)
+		requestID := c.Get(cfg.RequestIDHeader)
+		traceID := c.Get(cfg.TraceIDHeader)
+		spanID := c.Get(cfg.SpanIDHeader)
+		//parentSpanID := c.Get(cfg.ParentSpanIDHeader)
+		sampled := c.Get(cfg.SampledHeader)
 
-		md := metadata.Pairs(
-			cfg.RequestIDHeader, requestID,
-			cfg.TraceIDHeader, traceID,
-			cfg.SpanIDHeader, spanID,
-			cfg.ParentSpanIDHeader, parentSpanID,
-			cfg.SampledHeader, sampled,
-		)
+		if requestID == "" {
+			requestID = uuid.New().String()
+		}
 
-		newCtx := metadata.NewOutgoingContext(c.UserContext(), md)
-		c.SetUserContext(newCtx)
+		c.Locals(cfg.RequestIDContextKey, requestID)
+		c.Locals(cfg.TraceIDContextKey, traceID)
+		// Chained
+		c.Locals(cfg.ParentSpanIDContextKey, spanID)
+		c.Locals(cfg.SampledContextKey, sampled)
+
+		c.Set(cfg.RequestIDHeader, requestID)
 
 		return c.Next()
 	}
