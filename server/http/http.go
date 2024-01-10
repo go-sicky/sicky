@@ -64,12 +64,12 @@ var (
 	servers = make(map[string]*HTTPServer, 0)
 )
 
-func Instance(name string, clt ...*HTTPServer) *HTTPServer {
-	if len(clt) > 0 {
+func Instance(name string, srv ...*HTTPServer) *HTTPServer {
+	if len(srv) > 0 {
 		// Set value
-		servers[name] = clt[0]
+		servers[name] = srv[0]
 
-		return clt[0]
+		return srv[0]
 	}
 
 	return servers[name]
