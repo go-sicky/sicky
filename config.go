@@ -36,6 +36,7 @@ import (
 	cgrpc "github.com/go-sicky/sicky/client/grpc"
 	chttp "github.com/go-sicky/sicky/client/http"
 	cnats "github.com/go-sicky/sicky/client/nats"
+	cwebsocket "github.com/go-sicky/sicky/client/websocket"
 	"github.com/go-sicky/sicky/driver"
 	sgrpc "github.com/go-sicky/sicky/server/grpc"
 	shttp "github.com/go-sicky/sicky/server/http"
@@ -68,9 +69,10 @@ type ConfigGlobal struct {
 			Nats      map[string]*snats.Config      `json:"nats" yaml:"nats" mapstructure:"nats"`
 		} `json:"servers" yaml:"servers" mapstructure:"servers"`
 		Clients struct {
-			HTTP map[string]*chttp.Config `json:"http" yaml:"http" mapstructure:"http"`
-			GRPC map[string]*cgrpc.Config `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
-			Nats map[string]*cnats.Config `json:"nats" yaml:"nats" mapstructure:"nats"`
+			HTTP      map[string]*chttp.Config      `json:"http" yaml:"http" mapstructure:"http"`
+			GRPC      map[string]*cgrpc.Config      `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
+			Websocket map[string]*cwebsocket.Config `json:"websocket" yaml:"websocket" mapstructure:"websocket"`
+			Nats      map[string]*cnats.Config      `json:"nats" yaml:"nats" mapstructure:"nats"`
 		} `json:"clients" yaml:"clients" mapstructure:"clients"`
 		Drivers struct {
 			Bun   *driver.BunConfig   `json:"bun" yaml:"bun" mapstructure:"bun"`
@@ -162,6 +164,17 @@ func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
 	cfg := cg.Sicky.Clients.GRPC[name]
 	if cfg == nil {
 		cfg = cgrpc.DefaultConfig(name)
+	}
+
+	cfg.Name = name
+
+	return cfg
+}
+
+func (cg *ConfigGlobal) WebsocketClient(name string) *cwebsocket.Config {
+	cfg := cg.Sicky.Clients.Websocket[name]
+	if cfg == nil {
+		cfg = cwebsocket.DefaultConfig(name)
 	}
 
 	cfg.Name = name

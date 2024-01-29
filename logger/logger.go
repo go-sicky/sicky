@@ -31,7 +31,9 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
+	"os"
 	"strings"
 )
 
@@ -130,6 +132,127 @@ func level2slog(level Level) slog.Level {
 
 	return slog.LevelInfo
 }
+
+/* {{{ [Default logger operation ] */
+// Helpers
+func Trace(msg string, args ...any) {
+	Logger.Log(TraceLevel, msg, args...)
+}
+
+func Tracef(format string, args ...any) {
+	Logger.Logf(TraceLevel, format, args...)
+}
+
+func Debug(msg string, args ...any) {
+	Logger.Log(DebugLevel, msg, args...)
+}
+
+func Debugf(format string, args ...any) {
+	Logger.Logf(DebugLevel, format, args...)
+}
+
+func Info(msg string, args ...any) {
+	Logger.Log(InfoLevel, msg, args...)
+}
+
+func Infof(format string, args ...any) {
+	Logger.Logf(InfoLevel, format, args...)
+}
+
+func Notice(msg string, args ...any) {
+	Logger.Log(NoticeLevel, msg, args...)
+}
+
+func Noticef(format string, args ...any) {
+	Logger.Logf(NoticeLevel, format, args...)
+}
+
+func Warn(msg string, args ...any) {
+	Logger.Log(WarnLevel, msg, args...)
+}
+
+func Warnf(format string, args ...any) {
+	Logger.Logf(WarnLevel, format, args...)
+}
+
+func Error(msg string, args ...any) {
+	Logger.Log(ErrorLevel, msg, args...)
+}
+
+func Errorf(format string, args ...any) {
+	Logger.Logf(ErrorLevel, format, args...)
+}
+
+func Fatal(msg string, args ...any) {
+	Logger.Log(FatalLevel, msg, args...)
+	os.Exit(-1)
+}
+
+func Fatalf(format string, args ...any) {
+	Logger.Logf(FatalLevel, format, args...)
+	os.Exit(-1)
+}
+
+// Helpers with context
+func TraceContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, TraceLevel, msg, args...)
+}
+
+func TracefContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, TraceLevel, format, args...)
+}
+
+func DebugContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, DebugLevel, msg, args...)
+}
+
+func DebugfContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, DebugLevel, format, args...)
+}
+
+func InfoContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, InfoLevel, msg, args...)
+}
+
+func InfofContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, InfoLevel, format, args...)
+}
+
+func NoticeContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, NoticeLevel, msg, args...)
+}
+
+func NoticefContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, NoticeLevel, format, args...)
+}
+
+func WarnContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, WarnLevel, msg, args...)
+}
+
+func WarnfContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, WarnLevel, format, args...)
+}
+
+func ErrorContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, ErrorLevel, msg, args...)
+}
+
+func ErrorfContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, ErrorLevel, format, args...)
+}
+
+func FatalContext(ctx context.Context, msg string, args ...any) {
+	Logger.LogContext(ctx, FatalLevel, msg, args...)
+	os.Exit(-1)
+}
+
+func FatalfContext(ctx context.Context, format string, args ...any) {
+	Logger.LogfContext(ctx, FatalLevel, format, args...)
+	os.Exit(-1)
+}
+
+/* }}} */
 
 /*
  * Local variables:

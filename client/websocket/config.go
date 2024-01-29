@@ -22,73 +22,22 @@
  */
 
 /**
- * @file server.go
- * @package server
+ * @file config.go
+ * @package websocket
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 01/29/2024
  */
 
-package server
+package websocket
 
-// Handler : server handler
-// type Handler struct {
-// 	Type string
-// 	Hdl  any
-// }
-
-// func NewHandler(hdl any) *Handler {
-// 	return &Handler{
-// 		Hdl: hdl,
-// 	}
-// }
-
-// type Handler interface {
-// 	Register(string)
-// 	Name() string
-// 	Type() string
-// }
-
-// type HandlerHTTP interface {
-// 	Register(Server)
-// 	Name() string
-// 	Type() string
-// }
-
-// type HandlerGRPC interface {
-// 	Register(Server)
-// 	Name() string
-// 	Type() string
-// }
-
-// Server : server abstraction
-type Server interface {
-	// Server options
-	Options() *Options
-	// Start the server
-	Start() error
-	// Stop the server
-	Stop() error
-	// Stringify
-	String() string
-	// Get name
-	Name() string
-	// Get ID
-	ID() string
+type Config struct {
+	Name string `json:"name" yaml:"name" mapstructure:"name"`
 }
 
-var (
-	servers = make(map[string]Server, 0)
-)
-
-func Instance(name string, srv ...Server) Server {
-	if len(srv) > 0 {
-		// Set value
-		servers[name] = srv[0]
-
-		return srv[0]
+func DefaultConfig(name string) *Config {
+	return &Config{
+		Name: name,
 	}
-
-	return servers[name]
 }
 
 /*

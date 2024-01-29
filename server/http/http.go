@@ -45,6 +45,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+/* {{{ [Server] */
+
 // HTTPServer : Server definition
 type HTTPServer struct {
 	config  *Config
@@ -111,7 +113,7 @@ func NewServer(cfg *Config, opts ...server.Option) *HTTPServer {
 
 	// Register swagger
 	if cfg.EnableSwagger {
-		server.Handle(NewSwagger())(srv.options)
+		srv.Handle(NewSwagger())
 	}
 
 	app := fiber.New(
@@ -181,14 +183,14 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
-	if srv.options.Handlers() != nil {
-		for _, hdl := range srv.options.Handlers() {
-			if hdl.Type() == srv.String() {
-				srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.Name(), "name", hdl.Name())
-				hdl.Register(srv.Name())
-			}
-		}
-	}
+	// if srv.options.Handlers() != nil {
+	// 	for _, hdl := range srv.options.Handlers() {
+	// 		if hdl.Type() == srv.String() {
+	// 			srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.Name(), "name", hdl.Name())
+	// 			hdl.Register(srv.Name())
+	// 		}
+	// 	}
+	// }
 
 	if srv.options.TLS() != nil {
 		listener, err = tls.Listen(
@@ -279,6 +281,34 @@ func (srv *HTTPServer) ID() string {
 func (srv *HTTPServer) App() *fiber.App {
 	return srv.app
 }
+
+func (srv *HTTPServer) Handle(ss any) {
+	hdl, ok := ss.(HTTPHandler)
+	if ok {
+		hdl.Register(srv.app)
+		srv.options.Logger().InfoContext(
+			srv.ctx,
+			"HTTP handler registered",
+			"handler", hdl.Name(),
+		)
+	} else {
+		srv.options.Logger().WarnContext(
+			srv.ctx,
+			"Invalid HTTP handler",
+		)
+	}
+}
+
+/* }}} */
+
+/* {{{ [Handler] */
+type HTTPHandler interface {
+	Name() string
+	Type() string
+	Register(*fiber.App)
+}
+
+/* }}} */
 
 /*
  * Local variables:

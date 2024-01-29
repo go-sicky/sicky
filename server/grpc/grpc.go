@@ -45,6 +45,8 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+/* {{{ [Server] */
+
 // GRPCServer : Server definition
 type GRPCServer struct {
 	config  *Config
@@ -138,10 +140,16 @@ func NewServer(cfg *Config, opts ...server.Option) *GRPCServer {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
+	if srv.tracer != nil {
+		gopts = append(gopts, grpc.ChainUnaryInterceptor(
+			tracer.NewGRPCServerInterceptor(srv.tracer),
+		))
+	}
+
 	gopts = append(gopts, grpc.ChainUnaryInterceptor(
-		tracer.NewGRPCServerInterceptor(srv.tracer),
 		logger.NewGRPCServerInterceptor(srv.options.Logger()),
 	))
+
 	app := grpc.NewServer(gopts...)
 	reflection.Register(app)
 
@@ -169,27 +177,6 @@ func (srv *GRPCServer) Start() error {
 	if srv.runing {
 		// Runing
 		return nil
-	}
-
-	// if srv.options.Handlers() != nil {
-	// 	tt := reflect.TypeOf((*server.HandlerGRPC)(nil)).Elem()
-	// 	for _, hdl := range srv.options.Handlers() {
-	// 		ht := reflect.TypeOf(hdl.Hdl)
-	// 		if ht.Implements(tt) {
-	// 			tg, ok := hdl.Hdl.(server.HandlerGRPC)
-	// 			if ok {
-	// 				srv.options.Logger().DebugContext(srv.ctx, "Register GRPC handler", "server", srv.Name(), "name", tg.Name())
-	// 				hdl.Type = srv.String()
-	// 				tg.Register(srv)
-	// 			}
-	// 		}
-	// 	}
-	// }
-	if srv.options.Handlers() != nil {
-		for _, hdl := range srv.options.Handlers() {
-			srv.options.Logger().DebugContext(srv.ctx, "Register GRPC handler", "server", srv.Name(), "name", hdl.Name())
-			hdl.Register(srv.Name())
-		}
 	}
 
 	if srv.options.TLS() != nil {
@@ -280,6 +267,34 @@ func (srv *GRPCServer) ID() string {
 func (srv *GRPCServer) App() *grpc.Server {
 	return srv.app
 }
+
+func (srv *GRPCServer) Handle(ss any) {
+	hdl, ok := ss.(GRPCHandler)
+	if ok {
+		hdl.Register(srv.app)
+		srv.options.Logger().InfoContext(
+			srv.ctx,
+			"GRPC handler registered",
+			"handler", hdl.Name(),
+		)
+	} else {
+		srv.options.Logger().WarnContext(
+			srv.ctx,
+			"Invalid GRPC handler",
+		)
+	}
+}
+
+/* }}} */
+
+/* {{{ [Handler] */
+type GRPCHandler interface {
+	Name() string
+	Type() string
+	Register(*grpc.Server)
+}
+
+/* }}} */
 
 /*
  * Local variables:

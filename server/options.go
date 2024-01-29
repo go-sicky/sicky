@@ -41,11 +41,10 @@ import (
 
 // Options of server
 type Options struct {
-	ctx      context.Context
-	id       string
-	tls      *tls.Config
-	logger   logger.GeneralLogger
-	handlers []Handler
+	ctx    context.Context
+	id     string
+	tls    *tls.Config
+	logger logger.GeneralLogger
 
 	traceProvider *sdktrace.TracerProvider
 }
@@ -64,10 +63,6 @@ func (o *Options) TLS() *tls.Config {
 
 func (o *Options) Logger() logger.GeneralLogger {
 	return o.logger
-}
-
-func (o *Options) Handlers() []Handler {
-	return o.handlers
 }
 
 func (o *Options) TraceProvider() *sdktrace.TracerProvider {
@@ -104,12 +99,6 @@ func TLS(tls *tls.Config) Option {
 func Logger(logger logger.GeneralLogger) Option {
 	return func(opts *Options) {
 		opts.logger = logger
-	}
-}
-
-func Handle(handler Handler) Option {
-	return func(opts *Options) {
-		opts.handlers = append(opts.handlers, handler)
 	}
 }
 

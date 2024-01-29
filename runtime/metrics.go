@@ -45,6 +45,18 @@ var (
 			Help: "Number of http access",
 		},
 	)
+	NumNatsServerAccessCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_nats_server_access",
+			Help: "Number of nats access",
+		},
+	)
+	NumWebsocketServerAccessCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_websocket_server_access",
+			Help: "Number of websocket access",
+		},
+	)
 
 	NumGRPCClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -56,6 +68,18 @@ var (
 		prometheus.CounterOpts{
 			Name: "num_http_client_call",
 			Help: "Number of http call",
+		},
+	)
+	NumNatsClientCallCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_nats_client_call",
+			Help: "Number of nats call",
+		},
+	)
+	NumWebsocketClientCallCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_websocket_client_call",
+			Help: "Number of websocket call",
 		},
 	)
 )

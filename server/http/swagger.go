@@ -31,6 +31,7 @@
 package http
 
 import (
+	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/swagger"
 )
 
@@ -42,15 +43,12 @@ func NewSwagger() *Swagger {
 	return h
 }
 
-func (h *Swagger) Register(name string) {
-	srv := Instance(name)
-	if srv != nil {
-		srv.App().All("/docs/*", swagger.New(swagger.ConfigDefault))
-	}
+func (h *Swagger) Register(app *fiber.App) {
+	app.All("/docs/*", swagger.New(swagger.ConfigDefault))
 }
 
 func (h *Swagger) Name() string {
-	return "swagger"
+	return "sicky.swagger"
 }
 
 func (h *Swagger) Type() string {

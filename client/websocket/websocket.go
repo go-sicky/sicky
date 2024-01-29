@@ -22,13 +22,13 @@
  */
 
 /**
- * @file nats.go
- * @package nats
+ * @file websocket.go
+ * @package websocket
  * @author Dr.NP <np@herewe.tech>
- * @since 12/08/2023
+ * @since 01/29/2024
  */
 
-package nats
+package websocket
 
 import (
 	"context"
@@ -38,8 +38,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// NatsClient : Client definition
-type NatsClient struct {
+type WebsocketClient struct {
 	config  *Config
 	options *client.Options
 	ctx     context.Context
@@ -48,10 +47,10 @@ type NatsClient struct {
 }
 
 var (
-	clients = make(map[string]*NatsClient, 0)
+	clients = make(map[string]*WebsocketClient, 0)
 )
 
-func Instance(name string, clt ...*NatsClient) *NatsClient {
+func Instance(name string, clt ...*WebsocketClient) *WebsocketClient {
 	if len(clt) > 0 {
 		// Set value
 		clients[name] = clt[0]
@@ -62,10 +61,10 @@ func Instance(name string, clt ...*NatsClient) *NatsClient {
 	return clients[name]
 }
 
-// New nats client
-func NewClient(cfg *Config, opts ...client.Option) *NatsClient {
+// New websocket client
+func NewClient(cfg *Config, opts ...client.Option) *WebsocketClient {
 	ctx := context.Background()
-	clt := &NatsClient{
+	clt := &WebsocketClient{
 		config:  cfg,
 		ctx:     ctx,
 		options: client.NewOptions(),
@@ -94,28 +93,28 @@ func NewClient(cfg *Config, opts ...client.Option) *NatsClient {
 
 	client.Instance(clt.Name(), clt)
 	Instance(clt.Name(), clt)
-	clt.options.Logger().InfoContext(clt.ctx, "Nats client created", "id", clt.ID(), "name", clt.Name())
+	clt.options.Logger().InfoContext(clt.ctx, "Websocket client created", "id", clt.ID(), "name", clt.Name())
 
 	return clt
 }
 
-func (clt *NatsClient) Options() *client.Options {
+func (clt *WebsocketClient) Options() *client.Options {
 	return clt.options
 }
 
-func (clt *NatsClient) Call() error {
+func (clt *WebsocketClient) Call() error {
 	return nil
 }
 
-func (clt *NatsClient) String() string {
-	return "nats"
+func (clt *WebsocketClient) String() string {
+	return "websocket"
 }
 
-func (clt *NatsClient) Name() string {
+func (clt *WebsocketClient) Name() string {
 	return clt.config.Name
 }
 
-func (clt *NatsClient) ID() string {
+func (clt *WebsocketClient) ID() string {
 	return clt.options.ID()
 }
 

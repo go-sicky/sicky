@@ -141,8 +141,12 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 	svc.metricRegistry.MustRegister(
 		runtime.NumGRPCServerAccessCounter,
 		runtime.NumHTTPServerAccessCounter,
+		runtime.NumNatsServerAccessCounter,
+		runtime.NumWebsocketServerAccessCounter,
 		runtime.NumGRPCClientCallCounter,
-		runtime.NumHTTPServerAccessCounter,
+		runtime.NumHTTPClientCallCounter,
+		runtime.NumNatsClientCallCounter,
+		runtime.NumWebsocketClientCallCounter,
 	)
 	svc.metricServer = &http.Server{Addr: svc.config.Sicky.Metric.Exporter.Addr}
 	http.Handle(
