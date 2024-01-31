@@ -39,18 +39,36 @@ import (
 
 	"github.com/go-sicky/sicky/runtime"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/metadata"
 )
 
-type GRPCLogger interface{}
+type GRPCLogger interface {
+	// String returns the name of logger
+	String() string
+	// Level set log level
+	Level(Level)
+
+	Info(...any)
+	Infoln(...any)
+	Infof(string, ...any)
+	Warning(...any)
+	Warningln(...any)
+	Warningf(string, ...any)
+	Error(...any)
+	Errorln(...any)
+	Errorf(string, ...any)
+	Fatal(...any)
+	Fatalln(...any)
+	Fatalf(string, ...any)
+	V(int) bool
+}
 
 type grpcLogger struct {
 	ins   *slog.Logger
 	level *slog.LevelVar
 }
 
-func NewGRPC(l ...*slog.Logger) grpclog.LoggerV2 {
+func NewGRPC(l ...*slog.Logger) GRPCLogger {
 	var ins *slog.Logger
 	var level = new(slog.LevelVar)
 	if len(l) > 0 {
@@ -81,8 +99,6 @@ func NewGRPC(l ...*slog.Logger) grpclog.LoggerV2 {
 				},
 			),
 		)
-
-		slog.SetDefault(ins)
 	}
 
 	gl := &grpcLogger{
@@ -91,6 +107,14 @@ func NewGRPC(l ...*slog.Logger) grpclog.LoggerV2 {
 	}
 
 	return gl
+}
+
+func (gl *grpcLogger) String() string {
+	return "grpc_logger"
+}
+
+func (gl *grpcLogger) Level(level Level) {
+	gl.level.Set(level2slog(level))
 }
 
 func (gl *grpcLogger) Info(args ...any) {

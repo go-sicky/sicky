@@ -120,6 +120,8 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 		if err != nil {
 			svc.Logger().Fatalf("Initialize nats failed : %s", err)
 		}
+
+		svc.Logger().Infof("Nats <%s> initialized", svc.config.Sicky.Drivers.Nats.URL)
 	}
 
 	if svc.config.Sicky.Drivers.Redis != nil {
@@ -127,6 +129,8 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 		if err != nil {
 			svc.Logger().Fatalf("Initialize redis failed : %s", err)
 		}
+
+		svc.Logger().Infof("Redis <%s> initialized", svc.config.Sicky.Drivers.Redis.Addr)
 	}
 
 	if svc.config.Sicky.Drivers.Bun != nil {
@@ -134,6 +138,8 @@ func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
 		if err != nil {
 			svc.Logger().Fatalf("Initialize database failed : %s", err)
 		}
+
+		svc.Logger().Infof("Database driver <%s> initialized", svc.config.Sicky.Drivers.Bun.Driver)
 	}
 
 	// Prometheus metrics
