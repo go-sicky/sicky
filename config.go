@@ -31,6 +31,7 @@
 package sicky
 
 import (
+	"encoding/json"
 	"strings"
 
 	cgrpc "github.com/go-sicky/sicky/client/grpc"
@@ -106,6 +107,7 @@ type ConfigGlobal struct {
 }
 
 func (cg *ConfigGlobal) HTTPServer(name string) *shttp.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Servers.HTTP[name]
 	if cfg == nil {
 		cfg = shttp.DefaultConfig(name)
@@ -117,6 +119,7 @@ func (cg *ConfigGlobal) HTTPServer(name string) *shttp.Config {
 }
 
 func (cg *ConfigGlobal) GRPCServer(name string) *sgrpc.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Servers.GRPC[name]
 	if cfg == nil {
 		cfg = sgrpc.DefaultConfig(name)
@@ -128,6 +131,7 @@ func (cg *ConfigGlobal) GRPCServer(name string) *sgrpc.Config {
 }
 
 func (cg *ConfigGlobal) WebsocketServer(name string) *swebsocket.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Servers.Websocket[name]
 	if cfg == nil {
 		cfg = swebsocket.DefaultConfig(name)
@@ -139,6 +143,7 @@ func (cg *ConfigGlobal) WebsocketServer(name string) *swebsocket.Config {
 }
 
 func (cg *ConfigGlobal) NatsServer(name string) *snats.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Servers.Nats[name]
 	if cfg == nil {
 		cfg = snats.DefaultConfig(name)
@@ -150,6 +155,7 @@ func (cg *ConfigGlobal) NatsServer(name string) *snats.Config {
 }
 
 func (cg *ConfigGlobal) HTTPClient(name string) *chttp.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Clients.HTTP[name]
 	if cfg == nil {
 		cfg = chttp.DefaultConfig(name)
@@ -161,6 +167,7 @@ func (cg *ConfigGlobal) HTTPClient(name string) *chttp.Config {
 }
 
 func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Clients.GRPC[name]
 	if cfg == nil {
 		cfg = cgrpc.DefaultConfig(name)
@@ -172,6 +179,7 @@ func (cg *ConfigGlobal) GRPCClient(name string) *cgrpc.Config {
 }
 
 func (cg *ConfigGlobal) WebsocketClient(name string) *cwebsocket.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Clients.Websocket[name]
 	if cfg == nil {
 		cfg = cwebsocket.DefaultConfig(name)
@@ -183,6 +191,7 @@ func (cg *ConfigGlobal) WebsocketClient(name string) *cwebsocket.Config {
 }
 
 func (cg *ConfigGlobal) NatsClient(name string) *cnats.Config {
+	name = strings.ReplaceAll(name, ".", "_")
 	cfg := cg.Sicky.Clients.Nats[name]
 	if cfg == nil {
 		cfg = cnats.DefaultConfig(name)
@@ -191,6 +200,12 @@ func (cg *ConfigGlobal) NatsClient(name string) *cnats.Config {
 	cfg.Name = name
 
 	return cfg
+}
+
+func (cg *ConfigGlobal) Dump() string {
+	b, _ := json.MarshalIndent(cg, "", "  ")
+
+	return (string(b))
 }
 
 func DefaultConfig(name, version string) *ConfigGlobal {
