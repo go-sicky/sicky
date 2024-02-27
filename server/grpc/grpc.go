@@ -268,21 +268,13 @@ func (srv *GRPCServer) App() *grpc.Server {
 	return srv.app
 }
 
-func (srv *GRPCServer) Handle(ss any) {
-	hdl, ok := ss.(GRPCHandler)
-	if ok {
-		hdl.Register(srv.app)
-		srv.options.Logger().InfoContext(
-			srv.ctx,
-			"GRPC handler registered",
-			"handler", hdl.Name(),
-		)
-	} else {
-		srv.options.Logger().WarnContext(
-			srv.ctx,
-			"Invalid GRPC handler",
-		)
-	}
+func (srv *GRPCServer) Handle(hdl GRPCHandler) {
+	hdl.Register(srv.app)
+	srv.options.Logger().InfoContext(
+		srv.ctx,
+		"GRPC handler registered",
+		"handler", hdl.Name(),
+	)
 }
 
 /* }}} */

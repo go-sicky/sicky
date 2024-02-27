@@ -184,15 +184,6 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
-	// if srv.options.Handlers() != nil {
-	// 	for _, hdl := range srv.options.Handlers() {
-	// 		if hdl.Type() == srv.String() {
-	// 			srv.options.Logger().DebugContext(srv.ctx, "Register HTTP handler", "server", srv.Name(), "name", hdl.Name())
-	// 			hdl.Register(srv.Name())
-	// 		}
-	// 	}
-	// }
-
 	if srv.options.TLS() != nil {
 		listener, err = tls.Listen(
 			srv.addr.Network(),
@@ -283,21 +274,13 @@ func (srv *HTTPServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *HTTPServer) Handle(ss any) {
-	hdl, ok := ss.(HTTPHandler)
-	if ok {
-		hdl.Register(srv.app)
-		srv.options.Logger().InfoContext(
-			srv.ctx,
-			"HTTP handler registered",
-			"handler", hdl.Name(),
-		)
-	} else {
-		srv.options.Logger().WarnContext(
-			srv.ctx,
-			"Invalid HTTP handler",
-		)
-	}
+func (srv *HTTPServer) Handle(hdl HTTPHandler) {
+	hdl.Register(srv.app)
+	srv.options.Logger().InfoContext(
+		srv.ctx,
+		"HTTP handler registered",
+		"handler", hdl.Name(),
+	)
 }
 
 /* }}} */

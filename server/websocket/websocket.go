@@ -35,10 +35,18 @@ import (
 	"crypto/tls"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
+	"github.com/gofiber/contrib/websocket"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	ControlDeadline = 5 * time.Second
 )
 
 // WebsocketServer : Server definition
@@ -46,6 +54,7 @@ type WebsocketServer struct {
 	config  *Config
 	options *server.Options
 	ctx     context.Context
+	app     *fiber.App
 	runing  bool
 	addr    net.Addr
 
@@ -104,6 +113,18 @@ func NewServer(cfg *Config, opts ...server.Option) *WebsocketServer {
 		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
 	}
 
+	app := fiber.New(
+		fiber.Config{
+			Prefork:               false,
+			DisableStartupMessage: true,
+			ServerHeader:          cfg.Name,
+			AppName:               cfg.Name,
+			Network:               cfg.Network,
+		},
+	)
+	app.Use(recover.New(recover.ConfigDefault))
+	srv.app = app
+
 	server.Instance(srv.Name(), srv)
 	Instance(srv.Name(), srv)
 	srv.options.Logger().InfoContext(srv.ctx, "Websocket server created", "id", srv.ID(), "name", srv.Name(), "addr", addr.String())
@@ -157,11 +178,31 @@ func (srv *WebsocketServer) Start() error {
 	srv.addr = listener.Addr()
 	srv.wg.Add(1)
 	go func() error {
+		err := srv.app.Listener(listener)
+		if err != nil {
+			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server listen failed", "error", err.Error())
+
+			return err
+		}
+
+		srv.options.Logger().InfoContext(
+			srv.ctx,
+			"HTTP server closed",
+			"id", srv.options.ID(),
+			"server", srv.config.Name,
+		)
 		srv.wg.Done()
 
 		return nil
 	}()
 
+	srv.options.Logger().InfoContext(
+		srv.ctx,
+		"HTTP server listened",
+		"id", srv.options.ID(),
+		"server", srv.config.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = true
 
 	return nil
@@ -176,6 +217,7 @@ func (srv *WebsocketServer) Stop() error {
 		return nil
 	}
 
+	srv.app.Server().Shutdown()
 	srv.wg.Wait()
 	srv.runing = false
 
@@ -193,6 +235,83 @@ func (srv *WebsocketServer) Name() string {
 func (srv *WebsocketServer) ID() string {
 	return srv.options.ID()
 }
+
+func (srv *WebsocketServer) App() *fiber.App {
+	return srv.app
+}
+
+func (srv *WebsocketServer) Handle(hdl WebsocketHandler) {
+	srv.app.Use(hdl.Path(), func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			c.Locals("allowed", true)
+
+			return c.Next()
+		}
+
+		return fiber.ErrUpgradeRequired
+	})
+
+	srv.app.Get(hdl.Path()+"/:tag", websocket.New(func(c *websocket.Conn) {
+		var (
+			tag  = c.Params("tag")
+			mt   int
+			body []byte
+			err  error
+		)
+
+		// On connect
+		srv.options.Logger().Debug("websocket client established", "tag", tag)
+		NewSession(tag, c)
+		hdl.OnConnect(tag)
+	read:
+		for {
+			mt, body, err = c.ReadMessage()
+			if err != nil {
+				// On error
+				srv.options.Logger().Warn("websocket read error", "tag", tag, "error", err.Error())
+				hdl.OnError(tag, err)
+				break read
+			} else {
+				// Data
+				switch mt {
+				case websocket.TextMessage, websocket.BinaryMessage:
+					hdl.OnData(tag, body)
+				case websocket.PingMessage:
+					//c.WriteControl(websocket.PongMessage, nil, time.Now().Add(ControlDeadline))
+					break
+				case websocket.PongMessage:
+					// Ignore
+					break
+				case websocket.CloseMessage:
+					srv.options.Logger().Info("websocket close message from tag", "tag", tag)
+					//c.Close()
+					break read
+				default:
+					// Unknown
+					srv.options.Logger().Warn("unsupportted websocket data type", "type", mt)
+				}
+			}
+		}
+
+		// On close
+		srv.options.Logger().Debug("websocket client closed", "tag", tag)
+		DeleteSession(tag)
+		hdl.OnClose(tag)
+	}))
+}
+
+/* {{{ [Handler] */
+type WebsocketHandler interface {
+	Name() string
+	Type() string
+	Path() string
+	OnConnect(string) error
+	OnClose(string) error
+	OnError(string, error) error
+	OnData(string, []byte) error
+}
+
+/* }}} */
 
 /*
  * Local variables:

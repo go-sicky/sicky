@@ -33,12 +33,14 @@ package websocket
 const (
 	DefaultNetwork = "tcp"
 	DefaultAddr    = ":9992"
+	DefaultPath    = "/conn"
 )
 
 type Config struct {
 	Name    string `json:"name" yaml:"name" mapstructure:"name"`
 	Network string `json:"network" yaml:"network" mapstructure:"network"`
 	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Path    string `json:"path" yaml:"path" mapstructure:"path"`
 }
 
 func DefaultConfig(name string) *Config {
@@ -46,6 +48,7 @@ func DefaultConfig(name string) *Config {
 		Name:    name,
 		Network: DefaultNetwork,
 		Addr:    DefaultAddr,
+		Path:    DefaultPath,
 	}
 }
 

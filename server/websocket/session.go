@@ -22,43 +22,59 @@
  */
 
 /**
- * @file server.go
- * @package server
+ * @file session.go
+ * @package websocket
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 02/11/2023
  */
 
-package server
+package websocket
 
-// Server : server abstraction
-type Server interface {
-	// Server options
-	Options() *Options
-	// Start the server
-	Start() error
-	// Stop the server
-	Stop() error
-	// Stringify
-	String() string
-	// Get name
-	Name() string
-	// Get ID
-	ID() string
-}
+import (
+	"sync"
+	"time"
 
-var (
-	servers = make(map[string]Server, 0)
+	"github.com/gofiber/contrib/websocket"
 )
 
-func Instance(name string, srv ...Server) Server {
-	if len(srv) > 0 {
-		// Set value
-		servers[name] = srv[0]
+type Session struct {
+	tag      string
+	conn     *websocket.Conn
+	linkTime time.Time
+}
 
-		return srv[0]
+var store sync.Map
+
+func NewSession(tag string, conn *websocket.Conn) *Session {
+	sess := &Session{
+		tag:      tag,
+		conn:     conn,
+		linkTime: time.Now(),
 	}
 
-	return servers[name]
+	store.Store(tag, sess)
+
+	return sess
+}
+
+func GetSession(tag string) *Session {
+	d, ok := store.Load(tag)
+	if ok {
+		sess, sok := d.(*Session)
+		if sok {
+			return sess
+		}
+	}
+
+	return nil
+}
+
+func DeleteSession(tag string) {
+	store.Delete(tag)
+}
+
+func (s *Session) Send(data []byte) error {
+	return s.conn.WriteMessage(websocket.BinaryMessage, data)
 }
 
 /*
