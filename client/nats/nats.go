@@ -103,6 +103,14 @@ func (clt *NatsClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *NatsClient) Connect() error {
+	return nil
+}
+
+func (clt *NatsClient) Disconnect() error {
+	return nil
+}
+
 func (clt *NatsClient) Call() error {
 	return nil
 }

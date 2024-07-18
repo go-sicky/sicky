@@ -34,6 +34,10 @@ package client
 type Client interface {
 	// Client options
 	Options() *Options
+	// Connect
+	Connect() error
+	// Disconnect
+	Disconnect() error
 	// Call handle
 	Call() error
 	// Stringify
@@ -42,9 +46,6 @@ type Client interface {
 	Name() string
 	// Get ID
 	ID() string
-	// For GRPC
-	//Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error
-	//NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error)
 }
 
 var (

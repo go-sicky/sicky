@@ -102,6 +102,14 @@ func (clt *WebsocketClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *WebsocketClient) Connect() error {
+	return nil
+}
+
+func (clt *WebsocketClient) Disconnect() error {
+	return nil
+}
+
 func (clt *WebsocketClient) Call() error {
 	return nil
 }
@@ -117,6 +125,22 @@ func (clt *WebsocketClient) Name() string {
 func (clt *WebsocketClient) ID() string {
 	return clt.options.ID()
 }
+
+func (clt *WebsocketClient) Handle(hdl WebsocketHandler) {
+
+}
+
+/* {{{ [Handler] */
+type WebsocketHandler interface {
+	Name() string
+	Type() string
+	OnConnect(string) error
+	OnClose(string) error
+	OnError(string, error) error
+	OnData(string, []byte) error
+}
+
+/* }}} */
 
 /*
  * Local variables:

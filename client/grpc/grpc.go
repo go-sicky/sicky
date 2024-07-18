@@ -158,6 +158,14 @@ func (clt *GRPCClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *GRPCClient) Connect() error {
+	return nil
+}
+
+func (clt *GRPCClient) Disconnect() error {
+	return nil
+}
+
 func (clt *GRPCClient) Call() error {
 	return nil
 }

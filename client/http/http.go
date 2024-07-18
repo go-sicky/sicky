@@ -103,6 +103,14 @@ func (clt *HTTPClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *HTTPClient) Connect() error {
+	return nil
+}
+
+func (clt *HTTPClient) Disconnect() error {
+	return nil
+}
+
 func (clt *HTTPClient) Call() error {
 	return nil
 }

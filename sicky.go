@@ -186,6 +186,12 @@ func (svc *Service) Start() error {
 		}
 	}
 
+	for _, clt := range svc.options.clients {
+		if err := clt.Connect(); err != nil {
+			return err
+		}
+	}
+
 	for _, fn := range svc.options.afterStart {
 		if err := fn(); err != nil {
 			return err
@@ -193,7 +199,7 @@ func (svc *Service) Start() error {
 	}
 
 	go func() {
-		svc.Logger().DebugContext(svc.ctx, "Starting prometheus exporter", "addr", svc.config.Sicky.Metric.Exporter.Addr)
+		svc.Logger().InfoContext(svc.ctx, "Starting prometheus exporter", "addr", svc.config.Sicky.Metric.Exporter.Addr)
 		err := svc.metricServer.ListenAndServe()
 		if err != nil {
 			if errors.Is(err, http.ErrServerClosed) {
@@ -225,13 +231,19 @@ func (svc *Service) Stop() []error {
 		}
 	}
 
+	for _, clt := range svc.options.clients {
+		if err = clt.Disconnect(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	for _, fn := range svc.options.afterStop {
 		if err = fn(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	svc.Logger().DebugContext(svc.ctx, "Stopping prometheus exporter")
+	svc.Logger().InfoContext(svc.ctx, "Stopping prometheus exporter")
 	err = svc.metricServer.Shutdown(svc.ctx)
 	if err != nil {
 		errs = append(errs, err)
