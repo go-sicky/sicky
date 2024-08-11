@@ -34,13 +34,14 @@ import "time"
 
 const (
 	DefaultNetwork = "tcp"
-	DefaultAddr    = ":9991"
+	DefaultAddr    = ":0"
 )
 
 type Config struct {
-	Name                 string        `json:"name" yaml:"name" mapstructure:"name"`
 	Network              string        `json:"network" yaml:"network" mapstructure:"network"`
 	Addr                 string        `json:"addr" yaml:"addr" mapstructure:"addr"`
+	TLSCertPEM           string        `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM            string        `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
 	ConnectionTimeout    time.Duration `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
 	MaxConcurrentStreams uint32        `json:"max_concurrent_streams" yaml:"max_concurrent_streams" mapstructures:"max_concurrent_streams"`
 	MaxHeaderListSize    uint32        `json:"max_header_list_size" yaml:"max_header_list_size" mapstructure:"max_header_list_size"`
@@ -50,12 +51,19 @@ type Config struct {
 	WriteBufferSize      int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
 }
 
-func DefaultConfig(name string) *Config {
+func DefaultConfig() *Config {
 	return &Config{
-		Name:    name,
 		Network: DefaultNetwork,
 		Addr:    DefaultAddr,
 	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	return c
 }
 
 /*

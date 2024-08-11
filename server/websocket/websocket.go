@@ -37,12 +37,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -52,8 +50,8 @@ const (
 // WebsocketServer : Server definition
 type WebsocketServer struct {
 	config  *Config
-	options *server.Options
 	ctx     context.Context
+	options *server.Options
 	app     *fiber.App
 	runing  bool
 	addr    net.Addr
@@ -61,84 +59,67 @@ type WebsocketServer struct {
 	sync.RWMutex
 	wg sync.WaitGroup
 
-	tracer trace.Tracer
-}
-
-var (
-	servers = make(map[string]*WebsocketServer, 0)
-)
-
-func Instance(name string, clt ...*WebsocketServer) *WebsocketServer {
-	if len(clt) > 0 {
-		// Set value
-		servers[name] = clt[0]
-
-		return clt[0]
-	}
-
-	return servers[name]
+	//tracer trace.Tracer
 }
 
 // New Websocket server
-func NewServer(cfg *Config, opts ...server.Option) *WebsocketServer {
-	ctx := context.Background()
+func NewServer(opts *server.Options, cfg *Config) *WebsocketServer {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &WebsocketServer{
 		config:  cfg,
-		ctx:     ctx,
+		ctx:     context.Background(),
 		addr:    addr,
 		runing:  false,
-		options: server.NewOptions(),
-	}
-
-	for _, opt := range opts {
-		opt(srv.options)
-	}
-
-	// Set logger
-	if srv.options.Logger() == nil {
-		server.Logger(logger.Logger)(srv.options)
-	}
-
-	// Set global context
-	if srv.options.Context() != nil {
-		srv.ctx = srv.options.Context()
-	} else {
-		server.Context(ctx)(srv.options)
+		options: opts,
 	}
 
 	// Set tracer
-	if srv.options.TraceProvider() != nil {
-		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
-	}
+	// if srv.options.TraceProvider() != nil {
+	// 	srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
+	// }
 
 	app := fiber.New(
 		fiber.Config{
 			Prefork:               false,
 			DisableStartupMessage: true,
-			ServerHeader:          cfg.Name,
-			AppName:               cfg.Name,
+			ServerHeader:          opts.Name,
+			AppName:               opts.Name,
 			Network:               cfg.Network,
 		},
 	)
 	app.Use(recover.New(recover.ConfigDefault))
 	srv.app = app
-
-	server.Instance(srv.Name(), srv)
-	Instance(srv.Name(), srv)
-	srv.options.Logger().InfoContext(srv.ctx, "Websocket server created", "id", srv.ID(), "name", srv.Name(), "addr", addr.String())
+	srv.options.Logger.InfoContext(
+		srv.ctx,
+		"Websocket server created",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", addr.String())
 
 	return srv
+}
+
+func (srv *WebsocketServer) Context() context.Context {
+	return srv.ctx
 }
 
 func (srv *WebsocketServer) Options() *server.Options {
 	return srv.options
 }
 
+func (srv *WebsocketServer) String() string {
+	return "websocket"
+}
+
 func (srv *WebsocketServer) Start() error {
 	var (
 		listener net.Listener
+		cert     tls.Certificate
 		err      error
 	)
 
@@ -150,15 +131,37 @@ func (srv *WebsocketServer) Start() error {
 		return nil
 	}
 
-	if srv.options.TLS() != nil {
+	// Try TLS first
+	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
+		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
+		if err != nil {
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"TLS certification failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
+		}
+
 		listener, err = tls.Listen(
 			srv.addr.Network(),
 			srv.addr.String(),
-			srv.options.TLS(),
+			&tls.Config{
+				MinVersion:   tls.VersionTLS12,
+				Certificates: []tls.Certificate{cert},
+			},
 		)
-
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "Websocket server with TLS listen failed", "error", err.Error())
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Network listen with TLS certificate failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
 
 			return err
 		}
@@ -169,38 +172,78 @@ func (srv *WebsocketServer) Start() error {
 		)
 
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "Websocket server listen failed", "error", err.Error())
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Network listen failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
 
 			return err
 		}
 	}
+
+	// if srv.options.TLS() != nil {
+	// 	listener, err = tls.Listen(
+	// 		srv.addr.Network(),
+	// 		srv.addr.String(),
+	// 		srv.options.TLS(),
+	// 	)
+
+	// 	if err != nil {
+	// 		srv.options.Logger().ErrorContext(srv.ctx, "Websocket server with TLS listen failed", "error", err.Error())
+
+	// 		return err
+	// 	}
+	// } else {
+	// 	listener, err = net.Listen(
+	// 		srv.addr.Network(),
+	// 		srv.addr.String(),
+	// 	)
+
+	// 	if err != nil {
+	// 		srv.options.Logger().ErrorContext(srv.ctx, "Websocket server listen failed", "error", err.Error())
+
+	// 		return err
+	// 	}
+	// }
 
 	srv.addr = listener.Addr()
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Listener(listener)
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "HTTP server listen failed", "error", err.Error())
+			srv.options.Logger.ErrorContext(
+				srv.ctx, "Websocket server listen failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
 
 			return err
 		}
 
-		srv.options.Logger().InfoContext(
+		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"HTTP server closed",
-			"id", srv.options.ID(),
-			"server", srv.config.Name,
+			"Websocket server closed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
 		)
 		srv.wg.Done()
 
 		return nil
 	}()
 
-	srv.options.Logger().InfoContext(
+	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"HTTP server listened",
-		"id", srv.options.ID(),
-		"server", srv.config.Name,
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
 	srv.runing = true
@@ -222,18 +265,6 @@ func (srv *WebsocketServer) Stop() error {
 	srv.runing = false
 
 	return nil
-}
-
-func (srv *WebsocketServer) String() string {
-	return "websocket"
-}
-
-func (srv *WebsocketServer) Name() string {
-	return srv.config.Name
-}
-
-func (srv *WebsocketServer) ID() string {
-	return srv.options.ID()
 }
 
 func (srv *WebsocketServer) App() *fiber.App {
@@ -260,7 +291,14 @@ func (srv *WebsocketServer) Handle(hdl WebsocketHandler) {
 		)
 
 		// On connect
-		srv.options.Logger().Debug("websocket client established", "tag", tag)
+		srv.options.Logger.DebugContext(
+			srv.ctx,
+			"Websocket client established",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"tag", tag,
+		)
 		NewSession(tag, c)
 		hdl.OnConnect(tag)
 	read:
@@ -268,7 +306,15 @@ func (srv *WebsocketServer) Handle(hdl WebsocketHandler) {
 			mt, body, err = c.ReadMessage()
 			if err != nil {
 				// On error
-				srv.options.Logger().Warn("websocket read error", "tag", tag, "error", err.Error())
+				srv.options.Logger.WarnContext(
+					srv.ctx,
+					"Websocket read error",
+					"server", srv.String(),
+					"id", srv.options.ID,
+					"name", srv.options.Name,
+					"tag", tag,
+					"error", err.Error(),
+				)
 				hdl.OnError(tag, err)
 				break read
 			} else {
@@ -283,18 +329,40 @@ func (srv *WebsocketServer) Handle(hdl WebsocketHandler) {
 					// Ignore
 					break
 				case websocket.CloseMessage:
-					srv.options.Logger().Info("websocket close message from tag", "tag", tag)
+					srv.options.Logger.InfoContext(
+						srv.ctx,
+						"Websocket client close message from tag",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"tag", tag,
+					)
 					//c.Close()
 					break read
 				default:
 					// Unknown
-					srv.options.Logger().Warn("unsupportted websocket data type", "type", mt)
+					srv.options.Logger.WarnContext(
+						srv.ctx,
+						"Unsupportted websocket data type",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"tag", tag,
+						"type", mt,
+					)
 				}
 			}
 		}
 
 		// On close
-		srv.options.Logger().Debug("websocket client closed", "tag", tag)
+		srv.options.Logger.DebugContext(
+			srv.ctx,
+			"Websocket client closed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"tag", tag,
+		)
 		DeleteSession(tag)
 		hdl.OnClose(tag)
 	}))

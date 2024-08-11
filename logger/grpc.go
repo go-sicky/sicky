@@ -63,6 +63,16 @@ type GRPCLogger interface {
 	V(int) bool
 }
 
+var DefaultGRPCLogger GRPCLogger
+
+func init() {
+	SetDefaultGRPC(NewGRPC(nil))
+}
+
+func SetDefaultGRPC(logger GRPCLogger) {
+	DefaultGRPCLogger = logger
+}
+
 type grpcLogger struct {
 	ins   *slog.Logger
 	level *slog.LevelVar

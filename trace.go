@@ -30,95 +30,83 @@
 
 package sicky
 
-import (
-	"context"
-	"os"
-	"time"
-
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-)
-
 //var DefaultTraceProvider *sdktrace.TracerProvider
 
-func NewTraceProvider(cfg *ConfigGlobal, opts ...Option) *sdktrace.TracerProvider {
-	var (
-		err      error
-		exporter sdktrace.SpanExporter
-		res      *resource.Resource
-		options  = NewOptions()
-	)
+// func NewTraceProvider(cfg *ConfigGlobal, opts ...Option) *sdktrace.TracerProvider {
+// 	var (
+// 		err      error
+// 		exporter sdktrace.SpanExporter
+// 		res      *resource.Resource
+// 		options  = NewOptions()
+// 	)
 
-	for _, opt := range opts {
-		opt(options)
-	}
+// 	for _, opt := range opts {
+// 		opt(options)
+// 	}
 
-	if cfg.Sicky.Trace.Type == "stdout" {
-		var opts []stdouttrace.Option
-		if cfg.Sicky.Trace.Exporter.Stdout.PrettyPrint {
-			opts = append(opts, stdouttrace.WithPrettyPrint())
-		}
+// 	if cfg.Sicky.Trace.Type == "stdout" {
+// 		var opts []stdouttrace.Option
+// 		if cfg.Sicky.Trace.Exporter.Stdout.PrettyPrint {
+// 			opts = append(opts, stdouttrace.WithPrettyPrint())
+// 		}
 
-		if !cfg.Sicky.Trace.Exporter.Stdout.Timestamps {
-			opts = append(opts, stdouttrace.WithoutTimestamps())
-		}
+// 		if !cfg.Sicky.Trace.Exporter.Stdout.Timestamps {
+// 			opts = append(opts, stdouttrace.WithoutTimestamps())
+// 		}
 
-		exporter, err = stdouttrace.New(opts...)
-	} else {
-		var opts []otlptracegrpc.Option
-		if cfg.Sicky.Trace.Exporter.GRPC.Compress {
-			opts = append(opts, otlptracegrpc.WithCompressor("gzip"))
-		}
+// 		exporter, err = stdouttrace.New(opts...)
+// 	} else {
+// 		var opts []otlptracegrpc.Option
+// 		if cfg.Sicky.Trace.Exporter.GRPC.Compress {
+// 			opts = append(opts, otlptracegrpc.WithCompressor("gzip"))
+// 		}
 
-		if cfg.Sicky.Trace.Exporter.GRPC.Timeout != 0 {
-			opts = append(opts, otlptracegrpc.WithTimeout(
-				time.Second*time.Duration(cfg.Sicky.Trace.Exporter.GRPC.Timeout),
-			))
-		}
+// 		if cfg.Sicky.Trace.Exporter.GRPC.Timeout != 0 {
+// 			opts = append(opts, otlptracegrpc.WithTimeout(
+// 				time.Second*time.Duration(cfg.Sicky.Trace.Exporter.GRPC.Timeout),
+// 			))
+// 		}
 
-		if !cfg.Sicky.Trace.Exporter.GRPC.TLS {
-			opts = append(opts, otlptracegrpc.WithInsecure())
-		}
+// 		if !cfg.Sicky.Trace.Exporter.GRPC.TLS {
+// 			opts = append(opts, otlptracegrpc.WithInsecure())
+// 		}
 
-		opts = append(opts, otlptracegrpc.WithEndpoint(cfg.Sicky.Trace.Exporter.GRPC.Endpoint))
-		exporter, err = otlptracegrpc.New(
-			context.Background(),
-			opts...,
-		)
-	}
+// 		opts = append(opts, otlptracegrpc.WithEndpoint(cfg.Sicky.Trace.Exporter.GRPC.Endpoint))
+// 		exporter, err = otlptracegrpc.New(
+// 			context.Background(),
+// 			opts...,
+// 		)
+// 	}
 
-	if err != nil {
-		return nil
-	}
+// 	if err != nil {
+// 		return nil
+// 	}
 
-	cn, _ := os.Hostname()
-	res, err = resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(cfg.Sicky.Service.Name),
-			semconv.ServiceVersion(cfg.Sicky.Service.Version),
-			semconv.ServiceInstanceID(options.id),
-			semconv.ContainerName(cn),
-		),
-	)
-	if err != nil {
-		return nil
-	}
+// 	cn, _ := os.Hostname()
+// 	res, err = resource.Merge(
+// 		resource.Default(),
+// 		resource.NewWithAttributes(
+// 			semconv.SchemaURL,
+// 			semconv.ServiceName(cfg.Sicky.Service.Name),
+// 			semconv.ServiceVersion(cfg.Sicky.Service.Version),
+// 			semconv.ServiceInstanceID(options.id),
+// 			semconv.ContainerName(cn),
+// 		),
+// 	)
+// 	if err != nil {
+// 		return nil
+// 	}
 
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
+// 	tp := sdktrace.NewTracerProvider(
+// 		sdktrace.WithBatcher(exporter),
+// 		sdktrace.WithResource(res),
+// 	)
 
-	// Override
-	//DefaultTraceProvider = tp
+// 	// Override
+// 	//DefaultTraceProvider = tp
 
-	return tp
-}
+// 	return tp
+// }
 
 /*
  * Local variables:

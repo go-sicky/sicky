@@ -22,22 +22,42 @@
  */
 
 /**
- * @file config.go
- * @package nats
+ * @file event.go
+ * @package event
  * @author Dr.NP <np@herewe.tech>
- * @since 12/08/2023
+ * @since 08/04/2024
  */
 
-package nats
+package event
 
-type Config struct {
-	Name string `json:"name" yaml:"name" mapstructure:"name"`
+import "context"
+
+type Event interface {
+	// Get context
+	Context() context.Context
+	// Server options
+	Options() *Options
+	// Stringify
+	String() string
+	// Get name
+	Name() string
+	// Get ID
+	ID() string
 }
 
-func DefaultConfig(name string) *Config {
-	return &Config{
-		Name: name,
+var (
+	Default Event
+	events  = make(map[string]Event, 0)
+)
+
+func Instance(name string, srv ...Event) Event {
+	if len(srv) > 0 {
+		events[name] = srv[0]
+
+		return srv[0]
 	}
+
+	return events[name]
 }
 
 /*

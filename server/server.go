@@ -30,20 +30,20 @@
 
 package server
 
+import "context"
+
 // Server : server abstraction
 type Server interface {
+	// Get context
+	Context() context.Context
 	// Server options
 	Options() *Options
+	// Stringify
+	String() string
 	// Start the server
 	Start() error
 	// Stop the server
 	Stop() error
-	// Stringify
-	String() string
-	// Get name
-	Name() string
-	// Get ID
-	ID() string
 }
 
 var (
@@ -52,7 +52,6 @@ var (
 
 func Instance(name string, srv ...Server) Server {
 	if len(srv) > 0 {
-		// Set value
 		servers[name] = srv[0]
 
 		return srv[0]

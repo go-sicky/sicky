@@ -23,29 +23,40 @@
 
 /**
  * @file options.go
- * @package server
+ * @package service
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 08/01/2024
  */
 
-package server
+package service
 
 import (
+	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 )
 
-type ServerWrapper func() error
+const (
+	DefaultServiceVersion = "latest"
+	DefaultServiceBranch  = "main"
+)
+
+type ServiceWrapper func() error
 
 type Options struct {
-	Name   string
-	ID     uuid.UUID
-	Logger logger.GeneralLogger
+	Name    string
+	Version string
+	Branch  string
+	ID      uuid.UUID
+	Logger  logger.GeneralLogger
+	Servers map[uuid.UUID]server.Server
+	Clients map[uuid.UUID]client.Client
 
-	beforeStart []ServerWrapper
-	afterStart  []ServerWrapper
-	beforeStop  []ServerWrapper
-	afterStop   []ServerWrapper
+	beforeStart []ServiceWrapper
+	afterStart  []ServiceWrapper
+	beforeStop  []ServiceWrapper
+	afterStop   []ServiceWrapper
 }
 
 func (o *Options) Ensure() *Options {
@@ -58,7 +69,15 @@ func (o *Options) Ensure() *Options {
 	}
 
 	if o.Name == "" {
-		o.Name = "Server::" + o.ID.String()
+		o.Name = "service::" + o.ID.String()
+	}
+
+	if o.Version == "" {
+		o.Version = DefaultServiceVersion
+	}
+
+	if o.Branch == "" {
+		o.Branch = DefaultServiceBranch
 	}
 
 	if o.Logger == nil {
@@ -66,26 +85,26 @@ func (o *Options) Ensure() *Options {
 	}
 
 	if o.beforeStart == nil {
-		o.beforeStart = make([]ServerWrapper, 0)
+		o.beforeStart = make([]ServiceWrapper, 0)
 	}
 
 	if o.afterStart == nil {
-		o.afterStart = make([]ServerWrapper, 0)
+		o.afterStart = make([]ServiceWrapper, 0)
 	}
 
 	if o.beforeStart == nil {
-		o.beforeStop = make([]ServerWrapper, 0)
+		o.beforeStop = make([]ServiceWrapper, 0)
 	}
 
 	if o.afterStop == nil {
-		o.afterStop = make([]ServerWrapper, 0)
+		o.afterStop = make([]ServiceWrapper, 0)
 	}
 
 	return o
 }
 
 /* {{{ [Wrappers] */
-func (o *Options) BeforeStart(wrappers ...ServerWrapper) *Options {
+func (o *Options) BeforeStart(wrappers ...ServiceWrapper) *Options {
 	if o != nil {
 		o.beforeStart = append(o.beforeStart, wrappers...)
 	}
@@ -93,7 +112,7 @@ func (o *Options) BeforeStart(wrappers ...ServerWrapper) *Options {
 	return o
 }
 
-func (o *Options) AfterStart(wrappers ...ServerWrapper) *Options {
+func (o *Options) AfterStart(wrappers ...ServiceWrapper) *Options {
 	if o != nil {
 		o.afterStart = append(o.afterStart, wrappers...)
 	}
@@ -101,7 +120,7 @@ func (o *Options) AfterStart(wrappers ...ServerWrapper) *Options {
 	return o
 }
 
-func (o *Options) BeforeStop(wrappers ...ServerWrapper) *Options {
+func (o *Options) BeforeStop(wrappers ...ServiceWrapper) *Options {
 	if o != nil {
 		o.beforeStop = append(o.beforeStop, wrappers...)
 	}
@@ -109,7 +128,7 @@ func (o *Options) BeforeStop(wrappers ...ServerWrapper) *Options {
 	return o
 }
 
-func (o *Options) AfterStop(wrappers ...ServerWrapper) *Options {
+func (o *Options) AfterStop(wrappers ...ServiceWrapper) *Options {
 	if o != nil {
 		o.afterStop = append(o.afterStop, wrappers...)
 	}

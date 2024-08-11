@@ -36,12 +36,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/tracer"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -50,8 +46,8 @@ import (
 // GRPCServer : Server definition
 type GRPCServer struct {
 	config  *Config
-	options *server.Options
 	ctx     context.Context
+	options *server.Options
 	app     *grpc.Server
 	runing  bool
 	addr    net.Addr
@@ -59,62 +55,33 @@ type GRPCServer struct {
 	sync.RWMutex
 	wg sync.WaitGroup
 
-	tracer trace.Tracer
-}
-
-var (
-	servers = make(map[string]*GRPCServer, 0)
-)
-
-func Instance(name string, clt ...*GRPCServer) *GRPCServer {
-	if len(clt) > 0 {
-		// Set value
-		servers[name] = clt[0]
-
-		return clt[0]
-	}
-
-	return servers[name]
+	//tracer trace.Tracer
 }
 
 // New GRPC server
-func NewServer(cfg *Config, opts ...server.Option) *GRPCServer {
-	ctx := context.Background()
+func New(opts *server.Options, cfg *Config) *GRPCServer {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &GRPCServer{
 		config:  cfg,
-		ctx:     ctx,
+		ctx:     context.Background(),
 		addr:    addr,
 		runing:  false,
-		options: server.NewOptions(),
-	}
-
-	for _, opt := range opts {
-		opt(srv.options)
-	}
-
-	// Set logger
-	if srv.options.Logger() == nil {
-		server.Logger(logger.Logger)(srv.options)
-	}
-
-	// Set global context
-	if srv.options.Context() != nil {
-		srv.ctx = srv.options.Context()
-	} else {
-		server.Context(ctx)(srv.options)
+		options: opts,
 	}
 
 	// Set tracer
-	if srv.options.TraceProvider() != nil {
-		srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
-	}
+	// if srv.options.TraceProvider() != nil {
+	// 	srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
+	// }
 
 	gopts := make([]grpc.ServerOption, 0)
-	if srv.options.TLS() != nil {
-		gopts = append(gopts, grpc.Creds(credentials.NewTLS(srv.options.TLS())))
-	}
+	// if srv.options.TLS() != nil {
+	// 	gopts = append(gopts, grpc.Creds(credentials.NewTLS(srv.options.TLS())))
+	// }
 
 	if cfg.MaxConcurrentStreams > 0 {
 		gopts = append(gopts, grpc.MaxConcurrentStreams(cfg.MaxConcurrentStreams))
@@ -140,34 +107,46 @@ func NewServer(cfg *Config, opts ...server.Option) *GRPCServer {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	if srv.tracer != nil {
-		gopts = append(gopts, grpc.ChainUnaryInterceptor(
-			tracer.NewGRPCServerInterceptor(srv.tracer),
-		))
-	}
+	// if srv.tracer != nil {
+	// 	gopts = append(gopts, grpc.ChainUnaryInterceptor(
+	// 		tracer.NewGRPCServerInterceptor(srv.tracer),
+	// 	))
+	// }
 
-	gopts = append(gopts, grpc.ChainUnaryInterceptor(
-		logger.NewGRPCServerInterceptor(srv.options.Logger()),
-	))
+	// gopts = append(gopts, grpc.ChainUnaryInterceptor(
+	// 	logger.NewGRPCServerInterceptor(srv.options.Logger()),
+	// ))
 
 	app := grpc.NewServer(gopts...)
 	reflection.Register(app)
-
 	srv.app = app
-	server.Instance(srv.Name(), srv)
-	Instance(srv.Name(), srv)
-	srv.options.Logger().InfoContext(srv.ctx, "GRPC server created", "id", srv.ID(), "name", srv.Name(), "addr", addr.String())
+	srv.options.Logger.InfoContext(
+		srv.ctx,
+		"GRPC server created",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", addr.String())
 
 	return srv
+}
+
+func (srv *GRPCServer) Context() context.Context {
+	return srv.ctx
 }
 
 func (srv *GRPCServer) Options() *server.Options {
 	return srv.options
 }
 
+func (srv *GRPCServer) String() string {
+	return "grpc"
+}
+
 func (srv *GRPCServer) Start() error {
 	var (
 		listener net.Listener
+		cert     tls.Certificate
 		err      error
 	)
 
@@ -179,15 +158,37 @@ func (srv *GRPCServer) Start() error {
 		return nil
 	}
 
-	if srv.options.TLS() != nil {
+	// Try TLS first
+	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
+		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
+		if err != nil {
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"TLS certification failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
+		}
+
 		listener, err = tls.Listen(
 			srv.addr.Network(),
 			srv.addr.String(),
-			srv.options.TLS(),
+			&tls.Config{
+				MinVersion:   tls.VersionTLS12,
+				Certificates: []tls.Certificate{cert},
+			},
 		)
-
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "GRPC server with TLS listen failed", "error", err.Error())
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Network listen with TLS certificate failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
 
 			return err
 		}
@@ -198,39 +199,81 @@ func (srv *GRPCServer) Start() error {
 		)
 
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "GRPC server listen failed", "error", err.Error())
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Network listen failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
 
 			return err
 		}
 	}
+
+	// if srv.options.TLS() != nil {
+	// 	listener, err = tls.Listen(
+	// 		srv.addr.Network(),
+	// 		srv.addr.String(),
+	// 		srv.options.TLS(),
+	// 	)
+
+	// 	if err != nil {
+	// 		srv.options.Logger().ErrorContext(srv.ctx, "GRPC server with TLS listen failed", "error", err.Error())
+
+	// 		return err
+	// 	}
+	// } else {
+	// 	listener, err = net.Listen(
+	// 		srv.addr.Network(),
+	// 		srv.addr.String(),
+	// 	)
+
+	// 	if err != nil {
+	// 		srv.options.Logger().ErrorContext(srv.ctx, "GRPC server listen failed", "error", err.Error())
+
+	// 		return err
+	// 	}
+	// }
 
 	srv.addr = listener.Addr()
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Serve(listener)
 		if err != nil {
-			srv.options.Logger().ErrorContext(srv.ctx, "GRPC server listen failed", "error", err.Error())
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"GRPC server listen failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
 
 			return err
 		}
 
-		srv.options.Logger().InfoContext(
+		srv.options.Logger.InfoContext(
 			srv.ctx,
 			"GRPC server closed",
-			"id", srv.options.ID(),
-			"server", srv.config.Name,
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
 		)
 		srv.wg.Done()
 
 		return nil
 	}()
 
-	srv.options.Logger().InfoContext(
+	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"GRPC server listened",
-		"id", srv.options.ID(),
-		"server", srv.config.Name,
-		"addr", srv.addr.String())
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = true
 
 	return nil
@@ -252,27 +295,18 @@ func (srv *GRPCServer) Stop() error {
 	return nil
 }
 
-func (srv *GRPCServer) String() string {
-	return "grpc"
-}
-
-func (srv *GRPCServer) Name() string {
-	return srv.config.Name
-}
-
-func (srv *GRPCServer) ID() string {
-	return srv.options.ID()
-}
-
 func (srv *GRPCServer) App() *grpc.Server {
 	return srv.app
 }
 
 func (srv *GRPCServer) Handle(hdl GRPCHandler) {
 	hdl.Register(srv.app)
-	srv.options.Logger().InfoContext(
+	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"GRPC handler registered",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
 		"handler", hdl.Name(),
 	)
 }

@@ -22,42 +22,43 @@
  */
 
 /**
- * @file config.go
- * @package websocket
+ * @file options.go
+ * @package registry
  * @author Dr.NP <np@herewe.tech>
- * @since 11/22/2023
+ * @since 08/04/2024
  */
 
-package websocket
+package registry
 
-const (
-	DefaultNetwork = "tcp"
-	DefaultAddr    = ":9991"
-	DefaultPath    = "/conn"
+import (
+	"github.com/go-sicky/sicky/logger"
+	"github.com/google/uuid"
 )
 
-type Config struct {
-	Network    string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM  string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	Path       string `json:"path" yaml:"path" mapstructure:"path"`
+type Options struct {
+	Name   string
+	ID     uuid.UUID
+	Logger logger.GeneralLogger
 }
 
-func DefaultConfig() *Config {
-	return &Config{
-		Network: DefaultNetwork,
-		Addr:    DefaultAddr,
-		Path:    DefaultPath,
-	}
-}
-
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
+func (o *Options) Ensure() *Options {
+	if o == nil {
+		o = new(Options)
 	}
 
-	return c
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
+	}
+
+	if o.Name == "" {
+		o.Name = "Registry::" + o.ID.String()
+	}
+
+	if o.Logger == nil {
+		o.Logger = logger.DefaultGeneralLogger
+	}
+
+	return o
 }
 
 /*

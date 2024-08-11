@@ -22,45 +22,63 @@
  */
 
 /**
- * @file config.go
- * @package websocket
+ * @file sicky.go
+ * @package sicky
  * @author Dr.NP <np@herewe.tech>
- * @since 11/22/2023
+ * @since 08/01/2024
  */
 
-package websocket
+package sicky
 
-const (
-	DefaultNetwork = "tcp"
-	DefaultAddr    = ":9991"
-	DefaultPath    = "/conn"
+import (
+	"context"
+
+	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/service"
 )
 
-type Config struct {
-	Network    string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM  string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	Path       string `json:"path" yaml:"path" mapstructure:"path"`
+type Sicky struct {
+	ctx     context.Context
+	options *service.Options
 }
 
-func DefaultConfig() *Config {
-	return &Config{
-		Network: DefaultNetwork,
-		Addr:    DefaultAddr,
-		Path:    DefaultPath,
-	}
-}
-
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
+func New(opts *service.Options) service.Service {
+	opts = opts.Ensure()
+	svc := &Sicky{
+		ctx:     context.Background(),
+		options: opts,
 	}
 
-	return c
+	service.Instance = svc
+
+	return svc
 }
 
-/*
+func (s *Sicky) Context() context.Context {
+	return s.ctx
+}
+
+func (s *Sicky) Options() *service.Options {
+	return s.options
+}
+
+func (s *Sicky) String() string {
+	return "sicky"
+}
+
+func (s *Sicky) Servers(svrs ...server.Server) service.Service {
+	return s
+}
+
+func (s *Sicky) Start() error {
+	return nil
+}
+
+func (s *Sicky) Stop() error {
+	return nil
+}
+
+/*/*
  * Local variables:
  * tab-width: 4
  * c-basic-offset: 4

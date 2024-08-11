@@ -30,107 +30,98 @@
 
 package sicky
 
-import (
-	"context"
+// type Options struct {
+// 	service *Service
 
-	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/server"
-	"github.com/google/uuid"
-)
+// 	ctx         context.Context
+// 	id          string
+// 	logger      logger.GeneralLogger
+// 	servers     map[string]server.Server
+// 	clients     map[string]client.Client
+// 	beforeStart []ServiceWrapper
+// 	afterStart  []ServiceWrapper
+// 	beforeStop  []ServiceWrapper
+// 	afterStop   []ServiceWrapper
+// }
 
-type Options struct {
-	service *Service
+// func (o *Options) ID() string {
+// 	return o.id
+// }
 
-	ctx         context.Context
-	id          string
-	logger      logger.GeneralLogger
-	servers     map[string]server.Server
-	clients     map[string]client.Client
-	beforeStart []ServiceWrapper
-	afterStart  []ServiceWrapper
-	beforeStop  []ServiceWrapper
-	afterStop   []ServiceWrapper
-}
+// func (o *Options) Context() context.Context {
+// 	return o.ctx
+// }
 
-func (o *Options) ID() string {
-	return o.id
-}
+// func (o *Options) Logger() logger.GeneralLogger {
+// 	return o.logger
+// }
 
-func (o *Options) Context() context.Context {
-	return o.ctx
-}
+// func NewOptions() *Options {
+// 	return &Options{
+// 		servers: make(map[string]server.Server),
+// 		clients: make(map[string]client.Client),
+// 		id:      uuid.New().String(),
+// 	}
+// }
 
-func (o *Options) Logger() logger.GeneralLogger {
-	return o.logger
-}
+// type Option func(*Options)
 
-func NewOptions() *Options {
-	return &Options{
-		servers: make(map[string]server.Server),
-		clients: make(map[string]client.Client),
-		id:      uuid.New().String(),
-	}
-}
+// /* {{{ [Options] */
+// func ID(id string) Option {
+// 	return func(opts *Options) {
+// 		opts.id = id
+// 	}
+// }
 
-type Option func(*Options)
+// func Logger(logger logger.GeneralLogger) Option {
+// 	return func(opts *Options) {
+// 		opts.logger = logger
+// 	}
+// }
 
-/* {{{ [Options] */
-func ID(id string) Option {
-	return func(opts *Options) {
-		opts.id = id
-	}
-}
+// func Server(srv server.Server) Option {
+// 	return func(opts *Options) {
+// 		// Append server
+// 		if srv != nil {
+// 			opts.servers[srv.Name()] = srv
+// 		}
+// 	}
+// }
 
-func Logger(logger logger.GeneralLogger) Option {
-	return func(opts *Options) {
-		opts.logger = logger
-	}
-}
+// func Client(clt client.Client) Option {
+// 	return func(opts *Options) {
+// 		// Append client
+// 		if clt != nil {
+// 			opts.clients[clt.Name()] = clt
+// 		}
+// 	}
+// }
 
-func Server(srv server.Server) Option {
-	return func(opts *Options) {
-		// Append server
-		if srv != nil {
-			opts.servers[srv.Name()] = srv
-		}
-	}
-}
+// func BeforeStart(fn ServiceWrapper) Option {
+// 	return func(opts *Options) {
+// 		opts.beforeStart = append(opts.beforeStart, fn)
+// 	}
+// }
 
-func Client(clt client.Client) Option {
-	return func(opts *Options) {
-		// Append client
-		if clt != nil {
-			opts.clients[clt.Name()] = clt
-		}
-	}
-}
+// func AfterStart(fn ServiceWrapper) Option {
+// 	return func(opts *Options) {
+// 		opts.afterStart = append(opts.afterStart, fn)
+// 	}
+// }
 
-func BeforeStart(fn ServiceWrapper) Option {
-	return func(opts *Options) {
-		opts.beforeStart = append(opts.beforeStart, fn)
-	}
-}
+// func BeforeStop(fn ServiceWrapper) Option {
+// 	return func(opts *Options) {
+// 		opts.beforeStop = append(opts.beforeStop, fn)
+// 	}
+// }
 
-func AfterStart(fn ServiceWrapper) Option {
-	return func(opts *Options) {
-		opts.afterStart = append(opts.afterStart, fn)
-	}
-}
+// func AfterStop(fn ServiceWrapper) Option {
+// 	return func(opts *Options) {
+// 		opts.afterStop = append(opts.afterStop, fn)
+// 	}
+// }
 
-func BeforeStop(fn ServiceWrapper) Option {
-	return func(opts *Options) {
-		opts.beforeStop = append(opts.beforeStop, fn)
-	}
-}
-
-func AfterStop(fn ServiceWrapper) Option {
-	return func(opts *Options) {
-		opts.afterStop = append(opts.afterStop, fn)
-	}
-}
-
-/* }}} */
+// /* }}} */
 
 /*
  * Local variables:

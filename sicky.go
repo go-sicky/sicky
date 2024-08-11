@@ -30,334 +30,314 @@
 
 package sicky
 
-import (
-	"context"
-	"errors"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
+// type ServiceWrapper func() error
 
-	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/driver"
-	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/runtime"
-	"github.com/go-sicky/sicky/server"
-	"github.com/nats-io/nats.go"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/redis/go-redis/v9"
-	"github.com/uptrace/bun"
-)
+// // Service definition
+// type Service struct {
+// 	config  *ConfigGlobal
+// 	options *Options
+// 	ctx     context.Context
+// 	drivers struct {
+// 		bun   *bun.DB
+// 		nats  *nats.Conn
+// 		redis *redis.Client
+// 	}
 
-type ServiceWrapper func() error
+// 	// Prometheus exporter
+// 	metricRegistry *prometheus.Registry
+// 	metricServer   *http.Server
+// }
 
-// Service definition
-type Service struct {
-	config  *ConfigGlobal
-	options *Options
-	ctx     context.Context
-	drivers struct {
-		bun   *bun.DB
-		nats  *nats.Conn
-		redis *redis.Client
-	}
+// var (
+// 	services = make(map[string]*Service, 0)
+// )
 
-	// Prometheus exporter
-	metricRegistry *prometheus.Registry
-	metricServer   *http.Server
-}
+// func Instance(name string, svc ...*Service) *Service {
+// 	if len(svc) > 0 {
+// 		// Set value
+// 		services[name] = svc[0]
 
-var (
-	services = make(map[string]*Service, 0)
-)
+// 		return svc[0]
+// 	}
 
-func Instance(name string, svc ...*Service) *Service {
-	if len(svc) > 0 {
-		// Set value
-		services[name] = svc[0]
+// 	return services[name]
+// }
 
-		return svc[0]
-	}
+// // NewService creates new micro service
+// func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
+// 	var (
+// 		err error
+// 		ctx = context.Background()
+// 	)
 
-	return services[name]
-}
+// 	// Default initialize
+// 	svc := &Service{
+// 		config:  cfg,
+// 		ctx:     ctx,
+// 		options: NewOptions(),
+// 	}
 
-// NewService creates new micro service
-func NewService(cfg *ConfigGlobal, opts ...Option) *Service {
-	var (
-		err error
-		ctx = context.Background()
-	)
+// 	svc.options.service = svc
+// 	for _, opt := range opts {
+// 		opt(svc.options)
+// 	}
 
-	// Default initialize
-	svc := &Service{
-		config:  cfg,
-		ctx:     ctx,
-		options: NewOptions(),
-	}
+// 	// Set logger
+// 	if svc.options.logger == nil {
+// 		svc.options.logger = logger.Logger
+// 	}
 
-	svc.options.service = svc
-	for _, opt := range opts {
-		opt(svc.options)
-	}
+// 	// Set global context
+// 	if svc.options.ctx != nil {
+// 		svc.ctx = svc.options.ctx
+// 	} else {
+// 		svc.options.ctx = ctx
+// 	}
 
-	// Set logger
-	if svc.options.logger == nil {
-		svc.options.logger = logger.Logger
-	}
+// 	// Load drivers
+// 	if svc.config.Sicky.Drivers.Nats != nil {
+// 		svc.drivers.nats, err = driver.InitNats(svc.config.Sicky.Drivers.Nats)
+// 		if err != nil {
+// 			svc.Logger().Fatalf("Initialize nats failed : %s", err)
+// 		}
 
-	// Set global context
-	if svc.options.ctx != nil {
-		svc.ctx = svc.options.ctx
-	} else {
-		svc.options.ctx = ctx
-	}
+// 		svc.Logger().Infof("Nats <%s> initialized", svc.config.Sicky.Drivers.Nats.URL)
+// 	}
 
-	// Load drivers
-	if svc.config.Sicky.Drivers.Nats != nil {
-		svc.drivers.nats, err = driver.InitNats(svc.config.Sicky.Drivers.Nats)
-		if err != nil {
-			svc.Logger().Fatalf("Initialize nats failed : %s", err)
-		}
+// 	if svc.config.Sicky.Drivers.Redis != nil {
+// 		svc.drivers.redis, err = driver.InitRedis(svc.config.Sicky.Drivers.Redis)
+// 		if err != nil {
+// 			svc.Logger().Fatalf("Initialize redis failed : %s", err)
+// 		}
 
-		svc.Logger().Infof("Nats <%s> initialized", svc.config.Sicky.Drivers.Nats.URL)
-	}
+// 		svc.Logger().Infof("Redis <%s> initialized", svc.config.Sicky.Drivers.Redis.Addr)
+// 	}
 
-	if svc.config.Sicky.Drivers.Redis != nil {
-		svc.drivers.redis, err = driver.InitRedis(svc.config.Sicky.Drivers.Redis)
-		if err != nil {
-			svc.Logger().Fatalf("Initialize redis failed : %s", err)
-		}
+// 	if svc.config.Sicky.Drivers.Bun != nil {
+// 		svc.drivers.bun, err = driver.InitBun(svc.config.Sicky.Drivers.Bun)
+// 		if err != nil {
+// 			svc.Logger().Fatalf("Initialize database failed : %s", err)
+// 		}
 
-		svc.Logger().Infof("Redis <%s> initialized", svc.config.Sicky.Drivers.Redis.Addr)
-	}
+// 		svc.Logger().Infof("Database driver <%s> initialized", svc.config.Sicky.Drivers.Bun.Driver)
+// 	}
 
-	if svc.config.Sicky.Drivers.Bun != nil {
-		svc.drivers.bun, err = driver.InitBun(svc.config.Sicky.Drivers.Bun)
-		if err != nil {
-			svc.Logger().Fatalf("Initialize database failed : %s", err)
-		}
+// 	// Prometheus metrics
+// 	svc.metricRegistry = prometheus.NewRegistry()
+// 	svc.metricRegistry.MustRegister(
+// 		runtime.NumGRPCServerAccessCounter,
+// 		runtime.NumHTTPServerAccessCounter,
+// 		runtime.NumNatsServerAccessCounter,
+// 		runtime.NumWebsocketServerAccessCounter,
+// 		runtime.NumGRPCClientCallCounter,
+// 		runtime.NumHTTPClientCallCounter,
+// 		runtime.NumNatsClientCallCounter,
+// 		runtime.NumWebsocketClientCallCounter,
+// 	)
+// 	svc.metricServer = &http.Server{Addr: svc.config.Sicky.Metric.Exporter.Addr}
+// 	http.Handle(
+// 		svc.config.Sicky.Metric.Exporter.Path,
+// 		promhttp.HandlerFor(
+// 			svc.metricRegistry,
+// 			promhttp.HandlerOpts{
+// 				Registry: svc.metricRegistry,
+// 			},
+// 		),
+// 	)
 
-		svc.Logger().Infof("Database driver <%s> initialized", svc.config.Sicky.Drivers.Bun.Driver)
-	}
+// 	// Override
+// 	//DefaultService = svc
+// 	Instance(svc.Name(), svc)
 
-	// Prometheus metrics
-	svc.metricRegistry = prometheus.NewRegistry()
-	svc.metricRegistry.MustRegister(
-		runtime.NumGRPCServerAccessCounter,
-		runtime.NumHTTPServerAccessCounter,
-		runtime.NumNatsServerAccessCounter,
-		runtime.NumWebsocketServerAccessCounter,
-		runtime.NumGRPCClientCallCounter,
-		runtime.NumHTTPClientCallCounter,
-		runtime.NumNatsClientCallCounter,
-		runtime.NumWebsocketClientCallCounter,
-	)
-	svc.metricServer = &http.Server{Addr: svc.config.Sicky.Metric.Exporter.Addr}
-	http.Handle(
-		svc.config.Sicky.Metric.Exporter.Path,
-		promhttp.HandlerFor(
-			svc.metricRegistry,
-			promhttp.HandlerOpts{
-				Registry: svc.metricRegistry,
-			},
-		),
-	)
+// 	return svc
+// }
 
-	// Override
-	//DefaultService = svc
-	Instance(svc.Name(), svc)
+// // Boot service
+// func (svc *Service) Start() error {
+// 	for _, fn := range svc.options.beforeStart {
+// 		if err := fn(); err != nil {
+// 			return err
+// 		}
+// 	}
 
-	return svc
-}
+// 	for _, srv := range svc.options.servers {
+// 		if err := srv.Start(); err != nil {
+// 			return err
+// 		}
+// 	}
 
-// Boot service
-func (svc *Service) Start() error {
-	for _, fn := range svc.options.beforeStart {
-		if err := fn(); err != nil {
-			return err
-		}
-	}
+// 	for _, clt := range svc.options.clients {
+// 		if err := clt.Connect(); err != nil {
+// 			return err
+// 		}
+// 	}
 
-	for _, srv := range svc.options.servers {
-		if err := srv.Start(); err != nil {
-			return err
-		}
-	}
+// 	for _, fn := range svc.options.afterStart {
+// 		if err := fn(); err != nil {
+// 			return err
+// 		}
+// 	}
 
-	for _, clt := range svc.options.clients {
-		if err := clt.Connect(); err != nil {
-			return err
-		}
-	}
+// 	go func() {
+// 		svc.Logger().InfoContext(svc.ctx, "Starting prometheus exporter", "addr", svc.config.Sicky.Metric.Exporter.Addr)
+// 		err := svc.metricServer.ListenAndServe()
+// 		if err != nil {
+// 			if errors.Is(err, http.ErrServerClosed) {
+// 				svc.Logger().InfoContext(svc.ctx, "Prometheus exporter closed")
+// 			} else {
+// 				svc.Logger().ErrorContext(svc.ctx, "Listen prometheus exporter failed", "error", err)
+// 			}
+// 		}
+// 	}()
 
-	for _, fn := range svc.options.afterStart {
-		if err := fn(); err != nil {
-			return err
-		}
-	}
+// 	return nil
+// }
 
-	go func() {
-		svc.Logger().InfoContext(svc.ctx, "Starting prometheus exporter", "addr", svc.config.Sicky.Metric.Exporter.Addr)
-		err := svc.metricServer.ListenAndServe()
-		if err != nil {
-			if errors.Is(err, http.ErrServerClosed) {
-				svc.Logger().InfoContext(svc.ctx, "Prometheus exporter closed")
-			} else {
-				svc.Logger().ErrorContext(svc.ctx, "Listen prometheus exporter failed", "error", err)
-			}
-		}
-	}()
+// func (svc *Service) Stop() []error {
+// 	var (
+// 		errs []error
+// 		err  error
+// 	)
 
-	return nil
-}
+// 	for _, fn := range svc.options.beforeStop {
+// 		if err = fn(); err != nil {
+// 			errs = append(errs, err)
+// 		}
+// 	}
 
-func (svc *Service) Stop() []error {
-	var (
-		errs []error
-		err  error
-	)
+// 	for _, srv := range svc.options.servers {
+// 		if err = srv.Stop(); err != nil {
+// 			errs = append(errs, err)
+// 		}
+// 	}
 
-	for _, fn := range svc.options.beforeStop {
-		if err = fn(); err != nil {
-			errs = append(errs, err)
-		}
-	}
+// 	for _, clt := range svc.options.clients {
+// 		if err = clt.Disconnect(); err != nil {
+// 			errs = append(errs, err)
+// 		}
+// 	}
 
-	for _, srv := range svc.options.servers {
-		if err = srv.Stop(); err != nil {
-			errs = append(errs, err)
-		}
-	}
+// 	for _, fn := range svc.options.afterStop {
+// 		if err = fn(); err != nil {
+// 			errs = append(errs, err)
+// 		}
+// 	}
 
-	for _, clt := range svc.options.clients {
-		if err = clt.Disconnect(); err != nil {
-			errs = append(errs, err)
-		}
-	}
+// 	svc.Logger().InfoContext(svc.ctx, "Stopping prometheus exporter")
+// 	err = svc.metricServer.Shutdown(svc.ctx)
+// 	if err != nil {
+// 		errs = append(errs, err)
+// 	}
 
-	for _, fn := range svc.options.afterStop {
-		if err = fn(); err != nil {
-			errs = append(errs, err)
-		}
-	}
+// 	return errs
+// }
 
-	svc.Logger().InfoContext(svc.ctx, "Stopping prometheus exporter")
-	err = svc.metricServer.Shutdown(svc.ctx)
-	if err != nil {
-		errs = append(errs, err)
-	}
+// func (svc *Service) Run() error {
+// 	svc.Logger().InfoContext(
+// 		svc.ctx,
+// 		"Starting service",
+// 		"id", svc.options.id,
+// 		"service", svc.config.Sicky.Service.Name,
+// 		"version", svc.config.Sicky.Service.Version,
+// 	)
+// 	if err := svc.Start(); err != nil {
+// 		svc.Logger().ErrorContext(svc.ctx, "Service start failed", "error", err.Error())
 
-	return errs
-}
+// 		return err
+// 	}
 
-func (svc *Service) Run() error {
-	svc.Logger().InfoContext(
-		svc.ctx,
-		"Starting service",
-		"id", svc.options.id,
-		"service", svc.config.Sicky.Service.Name,
-		"version", svc.config.Sicky.Service.Version,
-	)
-	if err := svc.Start(); err != nil {
-		svc.Logger().ErrorContext(svc.ctx, "Service start failed", "error", err.Error())
+// 	ch := make(chan os.Signal, 1)
+// 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP)
+// 	select {
+// 	case <-ch:
+// 	case <-svc.ctx.Done():
+// 	}
 
-		return err
-	}
+// 	if errs := svc.Stop(); errs != nil {
+// 		gerr := errors.Join(errs...)
+// 		for _, err := range errs {
+// 			svc.Logger().ErrorContext(svc.ctx, "Service stop failed", "error", err.Error())
+// 		}
 
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP)
-	select {
-	case <-ch:
-	case <-svc.ctx.Done():
-	}
+// 		return gerr
+// 	}
 
-	if errs := svc.Stop(); errs != nil {
-		gerr := errors.Join(errs...)
-		for _, err := range errs {
-			svc.Logger().ErrorContext(svc.ctx, "Service stop failed", "error", err.Error())
-		}
+// 	svc.Logger().InfoContext(
+// 		svc.ctx,
+// 		"Stopping service",
+// 		"id", svc.options.id,
+// 		"service", svc.config.Sicky.Service.Name,
+// 		"version", svc.config.Sicky.Service.Version,
+// 	)
 
-		return gerr
-	}
+// 	return nil
+// }
 
-	svc.Logger().InfoContext(
-		svc.ctx,
-		"Stopping service",
-		"id", svc.options.id,
-		"service", svc.config.Sicky.Service.Name,
-		"version", svc.config.Sicky.Service.Version,
-	)
+// /* {{{ [Values] */
 
-	return nil
-}
+// func (svc *Service) Name() string {
+// 	return svc.config.Sicky.Service.Name
+// }
 
-/* {{{ [Values] */
+// func (svc *Service) ID() string {
+// 	return svc.options.id
+// }
 
-func (svc *Service) Name() string {
-	return svc.config.Sicky.Service.Name
-}
+// func (svc *Service) Version() string {
+// 	return svc.config.Sicky.Service.Version
+// }
 
-func (svc *Service) ID() string {
-	return svc.options.id
-}
+// func (svc *Service) Logger() logger.GeneralLogger {
+// 	return svc.options.logger
+// }
 
-func (svc *Service) Version() string {
-	return svc.config.Sicky.Service.Version
-}
+// func (svc *Service) Server(name string) server.Server {
+// 	srv, ok := svc.options.servers[name]
+// 	if !ok {
+// 		return nil
+// 	}
 
-func (svc *Service) Logger() logger.GeneralLogger {
-	return svc.options.logger
-}
+// 	return srv
+// }
 
-func (svc *Service) Server(name string) server.Server {
-	srv, ok := svc.options.servers[name]
-	if !ok {
-		return nil
-	}
+// func (svc *Service) Client(name string) client.Client {
+// 	clt, ok := svc.options.clients[name]
+// 	if !ok {
+// 		return nil
+// 	}
 
-	return srv
-}
+// 	return clt
+// }
 
-func (svc *Service) Client(name string) client.Client {
-	clt, ok := svc.options.clients[name]
-	if !ok {
-		return nil
-	}
+// func (svc *Service) Nats() *nats.Conn {
+// 	return svc.drivers.nats
+// }
 
-	return clt
-}
+// func (svc *Service) Redis() *redis.Client {
+// 	return svc.drivers.redis
+// }
 
-func (svc *Service) Nats() *nats.Conn {
-	return svc.drivers.nats
-}
+// func (svc *Service) Bun() *bun.DB {
+// 	return svc.drivers.bun
+// }
 
-func (svc *Service) Redis() *redis.Client {
-	return svc.drivers.redis
-}
+// /* }}} */
 
-func (svc *Service) Bun() *bun.DB {
-	return svc.drivers.bun
-}
+// func (svc *Service) AddServer(srv server.Server) {
+// 	if srv != nil {
+// 		svc.options.servers[srv.Name()] = srv
+// 	}
+// }
 
-/* }}} */
+// func (svc *Service) AddClient(clt client.Client) {
+// 	if clt != nil {
+// 		svc.options.clients[clt.Name()] = clt
+// 	}
+// }
 
-func (svc *Service) AddServer(srv server.Server) {
-	if srv != nil {
-		svc.options.servers[srv.Name()] = srv
-	}
-}
-
-func (svc *Service) AddClient(clt client.Client) {
-	if clt != nil {
-		svc.options.clients[clt.Name()] = clt
-	}
-}
-
-func (svc *Service) RegisterMetrics(s prometheus.Collector) {
-	svc.metricRegistry.MustRegister(s)
-}
+// func (svc *Service) RegisterMetrics(s prometheus.Collector) {
+// 	svc.metricRegistry.MustRegister(s)
+// }
 
 /*
  * Local variables:
