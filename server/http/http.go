@@ -129,7 +129,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server created",
+		"Server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -226,7 +226,7 @@ func (srv *HTTPServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"HTTP server listen failed",
+				"Server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -238,10 +238,11 @@ func (srv *HTTPServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"HTTP server closed",
+			"Server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
+			"addr", srv.addr.String(),
 		)
 		srv.wg.Done()
 
@@ -250,7 +251,7 @@ func (srv *HTTPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listened",
+		"Server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,

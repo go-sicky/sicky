@@ -38,18 +38,36 @@ import (
 )
 
 type Sicky struct {
+	config  *Config
 	ctx     context.Context
 	options *service.Options
+
+	servers []server.Server
 }
 
-func New(opts *service.Options) service.Service {
+func New(opts *service.Options, cfg *Config) *Sicky {
 	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
 	svc := &Sicky{
+		config:  cfg,
 		ctx:     context.Background(),
 		options: opts,
+
+		servers: make([]server.Server, 0),
 	}
 
 	service.Instance = svc
+
+	svc.options.Logger.InfoContext(
+		svc.ctx,
+		"Service created",
+		"service", svc.String(),
+		"id", svc.options.ID,
+		"name", svc.options.Name,
+		"version", svc.options.Version,
+		"branch", svc.options.Branch,
+	)
 
 	return svc
 }
@@ -66,17 +84,74 @@ func (s *Sicky) String() string {
 	return "sicky"
 }
 
-func (s *Sicky) Servers(svrs ...server.Server) service.Service {
-	return s
+func (s *Sicky) Start() []error {
+	var (
+		err  error
+		errs []error
+	)
+
+	// Wrapper
+	for _, fn := range s.options.BeforeStart() {
+		if err = fn(s); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Start servers
+	for _, srv := range s.servers {
+		if err = srv.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Wrapper
+	for _, fn := range s.options.AfterStart() {
+		if err = fn(s); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
 }
 
-func (s *Sicky) Start() error {
-	return nil
+func (s *Sicky) Stop() []error {
+	var (
+		err  error
+		errs []error
+	)
+
+	// Wrapper
+	for _, fn := range s.options.BeforeStop() {
+		if err = fn(s); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Stop servers
+	for _, srv := range s.servers {
+		if err = srv.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Wrapper
+	for _, fn := range s.options.AfterStop() {
+		if err = fn(s); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
 }
 
-func (s *Sicky) Stop() error {
-	return nil
+/* {{{ [Sicky] */
+func (s *Sicky) Servers(srvs ...server.Server) []server.Server {
+	s.servers = append(s.servers, srvs...)
+
+	return s.servers
 }
+
+/* }}} */
 
 /*/*
  * Local variables:

@@ -23,12 +23,12 @@
 
 /**
  * @file config.go
- * @package event
+ * @package nats
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/14/2024
  */
 
-package event
+package nats
 
 type Config struct{}
 

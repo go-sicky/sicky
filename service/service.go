@@ -32,12 +32,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/server"
 )
 
 type Service interface {
@@ -47,12 +47,10 @@ type Service interface {
 	Options() *Options
 	// Stringify
 	String() string
-	// Register servers
-	Servers(...server.Server) Service
 	// Start service
-	Start() error
+	Start() []error
 	// Stop service
-	Stop() error
+	Stop() []error
 }
 
 var (
@@ -61,7 +59,8 @@ var (
 
 func Run() error {
 	var (
-		err, gerr error
+		err  error
+		errs []error
 	)
 
 	if Instance == nil {
@@ -79,16 +78,27 @@ func Run() error {
 	)
 
 	// Start service
-	err = Instance.Start()
-	if err != nil {
+	errs = Instance.Start()
+	if errs != nil {
+		err = errors.Join(errs...)
 		logger.ErrorContext(
 			Instance.Context(),
 			"Service start failed",
-			"error", err.Error(),
+			"errors", err.Error(),
 		)
 
 		return err
 	}
+
+	logger.InfoContext(
+		Instance.Context(),
+		"Service started",
+		"service", Instance.String(),
+		"id", Instance.Options().ID,
+		"name", Instance.Options().Name,
+		"version", Instance.Options().Version,
+		"branch", Instance.Options().Branch,
+	)
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT)
@@ -108,18 +118,29 @@ func Run() error {
 	)
 
 	// Stop services
-	err = Instance.Stop()
-	if err != nil {
+	errs = Instance.Stop()
+	if errs != nil {
+		err = errors.Join(errs...)
 		logger.ErrorContext(
 			Instance.Context(),
 			"Service stop failed",
-			"error", err.Error(),
+			"errors", err.Error(),
 		)
 
 		return err
 	}
 
-	return gerr
+	logger.InfoContext(
+		Instance.Context(),
+		"Service stopped",
+		"service", Instance.String(),
+		"id", Instance.Options().ID,
+		"name", Instance.Options().Name,
+		"version", Instance.Options().Version,
+		"branch", Instance.Options().Branch,
+	)
+
+	return nil
 }
 
 /*

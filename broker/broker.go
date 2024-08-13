@@ -22,43 +22,42 @@
  */
 
 /**
- * @file options.go
- * @package event
+ * @file broker.go
+ * @package broker
  * @author Dr.NP <np@herewe.tech>
  * @since 08/04/2024
  */
 
-package event
+package broker
 
-import (
-	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
-)
+import "context"
 
-type Options struct {
-	Name   string
-	ID     uuid.UUID
-	Logger logger.GeneralLogger
+type Event interface {
+	// Get context
+	Context() context.Context
+	// Server options
+	Options() *Options
+	// Stringify
+	String() string
+	// Get name
+	Name() string
+	// Get ID
+	ID() string
 }
 
-func (o *Options) Ensure() *Options {
-	if o == nil {
-		o = new(Options)
+var (
+	Default Event
+	events  = make(map[string]Event, 0)
+)
+
+func Instance(name string, srv ...Event) Event {
+	if len(srv) > 0 {
+		events[name] = srv[0]
+
+		return srv[0]
 	}
 
-	if o.ID == uuid.Nil {
-		o.ID = uuid.New()
-	}
-
-	if o.Name == "" {
-		o.Name = "Event::" + o.ID.String()
-	}
-
-	if o.Logger == nil {
-		o.Logger = logger.DefaultGeneralLogger
-	}
-
-	return o
+	return events[name]
 }
 
 /*

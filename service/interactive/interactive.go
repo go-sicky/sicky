@@ -22,45 +22,62 @@
  */
 
 /**
- * @file event.go
- * @package event
+ * @file interactive.go
+ * @package interactive
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/13/2024
  */
 
-package event
+package interactive
 
-import "context"
+import (
+	"context"
 
-type Event interface {
-	// Get context
-	Context() context.Context
-	// Server options
-	Options() *Options
-	// Stringify
-	String() string
-	// Get name
-	Name() string
-	// Get ID
-	ID() string
-}
-
-var (
-	Default Event
-	events  = make(map[string]Event, 0)
+	"github.com/go-sicky/sicky/service"
 )
 
-func Instance(name string, srv ...Event) Event {
-	if len(srv) > 0 {
-		events[name] = srv[0]
-
-		return srv[0]
-	}
-
-	return events[name]
+type Interactive struct {
+	config  *Config
+	ctx     context.Context
+	options *service.Options
 }
 
-/*
+func New(opts *service.Options, cfg *Config) *Interactive {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
+	svc := &Interactive{
+		config:  cfg,
+		ctx:     context.Background(),
+		options: opts,
+	}
+
+	service.Instance = svc
+
+	return svc
+}
+
+func (s *Interactive) Context() context.Context {
+	return s.ctx
+}
+
+func (s *Interactive) Options() *service.Options {
+	return s.options
+}
+
+func (s *Interactive) String() string {
+	return "interactive"
+}
+
+func (s *Interactive) Start() []error {
+	return nil
+}
+
+func (s *Interactive) Stop() []error {
+	return nil
+}
+
+/*/*
  * Local variables:
  * tab-width: 4
  * c-basic-offset: 4

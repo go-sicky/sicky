@@ -122,7 +122,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"GRPC server created",
+		"Server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -244,7 +244,7 @@ func (srv *GRPCServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"GRPC server listen failed",
+				"Server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -256,10 +256,11 @@ func (srv *GRPCServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"GRPC server closed",
+			"Server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
+			"addr", srv.addr.String(),
 		)
 		srv.wg.Done()
 
@@ -268,7 +269,7 @@ func (srv *GRPCServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"GRPC server listened",
+		"Server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
