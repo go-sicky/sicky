@@ -22,34 +22,15 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file config.go
+ * @package job
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/18/2024
  */
 
-package registry
+package job
 
-import (
-	"context"
-
-	"github.com/go-sicky/sicky/service"
-)
-
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Register service
-	Register(service.Service) error
-	// Deregister service
-	Deregister(service.Service) error
-	// Watch services
-	Watch() error
-}
+type Config struct{}
 
 /*
  * Local variables:

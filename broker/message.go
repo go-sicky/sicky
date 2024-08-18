@@ -22,33 +22,39 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file message.go
+ * @package broker
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/18/2024
  */
 
-package registry
+package broker
 
-import (
-	"context"
+import "github.com/go-sicky/sicky/utils"
 
-	"github.com/go-sicky/sicky/service"
-)
+type Message struct {
+	header utils.Metadata
+	body   []byte
+}
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Register service
-	Register(service.Service) error
-	// Deregister service
-	Deregister(service.Service) error
-	// Watch services
-	Watch() error
+func (m *Message) Header(hdr ...utils.Metadata) utils.Metadata {
+	if len(hdr) > 0 {
+		m.header = hdr[0]
+	}
+
+	if m.header != nil {
+		return m.header
+	} else {
+		return utils.Metadata{}
+	}
+}
+
+func (m *Message) Body(body ...[]byte) []byte {
+	if len(body) > 0 {
+		m.body = body[0]
+	}
+
+	return m.body
 }
 
 /*

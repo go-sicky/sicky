@@ -33,6 +33,8 @@ package sicky
 import (
 	"context"
 
+	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
 )
@@ -43,6 +45,8 @@ type Sicky struct {
 	options *service.Options
 
 	servers []server.Server
+	brokers []broker.Broker
+	jobs    []job.Job
 }
 
 func New(opts *service.Options, cfg *Config) *Sicky {
@@ -55,6 +59,8 @@ func New(opts *service.Options, cfg *Config) *Sicky {
 		options: opts,
 
 		servers: make([]server.Server, 0),
+		brokers: make([]broker.Broker, 0),
+		jobs:    make([]job.Job, 0),
 	}
 
 	service.Instance = svc
@@ -104,6 +110,13 @@ func (s *Sicky) Start() []error {
 		}
 	}
 
+	// Connect brokers
+	for _, brk := range s.brokers {
+		if err = brk.Connect(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	// Wrapper
 	for _, fn := range s.options.AfterStart() {
 		if err = fn(s); err != nil {
@@ -127,6 +140,13 @@ func (s *Sicky) Stop() []error {
 		}
 	}
 
+	// Disconnect brokers
+	for _, brk := range s.brokers {
+		if err = brk.Disconnect(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	// Stop servers
 	for _, srv := range s.servers {
 		if err = srv.Stop(); err != nil {
@@ -146,9 +166,27 @@ func (s *Sicky) Stop() []error {
 
 /* {{{ [Sicky] */
 func (s *Sicky) Servers(srvs ...server.Server) []server.Server {
-	s.servers = append(s.servers, srvs...)
+	if len(srvs) > 0 {
+		s.servers = append(s.servers, srvs...)
+	}
 
 	return s.servers
+}
+
+func (s *Sicky) Brokers(brks ...broker.Broker) []broker.Broker {
+	if len(brks) > 0 {
+		s.brokers = append(s.brokers, brks...)
+	}
+
+	return s.brokers
+}
+
+func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {
+	if len(jobs) > 0 {
+		s.jobs = append(s.jobs, jobs...)
+	}
+
+	return s.jobs
 }
 
 /* }}} */

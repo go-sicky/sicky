@@ -22,33 +22,66 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file cron.go
+ * @package cron
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/18/2024
  */
 
-package registry
+package cron
 
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/job"
 )
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Register service
-	Register(service.Service) error
-	// Deregister service
-	Deregister(service.Service) error
-	// Watch services
-	Watch() error
+type Cron struct {
+	config  *Config
+	ctx     context.Context
+	options *job.Options
+}
+
+// New cron job schedular
+func New(opts *job.Options, cfg *Config) *Cron {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
+	job := &Cron{
+		config:  cfg,
+		ctx:     context.Background(),
+		options: opts,
+	}
+
+	job.options.Logger.InfoContext(
+		job.ctx,
+		"Job created",
+		"job", job.String(),
+		"id", job.options.ID,
+		"name", job.options.Name,
+	)
+
+	return job
+}
+
+func (job *Cron) Context() context.Context {
+	return job.ctx
+}
+
+func (job *Cron) Options() *job.Options {
+	return job.options
+}
+
+func (job *Cron) String() string {
+	return "cron"
+}
+
+func (job *Cron) Start() error {
+	return nil
+}
+
+func (job *Cron) Stop() error {
+	return nil
 }
 
 /*

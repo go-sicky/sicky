@@ -32,29 +32,37 @@ package broker
 
 import "context"
 
-type Event interface {
+type Broker interface {
 	// Get context
 	Context() context.Context
 	// Server options
 	Options() *Options
 	// Stringify
 	String() string
-	// Get name
-	Name() string
-	// Get ID
-	ID() string
+	// Connect to broker
+	Connect() error
+	// Disconnect from broker
+	Disconnect() error
+	// Publish topic
+	Publish(topic string, m *Message) error
+	// Subscriber topic
+	Subscribe(topic string, h Handler) error
+	// Unsubscribe topic
+	Unsubscribe(topic string)
 }
 
+type Handler func(*Message) error
+
 var (
-	Default Event
-	events  = make(map[string]Event, 0)
+	Default Broker
+	events  = make(map[string]Broker, 0)
 )
 
-func Instance(name string, srv ...Event) Event {
-	if len(srv) > 0 {
-		events[name] = srv[0]
+func Instance(name string, brk ...Broker) Broker {
+	if len(brk) > 0 {
+		events[name] = brk[0]
 
-		return srv[0]
+		return brk[0]
 	}
 
 	return events[name]

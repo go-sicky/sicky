@@ -64,6 +64,14 @@ func (c *Config) Ensure() *Config {
 		c = DefaultConfig()
 	}
 
+	if c.Network == "" {
+		c.Network = DefaultNetwork
+	}
+
+	if c.Addr == "" {
+		c.Addr = DefaultAddr
+	}
+
 	return c
 }
 

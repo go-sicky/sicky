@@ -22,33 +22,41 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file metadata.go
+ * @package utils
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/17/2024
  */
 
-package registry
+package utils
 
-import (
-	"context"
+type Metadata map[string]string
 
-	"github.com/go-sicky/sicky/service"
-)
+func NewMetadata() Metadata {
+	return make(Metadata)
+}
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Register service
-	Register(service.Service) error
-	// Deregister service
-	Deregister(service.Service) error
-	// Watch services
-	Watch() error
+func (md Metadata) Get(key string) (string, bool) {
+	val, ok := md[key]
+
+	return val, ok
+}
+
+func (md Metadata) Set(key, val string) {
+	md[key] = val
+}
+
+func (md Metadata) Delete(key string) {
+	delete(md, key)
+}
+
+func (md Metadata) Copy() Metadata {
+	o := make(Metadata, len(md))
+	for k, v := range md {
+		o[k] = v
+	}
+
+	return o
 }
 
 /*

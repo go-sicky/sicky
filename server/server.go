@@ -47,7 +47,7 @@ type Server interface {
 }
 
 var (
-	servers = make(map[string]Server, 0)
+	servers = make(map[string]Server)
 )
 
 func Instance(name string, srv ...Server) Server {

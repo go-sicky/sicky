@@ -51,7 +51,7 @@ func (o *Options) Ensure() *Options {
 	}
 
 	if o.Name == "" {
-		o.Name = "Event::" + o.ID.String()
+		o.Name = "Broker::" + o.ID.String()
 	}
 
 	if o.Logger == nil {

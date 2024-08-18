@@ -30,7 +30,29 @@
 
 package nats
 
-type Config struct{}
+import "github.com/nats-io/nats.go"
+
+type Config struct {
+	URL string `json:"url" yaml:"url" mapstructure:"url"`
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		URL: nats.DefaultURL,
+	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	if c.URL == "" {
+		c.URL = nats.DefaultURL
+	}
+
+	return c
+}
 
 /*
  * Local variables:

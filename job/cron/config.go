@@ -22,33 +22,26 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file config.go
+ * @package cron
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/18/2024
  */
 
-package registry
+package cron
 
-import (
-	"context"
+type Config struct{}
 
-	"github.com/go-sicky/sicky/service"
-)
+func DefaultConfig() *Config {
+	return &Config{}
+}
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Register service
-	Register(service.Service) error
-	// Deregister service
-	Deregister(service.Service) error
-	// Watch services
-	Watch() error
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	return c
 }
 
 /*

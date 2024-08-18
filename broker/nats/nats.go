@@ -30,7 +30,147 @@
 
 package nats
 
-type Nats struct{}
+import (
+	"context"
+	"errors"
+
+	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/utils"
+	"github.com/nats-io/nats.go"
+)
+
+type Nats struct {
+	config  *Config
+	ctx     context.Context
+	options *broker.Options
+	conn    *nats.Conn
+
+	subscriptions map[string]*nats.Subscription
+}
+
+func New(opts *broker.Options, cfg *Config) *Nats {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
+	brk := &Nats{
+		config:        cfg,
+		ctx:           context.Background(),
+		options:       opts,
+		subscriptions: make(map[string]*nats.Subscription),
+	}
+
+	brk.options.Logger.InfoContext(
+		brk.ctx,
+		"Broker created",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+	)
+
+	return brk
+}
+
+func (brk *Nats) Context() context.Context {
+	return brk.ctx
+}
+
+func (brk *Nats) Options() *broker.Options {
+	return brk.options
+}
+
+func (brk *Nats) String() string {
+	return "nats"
+}
+
+func (brk *Nats) Connect() error {
+	nc, err := nats.Connect(
+		brk.config.URL,
+	)
+	if err != nil {
+		brk.options.Logger.ErrorContext(brk.ctx, "broker connect failed", "error", err.Error())
+
+		return err
+	}
+
+	brk.conn = nc
+
+	return nil
+}
+
+func (brk *Nats) Disconnect() error {
+	if brk.conn != nil && !brk.conn.IsClosed() {
+		brk.conn.Close()
+		brk.conn = nil
+	}
+
+	return nil
+}
+
+func (brk *Nats) Publish(topic string, m *broker.Message) error {
+	if brk.conn == nil || !brk.conn.IsConnected() {
+		return errors.New("broker not connected")
+	}
+
+	msg := nats.NewMsg(topic)
+	if m != nil {
+		for k, v := range m.Header() {
+			msg.Header.Add(k, v)
+		}
+
+		msg.Data = m.Body()
+	}
+
+	return brk.conn.PublishMsg(msg)
+}
+
+func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
+	if brk.conn == nil || !brk.conn.IsConnected() {
+		return errors.New("broker not connected")
+	}
+
+	if brk.subscriptions[topic] != nil {
+		return errors.New("topic already subscribed")
+	}
+
+	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {
+		if h != nil {
+			m := &broker.Message{}
+			hdr := utils.NewMetadata()
+			for k, vs := range msg.Header {
+				if len(vs) > 0 {
+					hdr.Set(k, vs[0])
+				}
+			}
+
+			m.Header(hdr)
+			m.Body(msg.Data)
+
+			err := h(m)
+			if err != nil {
+				brk.options.Logger.ErrorContext(brk.ctx, "broker handler error", "error", err.Error())
+			}
+		}
+	})
+
+	if err != nil {
+		brk.options.Logger.ErrorContext(brk.ctx, "broker subscribe failed", "error", err.Error())
+
+		return err
+	}
+
+	brk.subscriptions[topic] = sub
+
+	return nil
+}
+
+func (brk *Nats) Unsubscribe(topic string) error {
+	sub := brk.subscriptions[topic]
+	if sub != nil {
+		sub.Unsubscribe()
+	}
+
+	return nil
+}
 
 /*
  * Local variables:
