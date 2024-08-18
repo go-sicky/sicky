@@ -30,7 +30,85 @@
 
 package mdns
 
-type MDNS struct{}
+import (
+	"context"
+
+	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/server"
+)
+
+type MDNS struct {
+	config  *Config
+	ctx     context.Context
+	options *registry.Options
+}
+
+func New(opts *registry.Options, cfg *Config) *MDNS {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
+	rg := &MDNS{
+		config:  cfg,
+		ctx:     context.Background(),
+		options: opts,
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Registry created",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+	)
+
+	return rg
+}
+
+func (rg *MDNS) Context() context.Context {
+	return rg.ctx
+}
+
+func (rg *MDNS) Options() *registry.Options {
+	return rg.options
+}
+
+func (rg *MDNS) String() string {
+	return "mdns"
+}
+
+func (rg *MDNS) Register(srv server.Server) error {
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Server registered",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"server", srv.String(),
+		"server_id", srv.Options().ID,
+		"server_name", srv.Options().Name,
+	)
+
+	return nil
+}
+
+func (rg *MDNS) Deregister(srv server.Server) error {
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Server deregistered",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"server", srv.String(),
+		"server_id", srv.Options().ID,
+		"server_name", srv.Options().Name,
+	)
+
+	return nil
+}
+
+func (rg *MDNS) Watch() error {
+	return nil
+}
 
 /*
  * Local variables:

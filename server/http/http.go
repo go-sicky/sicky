@@ -282,7 +282,7 @@ func (srv *HTTPServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *HTTPServer) Handle(hdl HTTPHandler) {
+func (srv *HTTPServer) Handle(hdl Handler) {
 	hdl.Register(srv.app)
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -297,7 +297,7 @@ func (srv *HTTPServer) Handle(hdl HTTPHandler) {
 /* }}} */
 
 /* {{{ [Handler] */
-type HTTPHandler interface {
+type Handler interface {
 	Name() string
 	Type() string
 	Register(*fiber.App)

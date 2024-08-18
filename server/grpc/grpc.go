@@ -300,7 +300,7 @@ func (srv *GRPCServer) App() *grpc.Server {
 	return srv.app
 }
 
-func (srv *GRPCServer) Handle(hdl GRPCHandler) {
+func (srv *GRPCServer) Handle(hdl Handler) {
 	hdl.Register(srv.app)
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -315,7 +315,7 @@ func (srv *GRPCServer) Handle(hdl GRPCHandler) {
 /* }}} */
 
 /* {{{ [Handler] */
-type GRPCHandler interface {
+type Handler interface {
 	Name() string
 	Type() string
 	Register(*grpc.Server)

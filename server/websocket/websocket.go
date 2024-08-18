@@ -271,7 +271,7 @@ func (srv *WebsocketServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *WebsocketServer) Handle(hdl WebsocketHandler) {
+func (srv *WebsocketServer) Handle(hdl Handler) {
 	srv.app.Use(hdl.Path(), func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
 			c.Locals("allowed", true)
@@ -369,7 +369,7 @@ func (srv *WebsocketServer) Handle(hdl WebsocketHandler) {
 }
 
 /* {{{ [Handler] */
-type WebsocketHandler interface {
+type Handler interface {
 	Name() string
 	Type() string
 	Path() string

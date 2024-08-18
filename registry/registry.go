@@ -33,7 +33,7 @@ package registry
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/server"
 )
 
 type Registry interface {
@@ -44,9 +44,9 @@ type Registry interface {
 	// Stringify
 	String() string
 	// Register service
-	Register(service.Service) error
+	Register(server.Server) error
 	// Deregister service
-	Deregister(service.Service) error
+	Deregister(server.Server) error
 	// Watch services
 	Watch() error
 }

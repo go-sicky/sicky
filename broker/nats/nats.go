@@ -92,6 +92,15 @@ func (brk *Nats) Connect() error {
 		return err
 	}
 
+	brk.options.Logger.InfoContext(
+		brk.ctx,
+		"broker connected",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+		"url", brk.config.URL,
+	)
+
 	brk.conn = nc
 
 	return nil
@@ -101,6 +110,15 @@ func (brk *Nats) Disconnect() error {
 	if brk.conn != nil && !brk.conn.IsClosed() {
 		brk.conn.Close()
 		brk.conn = nil
+
+		brk.options.Logger.InfoContext(
+			brk.ctx,
+			"broker disconnected",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"url", brk.config.URL,
+		)
 	}
 
 	return nil

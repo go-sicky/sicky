@@ -30,7 +30,66 @@
 
 package nsq
 
-type Nsq struct{}
+import (
+	"context"
+
+	"github.com/go-sicky/sicky/broker"
+)
+
+type Nsq struct {
+	config  *Config
+	ctx     context.Context
+	options *broker.Options
+}
+
+func New(opts *broker.Options, cfg *Config) *Nsq {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
+	brk := &Nsq{
+		config:  cfg,
+		ctx:     context.Background(),
+		options: opts,
+	}
+
+	brk.options.Logger.InfoContext(
+		brk.ctx,
+		"Broker created",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+	)
+
+	return brk
+}
+
+func (brk *Nsq) Context() context.Context {
+	return brk.ctx
+}
+
+func (brk *Nsq) Options() *broker.Options {
+	return brk.options
+}
+
+func (brk *Nsq) String() string {
+	return "nsq"
+}
+
+func (brk *Nsq) Connect() error {
+	return nil
+}
+
+func (brk *Nsq) Publish(topic string, m *broker.Message) error {
+	return nil
+}
+
+func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
+	return nil
+}
+
+func (brk *Nsq) Unsubscribe(topic string) error {
+	return nil
+}
 
 /*
  * Local variables:

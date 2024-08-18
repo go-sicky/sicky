@@ -35,6 +35,7 @@ import (
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
 )
@@ -44,9 +45,10 @@ type Sicky struct {
 	ctx     context.Context
 	options *service.Options
 
-	servers []server.Server
-	brokers []broker.Broker
-	jobs    []job.Job
+	servers    []server.Server
+	brokers    []broker.Broker
+	jobs       []job.Job
+	registries []registry.Registry
 }
 
 func New(opts *service.Options, cfg *Config) *Sicky {
@@ -58,9 +60,10 @@ func New(opts *service.Options, cfg *Config) *Sicky {
 		ctx:     context.Background(),
 		options: opts,
 
-		servers: make([]server.Server, 0),
-		brokers: make([]broker.Broker, 0),
-		jobs:    make([]job.Job, 0),
+		servers:    make([]server.Server, 0),
+		brokers:    make([]broker.Broker, 0),
+		jobs:       make([]job.Job, 0),
+		registries: make([]registry.Registry, 0),
 	}
 
 	service.Instance = svc
@@ -117,6 +120,15 @@ func (s *Sicky) Start() []error {
 		}
 	}
 
+	// Registry
+	for _, rg := range s.registries {
+		for _, srv := range s.servers {
+			if err = rg.Register(srv); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
 	// Wrapper
 	for _, fn := range s.options.AfterStart() {
 		if err = fn(s); err != nil {
@@ -154,6 +166,15 @@ func (s *Sicky) Stop() []error {
 		}
 	}
 
+	// Deregister
+	for _, rg := range s.registries {
+		for _, srv := range s.servers {
+			if err = rg.Deregister(srv); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
 	// Wrapper
 	for _, fn := range s.options.AfterStop() {
 		if err = fn(s); err != nil {
@@ -187,6 +208,14 @@ func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {
 	}
 
 	return s.jobs
+}
+
+func (s *Sicky) Registries(rgs ...registry.Registry) []registry.Registry {
+	if len(rgs) > 0 {
+		s.registries = append(s.registries, rgs...)
+	}
+
+	return s.registries
 }
 
 /* }}} */

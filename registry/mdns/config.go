@@ -22,62 +22,26 @@
  */
 
 /**
- * @file consul.go
- * @package consul
+ * @file config.go
+ * @package mdns
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 08/19/2024
  */
 
-package consul
+package mdns
 
-import (
-	"context"
+type Config struct{}
 
-	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/server"
-)
-
-type Consul struct {
-	config  *Config
-	ctx     context.Context
-	options *registry.Options
+func DefaultConfig() *Config {
+	return &Config{}
 }
 
-func New(opts *registry.Options, cfg *Config) *Consul {
-	opts = opts.Ensure()
-	cfg = cfg.Ensure()
-
-	rg := &Consul{
-		config:  cfg,
-		ctx:     context.Background(),
-		options: opts,
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
 	}
 
-	return rg
-}
-
-func (rg *Consul) Context() context.Context {
-	return rg.ctx
-}
-
-func (rg *Consul) Options() *registry.Options {
-	return rg.options
-}
-
-func (rg *Consul) String() string {
-	return "mdns"
-}
-
-func (rg *Consul) Register(server.Server) error {
-	return nil
-}
-
-func (rg *Consul) Deregister(server.Server) error {
-	return nil
-}
-
-func (rg *Consul) Watch() error {
-	return nil
+	return c
 }
 
 /*

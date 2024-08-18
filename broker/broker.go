@@ -48,7 +48,7 @@ type Broker interface {
 	// Subscriber topic
 	Subscribe(topic string, h Handler) error
 	// Unsubscribe topic
-	Unsubscribe(topic string)
+	Unsubscribe(topic string) error
 }
 
 type Handler func(*Message) error
