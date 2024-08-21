@@ -35,12 +35,7 @@ import (
 	"net"
 
 	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/tracer"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // GRPCClient : Client definition
@@ -51,7 +46,7 @@ type GRPCClient struct {
 	conn    *grpc.ClientConn
 	addr    net.Addr
 
-	tracer trace.Tracer
+	//tracer trace.Tracer
 }
 
 var (
@@ -71,87 +66,88 @@ func Instance(name string, clt ...*GRPCClient) *GRPCClient {
 
 // New GRPC client
 func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
-	ctx := context.Background()
+	// ctx := context.Background()
 
-	clt := &GRPCClient{
-		config:  cfg,
-		ctx:     ctx,
-		options: client.NewOptions(),
-	}
+	// clt := &GRPCClient{
+	// 	config:  cfg,
+	// 	ctx:     ctx,
+	// 	options: client.NewOptions(),
+	// }
 
-	for _, opt := range opts {
-		opt(clt.options)
-	}
+	// for _, opt := range opts {
+	// 	opt(clt.options)
+	// }
 
-	// Set logger
-	if clt.options.Logger() == nil {
-		client.Logger(logger.Logger)(clt.options)
-	}
+	// // Set logger
+	// if clt.options.Logger() == nil {
+	// 	client.Logger(logger.Logger)(clt.options)
+	// }
 
-	// Set global context
-	if clt.options.Context() != nil {
-		clt.ctx = clt.options.Context()
-	} else {
-		client.Context(ctx)(clt.options)
-	}
+	// // Set global context
+	// if clt.options.Context() != nil {
+	// 	clt.ctx = clt.options.Context()
+	// } else {
+	// 	client.Context(ctx)(clt.options)
+	// }
 
-	// Set tracer
-	if clt.options.TraceProvider() != nil {
-		clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
-	}
+	// // Set tracer
+	// if clt.options.TraceProvider() != nil {
+	// 	clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
+	// }
 
-	// TCP default
-	addr, err := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
-	if err != nil {
-		clt.options.Logger().ErrorContext(clt.ctx, "Resolve GRPC endpoint address failed", "error", err)
-	}
+	// // TCP default
+	// addr, err := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
+	// if err != nil {
+	// 	clt.options.Logger().ErrorContext(clt.ctx, "Resolve GRPC endpoint address failed", "error", err)
+	// }
 
-	clt.addr = addr
-	gopts := make([]grpc.DialOption, 0)
-	if clt.options.TLS() != nil {
-		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
-	} else {
-		gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
+	// clt.addr = addr
+	// gopts := make([]grpc.DialOption, 0)
+	// if clt.options.TLS() != nil {
+	// 	gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
+	// } else {
+	// 	gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// }
 
-	if cfg.MaxHeaderListSize > 0 {
-		gopts = append(gopts, grpc.WithMaxHeaderListSize(cfg.MaxHeaderListSize))
-	}
+	// if cfg.MaxHeaderListSize > 0 {
+	// 	gopts = append(gopts, grpc.WithMaxHeaderListSize(cfg.MaxHeaderListSize))
+	// }
 
-	if cfg.MaxMsgSize != 0 {
-		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize)))
-		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(cfg.MaxMsgSize)))
-	}
+	// if cfg.MaxMsgSize != 0 {
+	// 	gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize)))
+	// 	gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(cfg.MaxMsgSize)))
+	// }
 
-	if cfg.ReadBufferSize != 0 {
-		gopts = append(gopts, grpc.WithReadBufferSize(cfg.ReadBufferSize))
-	}
+	// if cfg.ReadBufferSize != 0 {
+	// 	gopts = append(gopts, grpc.WithReadBufferSize(cfg.ReadBufferSize))
+	// }
 
-	if cfg.WriteBufferSize != 0 {
-		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
-	}
+	// if cfg.WriteBufferSize != 0 {
+	// 	gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
+	// }
 
-	gopts = append(gopts,
-		grpc.WithChainUnaryInterceptor(
-			tracer.NewGRPCClientInterceptor(clt.tracer),
-			logger.NewGRPCClientInterceptor(clt.options.Logger()),
-		),
-		grpc.WithDefaultServiceConfig(`{ "loadBalancingPolicy": "round_robin" }`),
-	)
-	// Issue : DNS round-robin load balancing support
-	conn, err := grpc.Dial("dns:///"+cfg.Addr, gopts...)
-	if err != nil {
-		clt.options.Logger().ErrorContext(clt.ctx, "GRPC dial failed", "error", err.Error())
+	// gopts = append(gopts,
+	// 	grpc.WithChainUnaryInterceptor(
+	// 		tracer.NewGRPCClientInterceptor(clt.tracer),
+	// 		logger.NewGRPCClientInterceptor(clt.options.Logger()),
+	// 	),
+	// 	grpc.WithDefaultServiceConfig(`{ "loadBalancingPolicy": "round_robin" }`),
+	// )
+	// // Issue : DNS round-robin load balancing support
+	// conn, err := grpc.Dial("dns:///"+cfg.Addr, gopts...)
+	// if err != nil {
+	// 	clt.options.Logger().ErrorContext(clt.ctx, "GRPC dial failed", "error", err.Error())
 
-		return nil
-	}
+	// 	return nil
+	// }
 
-	clt.conn = conn
-	client.Instance(clt.Name(), clt)
-	Instance(clt.Name(), clt)
-	clt.options.Logger().InfoContext(clt.ctx, "GRPC client created", "id", clt.ID(), "name", clt.Name(), "addr", addr.String())
+	// clt.conn = conn
+	// client.Instance(clt.Name(), clt)
+	// Instance(clt.Name(), clt)
+	// clt.options.Logger().InfoContext(clt.ctx, "GRPC client created", "id", clt.ID(), "name", clt.Name(), "addr", addr.String())
 
-	return clt
+	// return clt
+	return nil
 }
 
 func (clt *GRPCClient) Options() *client.Options {

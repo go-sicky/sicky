@@ -37,6 +37,7 @@ import (
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -294,6 +295,23 @@ func (srv *GRPCServer) Stop() error {
 	srv.runing = false
 
 	return nil
+}
+
+func (srv *GRPCServer) Addr() net.Addr {
+	return srv.addr
+}
+
+func (srv *GRPCServer) IP() net.IP {
+	try := utils.AddrToIP(srv.addr)
+	if try.IsUnspecified() {
+		try, _ = utils.ObtainPreferIP(true)
+	}
+
+	return try
+}
+
+func (srv *GRPCServer) Port() int {
+	return utils.AddrToPort(srv.addr)
 }
 
 func (srv *GRPCServer) App() *grpc.Server {

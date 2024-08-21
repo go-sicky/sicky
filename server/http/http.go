@@ -37,6 +37,7 @@ import (
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
@@ -276,6 +277,23 @@ func (srv *HTTPServer) Stop() error {
 	srv.runing = false
 
 	return nil
+}
+
+func (srv *HTTPServer) Addr() net.Addr {
+	return srv.addr
+}
+
+func (srv *HTTPServer) IP() net.IP {
+	try := utils.AddrToIP(srv.addr)
+	if try.IsUnspecified() {
+		try, _ = utils.ObtainPreferIP(true)
+	}
+
+	return try
+}
+
+func (srv *HTTPServer) Port() int {
+	return utils.AddrToPort(srv.addr)
 }
 
 func (srv *HTTPServer) App() *fiber.App {

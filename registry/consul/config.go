@@ -30,10 +30,18 @@
 
 package consul
 
-type Config struct{}
+const (
+	DefaultConsulAddress = "http://localhost:8500"
+)
+
+type Config struct {
+	address []string
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		address: []string{DefaultConsulAddress},
+	}
 }
 
 func (c *Config) Ensure() *Config {

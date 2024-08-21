@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
@@ -265,6 +266,23 @@ func (srv *WebsocketServer) Stop() error {
 	srv.runing = false
 
 	return nil
+}
+
+func (srv *WebsocketServer) Addr() net.Addr {
+	return srv.addr
+}
+
+func (srv *WebsocketServer) IP() net.IP {
+	try := utils.AddrToIP(srv.addr)
+	if try.IsUnspecified() {
+		try, _ = utils.ObtainPreferIP(true)
+	}
+
+	return try
+}
+
+func (srv *WebsocketServer) Port() int {
+	return utils.AddrToPort(srv.addr)
 }
 
 func (srv *WebsocketServer) App() *fiber.App {

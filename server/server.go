@@ -30,7 +30,10 @@
 
 package server
 
-import "context"
+import (
+	"context"
+	"net"
+)
 
 // Server : server abstraction
 type Server interface {
@@ -44,6 +47,12 @@ type Server interface {
 	Start() error
 	// Stop the server
 	Stop() error
+	// Obtain address
+	Addr() net.Addr
+	// Obtain IP
+	IP() net.IP
+	// Optain port
+	Port() int
 }
 
 var (
