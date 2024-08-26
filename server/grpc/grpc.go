@@ -46,12 +46,13 @@ import (
 
 // GRPCServer : Server definition
 type GRPCServer struct {
-	config  *Config
-	ctx     context.Context
-	options *server.Options
-	app     *grpc.Server
-	runing  bool
-	addr    net.Addr
+	config   *Config
+	ctx      context.Context
+	options  *server.Options
+	app      *grpc.Server
+	runing   bool
+	addr     net.Addr
+	metadata utils.Metadata
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -60,18 +61,22 @@ type GRPCServer struct {
 }
 
 // New GRPC server
-func New(opts *server.Options, cfg *Config) *GRPCServer {
+func New(name string, opts *server.Options, cfg *Config) *GRPCServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
+	if name != "" {
+		opts.Name = name
+	}
 
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &GRPCServer{
-		config:  cfg,
-		ctx:     context.Background(),
-		addr:    addr,
-		runing:  false,
-		options: opts,
+		config:   cfg,
+		ctx:      context.Background(),
+		addr:     addr,
+		runing:   false,
+		options:  opts,
+		metadata: utils.NewMetadata(),
 	}
 
 	// Set tracer
@@ -213,32 +218,11 @@ func (srv *GRPCServer) Start() error {
 		}
 	}
 
-	// if srv.options.TLS() != nil {
-	// 	listener, err = tls.Listen(
-	// 		srv.addr.Network(),
-	// 		srv.addr.String(),
-	// 		srv.options.TLS(),
-	// 	)
-
-	// 	if err != nil {
-	// 		srv.options.Logger().ErrorContext(srv.ctx, "GRPC server with TLS listen failed", "error", err.Error())
-
-	// 		return err
-	// 	}
-	// } else {
-	// 	listener, err = net.Listen(
-	// 		srv.addr.Network(),
-	// 		srv.addr.String(),
-	// 	)
-
-	// 	if err != nil {
-	// 		srv.options.Logger().ErrorContext(srv.ctx, "GRPC server listen failed", "error", err.Error())
-
-	// 		return err
-	// 	}
-	// }
-
 	srv.addr = listener.Addr()
+	srv.metadata.Set("server", srv.String())
+	srv.metadata.Set("address", srv.addr.String())
+	srv.metadata.Set("name", srv.options.Name)
+	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Serve(listener)
@@ -312,6 +296,10 @@ func (srv *GRPCServer) IP() net.IP {
 
 func (srv *GRPCServer) Port() int {
 	return utils.AddrToPort(srv.addr)
+}
+
+func (srv *GRPCServer) Metadata() utils.Metadata {
+	return srv.metadata
 }
 
 func (srv *GRPCServer) App() *grpc.Server {

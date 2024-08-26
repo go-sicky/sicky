@@ -47,12 +47,13 @@ import (
 
 // HTTPServer : Server definition
 type HTTPServer struct {
-	config  *Config
-	ctx     context.Context
-	options *server.Options
-	app     *fiber.App
-	runing  bool
-	addr    net.Addr
+	config   *Config
+	ctx      context.Context
+	options  *server.Options
+	app      *fiber.App
+	runing   bool
+	addr     net.Addr
+	metadata utils.Metadata
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -61,18 +62,22 @@ type HTTPServer struct {
 }
 
 // New HTTP server (go-fiber)
-func New(opts *server.Options, cfg *Config) *HTTPServer {
+func New(name string, opts *server.Options, cfg *Config) *HTTPServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
+	if name != "" {
+		opts.Name = name
+	}
 
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &HTTPServer{
-		config:  cfg,
-		ctx:     context.Background(),
-		addr:    addr,
-		runing:  false,
-		options: opts,
+		config:   cfg,
+		ctx:      context.Background(),
+		addr:     addr,
+		runing:   false,
+		options:  opts,
+		metadata: utils.NewMetadata(),
 	}
 
 	// Set tracer
@@ -221,6 +226,10 @@ func (srv *HTTPServer) Start() error {
 	}
 
 	srv.addr = listener.Addr()
+	srv.metadata.Set("server", srv.String())
+	srv.metadata.Set("address", srv.addr.String())
+	srv.metadata.Set("name", srv.options.Name)
+	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Listener(listener)
@@ -294,6 +303,10 @@ func (srv *HTTPServer) IP() net.IP {
 
 func (srv *HTTPServer) Port() int {
 	return utils.AddrToPort(srv.addr)
+}
+
+func (srv *HTTPServer) Metadata() utils.Metadata {
+	return srv.metadata
 }
 
 func (srv *HTTPServer) App() *fiber.App {

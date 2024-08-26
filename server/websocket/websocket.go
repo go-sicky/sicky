@@ -50,12 +50,13 @@ const (
 
 // WebsocketServer : Server definition
 type WebsocketServer struct {
-	config  *Config
-	ctx     context.Context
-	options *server.Options
-	app     *fiber.App
-	runing  bool
-	addr    net.Addr
+	config   *Config
+	ctx      context.Context
+	options  *server.Options
+	app      *fiber.App
+	runing   bool
+	addr     net.Addr
+	metadata utils.Metadata
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -64,18 +65,22 @@ type WebsocketServer struct {
 }
 
 // New Websocket server
-func NewServer(opts *server.Options, cfg *Config) *WebsocketServer {
+func NewServer(name string, opts *server.Options, cfg *Config) *WebsocketServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
+	if name != "" {
+		opts.Name = name
+	}
 
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	srv := &WebsocketServer{
-		config:  cfg,
-		ctx:     context.Background(),
-		addr:    addr,
-		runing:  false,
-		options: opts,
+		config:   cfg,
+		ctx:      context.Background(),
+		addr:     addr,
+		runing:   false,
+		options:  opts,
+		metadata: utils.NewMetadata(),
 	}
 
 	// Set tracer
@@ -186,32 +191,11 @@ func (srv *WebsocketServer) Start() error {
 		}
 	}
 
-	// if srv.options.TLS() != nil {
-	// 	listener, err = tls.Listen(
-	// 		srv.addr.Network(),
-	// 		srv.addr.String(),
-	// 		srv.options.TLS(),
-	// 	)
-
-	// 	if err != nil {
-	// 		srv.options.Logger().ErrorContext(srv.ctx, "Websocket server with TLS listen failed", "error", err.Error())
-
-	// 		return err
-	// 	}
-	// } else {
-	// 	listener, err = net.Listen(
-	// 		srv.addr.Network(),
-	// 		srv.addr.String(),
-	// 	)
-
-	// 	if err != nil {
-	// 		srv.options.Logger().ErrorContext(srv.ctx, "Websocket server listen failed", "error", err.Error())
-
-	// 		return err
-	// 	}
-	// }
-
 	srv.addr = listener.Addr()
+	srv.metadata.Set("server", srv.String())
+	srv.metadata.Set("address", srv.addr.String())
+	srv.metadata.Set("name", srv.options.Name)
+	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Listener(listener)
@@ -283,6 +267,10 @@ func (srv *WebsocketServer) IP() net.IP {
 
 func (srv *WebsocketServer) Port() int {
 	return utils.AddrToPort(srv.addr)
+}
+
+func (srv *WebsocketServer) Metadata() utils.Metadata {
+	return srv.metadata
 }
 
 func (srv *WebsocketServer) App() *fiber.App {

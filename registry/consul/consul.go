@@ -102,6 +102,7 @@ func (rg *Consul) Register(srv server.Server) error {
 		Name:    srv.Options().Name,
 		Address: srv.IP().String(),
 		Port:    srv.Port(),
+		Meta:    srv.Metadata(),
 	}
 	err := rg.client.Agent().ServiceRegister(reg)
 	if err != nil {

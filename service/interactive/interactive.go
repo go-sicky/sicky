@@ -33,6 +33,10 @@ package interactive
 import (
 	"context"
 
+	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
 )
 
@@ -74,6 +78,22 @@ func (s *Interactive) Start() []error {
 }
 
 func (s *Interactive) Stop() []error {
+	return nil
+}
+
+func (s *Interactive) Servers(srvs ...server.Server) []server.Server {
+	return nil
+}
+
+func (s *Interactive) Brokers(brks ...broker.Broker) []broker.Broker {
+	return nil
+}
+
+func (s *Interactive) Jobs(jobs ...job.Job) []job.Job {
+	return nil
+}
+
+func (s *Interactive) Registries(rgs ...registry.Registry) []registry.Registry {
 	return nil
 }
 

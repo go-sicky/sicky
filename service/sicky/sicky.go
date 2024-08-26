@@ -122,6 +122,7 @@ func (s *Sicky) Start() []error {
 
 	// Registry
 	for _, rg := range s.registries {
+		rg.Watch()
 		for _, srv := range s.servers {
 			if err = rg.Register(srv); err != nil {
 				errs = append(errs, err)
@@ -164,6 +165,8 @@ func (s *Sicky) Stop() []error {
 		if err = srv.Stop(); err != nil {
 			errs = append(errs, err)
 		}
+
+		srv.Context().Done()
 	}
 
 	// Deregister
@@ -173,6 +176,8 @@ func (s *Sicky) Stop() []error {
 				errs = append(errs, err)
 			}
 		}
+
+		rg.Context().Done()
 	}
 
 	// Wrapper

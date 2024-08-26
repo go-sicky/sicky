@@ -37,7 +37,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/server"
 )
 
 type Service interface {
@@ -51,6 +55,12 @@ type Service interface {
 	Start() []error
 	// Stop service
 	Stop() []error
+
+	// Subdinates
+	Servers(...server.Server) []server.Server
+	Brokers(...broker.Broker) []broker.Broker
+	Jobs(...job.Job) []job.Job
+	Registries(...registry.Registry) []registry.Registry
 }
 
 var (
@@ -101,7 +111,7 @@ func Run() error {
 	)
 
 	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT)
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT, os.Interrupt)
 	select {
 	case <-ch:
 	case <-Instance.Context().Done():

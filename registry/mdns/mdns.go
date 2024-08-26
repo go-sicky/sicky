@@ -32,25 +32,49 @@ package mdns
 
 import (
 	"context"
+	"strings"
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
+	"github.com/google/uuid"
+	"github.com/grandcat/zeroconf"
+)
+
+const (
+	serviceWildcard = "_services._dns-sd._udp"
+)
+
+var (
+	MdnsRegisters = make(map[uuid.UUID]*zeroconf.Server)
 )
 
 type MDNS struct {
-	config  *Config
-	ctx     context.Context
-	options *registry.Options
+	config   *Config
+	ctx      context.Context
+	options  *registry.Options
+	resolver *zeroconf.Resolver
+	watcched map[string]bool
+	services map[string]*registry.Service
 }
 
 func New(opts *registry.Options, cfg *Config) *MDNS {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
+	rs, err := zeroconf.NewResolver(nil)
+	if err != nil {
+		opts.Logger.Fatal(
+			"zeroconf network resolver init failed",
+			"error", err.Error(),
+		)
+	}
 
 	rg := &MDNS{
-		config:  cfg,
-		ctx:     context.Background(),
-		options: opts,
+		config:   cfg,
+		ctx:      context.Background(),
+		options:  opts,
+		resolver: rs,
+		watcched: make(map[string]bool),
+		services: make(map[string]*registry.Service),
 	}
 
 	rg.options.Logger.InfoContext(
@@ -77,6 +101,34 @@ func (rg *MDNS) String() string {
 }
 
 func (rg *MDNS) Register(srv server.Server) error {
+	service := "_" + strings.ToLower(srv.String()) + "._" + strings.ToLower(srv.Addr().Network())
+	zsrv, err := zeroconf.Register(
+		srv.Options().ID.String(),
+		service,
+		rg.config.Domain,
+		srv.Port(),
+		srv.Metadata().Strings(),
+		nil,
+	)
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Server register failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"server", srv.String(),
+			"server_id", srv.Options().ID.String(),
+			"server_name", srv.Options().Name,
+			"server_addr", srv.IP().String(),
+			"server_port", srv.Port(),
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	MdnsRegisters[srv.Options().ID] = zsrv
 	rg.options.Logger.InfoContext(
 		rg.ctx,
 		"Server registered",
@@ -86,32 +138,69 @@ func (rg *MDNS) Register(srv server.Server) error {
 		"server", srv.String(),
 		"server_id", srv.Options().ID,
 		"server_name", srv.Options().Name,
+		"service", service,
+		"domain", rg.config.Domain,
 	)
 
 	return nil
 }
 
 func (rg *MDNS) Deregister(srv server.Server) error {
-	rg.options.Logger.InfoContext(
-		rg.ctx,
-		"Server deregistered",
-		"registry", rg.String(),
-		"id", rg.options.ID,
-		"name", rg.options.Name,
-		"server", srv.String(),
-		"server_id", srv.Options().ID,
-		"server_name", srv.Options().Name,
-	)
+	zsrv, ok := MdnsRegisters[srv.Options().ID]
+	if ok && zsrv != nil {
+		zsrv.Shutdown()
+
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Server deregistered",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"server", srv.String(),
+			"server_id", srv.Options().ID,
+			"server_name", srv.Options().Name,
+		)
+	}
 
 	return nil
 }
 
 func (rg *MDNS) Watch() error {
+	entries := make(chan *zeroconf.ServiceEntry)
+	go func(results <-chan *zeroconf.ServiceEntry) {
+		for entry := range results {
+			parts := strings.Split(strings.ToLower(entry.Instance), ".")
+			if len(parts) == 3 {
+				if parts[0] == "_grpc" || parts[0] == "_http" || parts[0] == "_websocket" {
+					if !rg.watcched[entry.Instance] {
+						rg.watcched[entry.Instance] = true
+						go func() {
+							rg.resolver.Browse(rg.ctx, parts[0]+"."+parts[1], rg.config.Domain, entries)
+						}()
+					}
+				}
+			}
+		}
+	}(entries)
+
+	// Check services
+	go func() {
+		rg.resolver.Browse(rg.ctx, serviceWildcard, "", entries)
+	}()
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Registry watched",
+		"registry", rg.String(),
+		"id", rg.options.ID.String(),
+		"name", rg.options.Name,
+	)
+
 	return nil
 }
 
 /*
- * Local variables:
+ * 	 variables:
  * tab-width: 4
  * c-basic-offset: 4
  * End:

@@ -32,8 +32,10 @@ package registry
 
 import (
 	"context"
+	"net"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 )
 
 type Registry interface {
@@ -49,6 +51,19 @@ type Registry interface {
 	Deregister(server.Server) error
 	// Watch services
 	Watch() error
+}
+
+// Service definition
+type Service struct {
+	Name      string
+	Instances map[string]Instance
+}
+
+// Service instance
+type Instance struct {
+	Name     string
+	Addr     net.Addr
+	Metadata utils.Metadata
 }
 
 /*

@@ -35,7 +35,6 @@ import (
 	"net"
 
 	"github.com/go-sicky/sicky/client"
-	"google.golang.org/grpc"
 )
 
 // GRPCClient : Client definition
@@ -43,8 +42,8 @@ type GRPCClient struct {
 	config  *Config
 	options *client.Options
 	ctx     context.Context
-	conn    *grpc.ClientConn
-	addr    net.Addr
+	//conn    *grpc.ClientConn
+	addr net.Addr
 
 	//tracer trace.Tracer
 }
@@ -178,13 +177,13 @@ func (clt *GRPCClient) ID() string {
 	return clt.options.ID()
 }
 
-func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
-	return clt.conn.Invoke(ctx, method, args, reply, opts...)
-}
+// func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
+// 	return clt.conn.Invoke(ctx, method, args, reply, opts...)
+// }
 
-func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	return clt.conn.NewStream(ctx, desc, method, opts...)
-}
+// func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+// 	return clt.conn.NewStream(ctx, desc, method, opts...)
+// }
 
 /*
  * Local variables:

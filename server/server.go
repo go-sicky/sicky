@@ -33,6 +33,8 @@ package server
 import (
 	"context"
 	"net"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
 // Server : server abstraction
@@ -53,6 +55,8 @@ type Server interface {
 	IP() net.IP
 	// Optain port
 	Port() int
+	// Metadata
+	Metadata() utils.Metadata
 }
 
 var (

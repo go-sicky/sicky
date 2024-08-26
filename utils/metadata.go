@@ -59,6 +59,15 @@ func (md Metadata) Copy() Metadata {
 	return o
 }
 
+func (md Metadata) Strings() []string {
+	ret := make([]string, 0)
+	for k, v := range md {
+		ret = append(ret, k+"="+v)
+	}
+
+	return ret
+}
+
 /*
  * Local variables:
  * tab-width: 4
