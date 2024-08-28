@@ -30,6 +30,8 @@
 
 package utils
 
+import "strings"
+
 type Metadata map[string]string
 
 func NewMetadata() Metadata {
@@ -63,6 +65,18 @@ func (md Metadata) Strings() []string {
 	ret := make([]string, 0)
 	for k, v := range md {
 		ret = append(ret, k+"="+v)
+	}
+
+	return ret
+}
+
+func MetadataFromStrings(ss []string) Metadata {
+	ret := make(Metadata)
+	for _, line := range ss {
+		parts := strings.Split(line, "=")
+		if len(parts) == 2 {
+			ret.Set(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		}
 	}
 
 	return ret

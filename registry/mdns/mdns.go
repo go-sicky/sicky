@@ -32,6 +32,8 @@ package mdns
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/go-sicky/sicky/registry"
@@ -54,7 +56,6 @@ type MDNS struct {
 	options  *registry.Options
 	resolver *zeroconf.Resolver
 	watcched map[string]bool
-	services map[string]*registry.Service
 }
 
 func New(opts *registry.Options, cfg *Config) *MDNS {
@@ -74,7 +75,6 @@ func New(opts *registry.Options, cfg *Config) *MDNS {
 		options:  opts,
 		resolver: rs,
 		watcched: make(map[string]bool),
-		services: make(map[string]*registry.Service),
 	}
 
 	rg.options.Logger.InfoContext(
@@ -179,6 +179,11 @@ func (rg *MDNS) Watch() error {
 						}()
 					}
 				}
+			}
+
+			if entry.Service != serviceWildcard {
+				b, _ := json.MarshalIndent(entry, "", "  ")
+				fmt.Println(string(b))
 			}
 		}
 	}(entries)

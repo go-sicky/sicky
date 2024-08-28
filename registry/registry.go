@@ -38,6 +38,10 @@ import (
 	"github.com/go-sicky/sicky/utils"
 )
 
+var (
+	Pool map[string]*Service
+)
+
 type Registry interface {
 	// Get context
 	Context() context.Context
@@ -56,7 +60,7 @@ type Registry interface {
 // Service definition
 type Service struct {
 	Name      string
-	Instances map[string]Instance
+	Instances map[string]*Instance
 }
 
 // Service instance
