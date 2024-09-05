@@ -34,6 +34,9 @@ import (
 	"crypto/md5"
 	"fmt"
 	"math/rand"
+
+	// For submodule upgrade
+	_ "google.golang.org/genproto/protobuf/api"
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

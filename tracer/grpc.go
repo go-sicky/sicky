@@ -30,75 +30,64 @@
 
 package tracer
 
-import (
-	"context"
-	"net/http"
+// // ServerOption wrapper
+// func NewGRPCClientInterceptor(tracer trace.Tracer) grpc.UnaryClientInterceptor {
+// 	if tracer != nil {
+// 		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+// 			_, span := tracer.Start(ctx, method)
+// 			defer span.End()
 
-	"go.opentelemetry.io/contrib/propagators/b3"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-)
+// 			err := invoker(ctx, method, req, reply, cc, opts...)
+// 			if err != nil {
+// 				span.RecordError(err)
+// 			}
 
-// ServerOption wrapper
-func NewGRPCClientInterceptor(tracer trace.Tracer) grpc.UnaryClientInterceptor {
-	if tracer != nil {
-		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			_, span := tracer.Start(ctx, method)
-			defer span.End()
+// 			return err
+// 		}
+// 	} else {
+// 		return nil
+// 	}
+// }
 
-			err := invoker(ctx, method, req, reply, cc, opts...)
-			if err != nil {
-				span.RecordError(err)
-			}
+// func NewGRPCServerInterceptor(tracer trace.Tracer) grpc.UnaryServerInterceptor {
+// 	if tracer != nil {
+// 		pg := b3.New()
 
-			return err
-		}
-	} else {
-		return nil
-	}
-}
+// 		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+// 			reqHeader := make(http.Header)
+// 			md, ok := metadata.FromIncomingContext(ctx)
+// 			if ok {
+// 				for k, v := range md {
+// 					if len(v) > 0 {
+// 						reqHeader.Add(k, v[0])
+// 					}
+// 				}
+// 			}
 
-func NewGRPCServerInterceptor(tracer trace.Tracer) grpc.UnaryServerInterceptor {
-	if tracer != nil {
-		pg := b3.New()
+// 			newCtx := pg.Extract(ctx, propagation.HeaderCarrier(reqHeader))
+// 			spanedCtx, span := tracer.Start(newCtx, info.FullMethod)
+// 			defer span.End()
 
-		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			reqHeader := make(http.Header)
-			md, ok := metadata.FromIncomingContext(ctx)
-			if ok {
-				for k, v := range md {
-					if len(v) > 0 {
-						reqHeader.Add(k, v[0])
-					}
-				}
-			}
+// 			self := span.SpanContext()
+// 			nmd := metadata.Pairs(
+// 				"X-B3-Traceid", self.TraceID().String(),
+// 				"X-B3-Spanid", self.SpanID().String(),
+// 				"X-B3-Parentspanid", reqHeader.Get("X-B3-Spanid"),
+// 				"X-B3-Sampled", reqHeader.Get("X-B3-Sampled"),
+// 				"X-Request-ID", reqHeader.Get("X-Request-ID"),
+// 			)
+// 			savedCtx := metadata.NewOutgoingContext(spanedCtx, nmd)
+// 			resp, err := handler(savedCtx, req)
+// 			if err != nil {
+// 				span.RecordError(err)
+// 			}
 
-			newCtx := pg.Extract(ctx, propagation.HeaderCarrier(reqHeader))
-			spanedCtx, span := tracer.Start(newCtx, info.FullMethod)
-			defer span.End()
-
-			self := span.SpanContext()
-			nmd := metadata.Pairs(
-				"X-B3-Traceid", self.TraceID().String(),
-				"X-B3-Spanid", self.SpanID().String(),
-				"X-B3-Parentspanid", reqHeader.Get("X-B3-Spanid"),
-				"X-B3-Sampled", reqHeader.Get("X-B3-Sampled"),
-				"X-Request-ID", reqHeader.Get("X-Request-ID"),
-			)
-			savedCtx := metadata.NewOutgoingContext(spanedCtx, nmd)
-			resp, err := handler(savedCtx, req)
-			if err != nil {
-				span.RecordError(err)
-			}
-
-			return resp, err
-		}
-	} else {
-		return nil
-	}
-}
+// 			return resp, err
+// 		}
+// 	} else {
+// 		return nil
+// 	}
+// }
 
 /*
  * Local variables:
