@@ -46,7 +46,7 @@ const (
 )
 
 var (
-	DefaultAccessLogger = &AccessLogger{
+	DefaultAccessLogger = &AccessLoggerConfig{
 		RequestIDContextKey:    "requestid",
 		TraceIDContextKey:      "traceid",
 		SpanIDContextKey:       "spanid",
@@ -58,7 +58,7 @@ var (
 	}
 )
 
-type AccessLogger struct {
+type AccessLoggerConfig struct {
 	RequestIDContextKey    string `json:"request_id_context_key" yaml:"request_id_context_key" mapstructure:"request_id_context_key"`
 	TraceIDContextKey      string `json:"trace_id_context_key" yaml:"trace_id_context_key" mapstructure:"trace_id_context_key"`
 	SpanIDContextKey       string `json:"span_id_context_key" yaml:"span_id_context_key" mapstructure:"span_id_context_key"`
@@ -70,21 +70,21 @@ type AccessLogger struct {
 }
 
 type Config struct {
-	Network          string        `json:"network" yaml:"network" mapstructure:"network"`
-	Addr             string        `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM       string        `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM        string        `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	StrictRouting    bool          `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
-	CaseSensitive    bool          `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
-	Etag             bool          `json:"etag" yaml:"etag" mapstructure:"etag"`
-	BodyLimit        int           `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
-	Concurrency      int           `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
-	ReadBufferSize   int           `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
-	WriteBufferSize  int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
-	DisableKeepAlive bool          `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
-	EnableSwagger    bool          `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
-	EnableStackTrace bool          `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
-	AccessLogger     *AccessLogger `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
+	Network          string              `json:"network" yaml:"network" mapstructure:"network"`
+	Addr             string              `json:"addr" yaml:"addr" mapstructure:"addr"`
+	TLSCertPEM       string              `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM        string              `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
+	StrictRouting    bool                `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
+	CaseSensitive    bool                `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
+	Etag             bool                `json:"etag" yaml:"etag" mapstructure:"etag"`
+	BodyLimit        int                 `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
+	Concurrency      int                 `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
+	ReadBufferSize   int                 `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
+	WriteBufferSize  int                 `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+	DisableKeepAlive bool                `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
+	EnableSwagger    bool                `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	EnableStackTrace bool                `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
+	AccessLogger     *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
 }
 
 func DefaultConfig() *Config {
@@ -108,7 +108,7 @@ func (c *Config) Ensure() *Config {
 	}
 
 	if c.AccessLogger == nil {
-		c.AccessLogger = &AccessLogger{}
+		c.AccessLogger = &AccessLoggerConfig{}
 	}
 
 	if c.AccessLogger.RequestIDContextKey == "" {

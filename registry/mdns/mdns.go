@@ -32,8 +32,6 @@ package mdns
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/go-sicky/sicky/registry"
@@ -181,10 +179,10 @@ func (rg *MDNS) Watch() error {
 				}
 			}
 
-			if entry.Service != serviceWildcard {
-				b, _ := json.MarshalIndent(entry, "", "  ")
-				fmt.Println(string(b))
-			}
+			// if entry.Service != serviceWildcard {
+			// 	b, _ := json.MarshalIndent(entry, "", "  ")
+			// 	fmt.Println(string(b))
+			// }
 		}
 	}(entries)
 

@@ -31,17 +31,106 @@
 package http
 
 import (
+	"os"
+	"time"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/gofiber/fiber/v2"
 )
 
-type AccessLoggerConfig struct {
-	Next   func(c *fiber.Ctx) bool
-	Logger logger.GeneralLogger
+type AccessLoggerMiddlewareConfig struct {
+	AccessLoggerConfig *AccessLoggerConfig
+	Next               func(c *fiber.Ctx) bool
+	Logger             logger.GeneralLogger
 }
 
-func NewAccessLogger(config ...*AccessLoggerConfig) fiber.Handler {
+func accessLoggerMiddlewareConfigDefault(config ...*AccessLoggerMiddlewareConfig) *AccessLoggerMiddlewareConfig {
+	if len(config) < 1 {
+		return &AccessLoggerMiddlewareConfig{
+			AccessLoggerConfig: DefaultAccessLogger,
+			Next:               nil,
+			Logger:             logger.Logger,
+		}
+	}
+
+	cfg := config[0]
+	if cfg.Logger == nil {
+		cfg.Logger = logger.Logger
+	}
+
+	if cfg.AccessLoggerConfig == nil {
+		cfg.AccessLoggerConfig = DefaultAccessLogger
+	}
+
+	return cfg
+}
+
+func NewAccessLoggerMiddleware(config ...*AccessLoggerMiddlewareConfig) fiber.Handler {
+	cfg := accessLoggerMiddlewareConfigDefault(config...)
+	if cfg.Logger == nil {
+		cfg.Logger = logger.Logger
+	}
+
 	return func(c *fiber.Ctx) error {
+		if cfg.Next != nil && cfg.Next(c) {
+			return c.Next()
+		}
+
+		start := time.Now()
+		rv := c.Locals(cfg.AccessLoggerConfig.RequestIDContextKey)
+		requestID, _ := rv.(string)
+		tv := c.Locals(cfg.AccessLoggerConfig.TraceIDContextKey)
+		traceID, _ := tv.(string)
+		sv := c.Locals(cfg.AccessLoggerConfig.SpanIDContextKey)
+		spanID, _ := sv.(string)
+		pv := c.Locals(cfg.AccessLoggerConfig.ParentSpanIDContextKey)
+		parentSpanID, _ := pv.(string)
+		av := c.Locals(cfg.AccessLoggerConfig.SampledContextKey)
+		sampled, _ := av.(string)
+		chainErr := c.Next()
+		if chainErr != nil {
+			_ = c.App().Config().ErrorHandler(c, chainErr)
+		}
+
+		end := time.Now()
+		status := c.Response().Header.StatusCode()
+		attributes := map[string]any{
+			"pid":            os.Getpid(),
+			"status":         status,
+			"latency":        end.Sub(start),
+			"route":          c.Route().Path,
+			"method":         string(c.Request().Header.Method()),
+			"host":           c.Hostname(),
+			"path":           c.Path(),
+			"ip":             c.IP(),
+			"user-agent":     string(c.Request().Header.UserAgent()),
+			"referer":        c.Request().Header.Referer(),
+			"request-id":     requestID,
+			"trace-id":       traceID,
+			"span-id":        spanID,
+			"parent-span-id": parentSpanID,
+			"sampled":        sampled,
+		}
+
+		// Extract attributes
+		var args []any
+		for k, v := range attributes {
+			args = append(args, k, v)
+		}
+
+		l := cfg.AccessLoggerConfig.AccessLevel
+		msg := "http.request"
+		if chainErr != nil {
+			if status >= fiber.StatusInternalServerError {
+				l = cfg.AccessLoggerConfig.ServerErrorLevel
+			} else if status >= fiber.StatusBadRequest {
+				l = cfg.AccessLoggerConfig.ClientErrorLevel
+			}
+
+			msg = chainErr.Error()
+		}
+
+		cfg.Logger.LogContext(c.Context(), logger.LogLevel(l), msg, args...)
 
 		return nil
 	}

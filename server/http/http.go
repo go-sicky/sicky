@@ -116,7 +116,7 @@ func New(name string, opts *server.Options, cfg *Config) *HTTPServer {
 	}
 	app.Use(
 		cors.New(),
-		//NewPropagationMiddleware(),
+		NewPropagationMiddleware(),
 		// tracer.NewFiberMiddleware(
 		// 	&tracer.FiberMiddlewareConfig{
 		// 		Tracer: srv.tracer,
@@ -124,6 +124,12 @@ func New(name string, opts *server.Options, cfg *Config) *HTTPServer {
 		// ),
 		//logger.NewFiberMiddleware(),
 		//NewMetadataMiddleware(),
+		NewAccessLoggerMiddleware(
+			&AccessLoggerMiddlewareConfig{
+				Logger:             opts.Logger,
+				AccessLoggerConfig: cfg.AccessLogger,
+			},
+		),
 	)
 
 	srv.app = app
