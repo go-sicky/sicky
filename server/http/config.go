@@ -33,23 +33,58 @@ package http
 const (
 	DefaultNetwork = "tcp"
 	DefaultAddr    = ":9990"
+
+	// AccessLogger
+	DefaultRequestIDContextKey    = "requestid"
+	DefaultTraceIDContextKey      = "traceid"
+	DefaultSpanIDContextKey       = "spanid"
+	DefaultParentSpanIDContextKey = "parentspanid"
+	DefaultSampledContextKey      = "sampled"
+	DefaultAccessLevel            = "debug"
+	DefaultClientErrorLevel       = "warn"
+	DefaultServerErrorLevel       = "error"
 )
 
+var (
+	DefaultAccessLogger = &AccessLogger{
+		RequestIDContextKey:    "requestid",
+		TraceIDContextKey:      "traceid",
+		SpanIDContextKey:       "spanid",
+		ParentSpanIDContextKey: "parentspanid",
+		SampledContextKey:      "sampled",
+		AccessLevel:            "debug",
+		ClientErrorLevel:       "warn",
+		ServerErrorLevel:       "error",
+	}
+)
+
+type AccessLogger struct {
+	RequestIDContextKey    string `json:"request_id_context_key" yaml:"request_id_context_key" mapstructure:"request_id_context_key"`
+	TraceIDContextKey      string `json:"trace_id_context_key" yaml:"trace_id_context_key" mapstructure:"trace_id_context_key"`
+	SpanIDContextKey       string `json:"span_id_context_key" yaml:"span_id_context_key" mapstructure:"span_id_context_key"`
+	ParentSpanIDContextKey string `json:"parent_span_id_context_key" yaml:"parent_span_id_context_key" mapstructure:"parent_span_id_context_key"`
+	SampledContextKey      string `json:"sampled_context_key" yaml:"sampled_context_key" mapstructure:"sampled_context_key"`
+	AccessLevel            string `json:"access_level" yaml:"access_level" mapstructure:"access_level"`
+	ClientErrorLevel       string `json:"client_error_level" yaml:"client_error_level" mapstructure:"client_error_level"`
+	ServerErrorLevel       string `json:"server_error_level" yaml:"server_error_level" mapstructure:"server_error_level"`
+}
+
 type Config struct {
-	Network          string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr             string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM       string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM        string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	StrictRouting    bool   `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
-	CaseSensitive    bool   `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
-	Etag             bool   `json:"etag" yaml:"etag" mapstructure:"etag"`
-	BodyLimit        int    `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
-	Concurrency      int    `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
-	ReadBufferSize   int    `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
-	WriteBufferSize  int    `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
-	DisableKeepAlive bool   `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
-	EnableSwagger    bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
-	EnableStackTrace bool   `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
+	Network          string        `json:"network" yaml:"network" mapstructure:"network"`
+	Addr             string        `json:"addr" yaml:"addr" mapstructure:"addr"`
+	TLSCertPEM       string        `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM        string        `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
+	StrictRouting    bool          `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
+	CaseSensitive    bool          `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
+	Etag             bool          `json:"etag" yaml:"etag" mapstructure:"etag"`
+	BodyLimit        int           `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
+	Concurrency      int           `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
+	ReadBufferSize   int           `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
+	WriteBufferSize  int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+	DisableKeepAlive bool          `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
+	EnableSwagger    bool          `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	EnableStackTrace bool          `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
+	AccessLogger     *AccessLogger `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
 }
 
 func DefaultConfig() *Config {
@@ -70,6 +105,46 @@ func (c *Config) Ensure() *Config {
 
 	if c.Addr == "" {
 		c.Addr = DefaultAddr
+	}
+
+	if c.AccessLogger == nil {
+		c.AccessLogger = &AccessLogger{}
+	}
+
+	if c.AccessLogger.RequestIDContextKey == "" {
+		c.AccessLogger.RequestIDContextKey = DefaultRequestIDContextKey
+	}
+
+	if c.AccessLogger.TraceIDContextKey == "" {
+		c.AccessLogger.TraceIDContextKey = DefaultTraceIDContextKey
+	}
+
+	if c.AccessLogger.TraceIDContextKey == "" {
+		c.AccessLogger.TraceIDContextKey = DefaultTraceIDContextKey
+	}
+
+	if c.AccessLogger.SpanIDContextKey == "" {
+		c.AccessLogger.SpanIDContextKey = DefaultSpanIDContextKey
+	}
+
+	if c.AccessLogger.ParentSpanIDContextKey == "" {
+		c.AccessLogger.ParentSpanIDContextKey = DefaultParentSpanIDContextKey
+	}
+
+	if c.AccessLogger.SampledContextKey == "" {
+		c.AccessLogger.SampledContextKey = DefaultSampledContextKey
+	}
+
+	if c.AccessLogger.AccessLevel == "" {
+		c.AccessLogger.AccessLevel = DefaultAccessLevel
+	}
+
+	if c.AccessLogger.ClientErrorLevel == "" {
+		c.AccessLogger.ClientErrorLevel = DefaultClientErrorLevel
+	}
+
+	if c.AccessLogger.ServerErrorLevel == "" {
+		c.AccessLogger.ServerErrorLevel = DefaultServerErrorLevel
 	}
 
 	return c
