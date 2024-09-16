@@ -38,6 +38,7 @@ import (
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/tracer"
 )
 
 type Interactive struct {
@@ -56,7 +57,9 @@ func New(opts *service.Options, cfg *Config) *Interactive {
 		options: opts,
 	}
 
-	service.Instance = svc
+	if service.Instance == nil {
+		service.Instance = svc
+	}
 
 	return svc
 }
@@ -86,6 +89,10 @@ func (s *Interactive) Servers(srvs ...server.Server) []server.Server {
 }
 
 func (s *Interactive) Brokers(brks ...broker.Broker) []broker.Broker {
+	return nil
+}
+
+func (s *Interactive) Tracers(trcs ...tracer.Tracer) []tracer.Tracer {
 	return nil
 }
 

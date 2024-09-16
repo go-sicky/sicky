@@ -42,6 +42,7 @@ import (
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 )
 
 type Service interface {
@@ -59,6 +60,7 @@ type Service interface {
 	// Subdinates
 	Servers(...server.Server) []server.Server
 	Brokers(...broker.Broker) []broker.Broker
+	Tracers(...tracer.Tracer) []tracer.Tracer
 	Jobs(...job.Job) []job.Job
 	Registries(...registry.Registry) []registry.Registry
 }
@@ -67,32 +69,39 @@ var (
 	Instance Service
 )
 
-func Run() error {
+func Run(svc ...Service) error {
 	var (
 		err  error
 		errs []error
+		me   Service
 	)
 
-	if Instance == nil {
+	if len(svc) > 0 {
+		me = svc[0]
+	} else {
+		me = Instance
+	}
+
+	if me == nil {
 		logger.Fatal("No service initialized")
 	}
 
 	logger.InfoContext(
-		Instance.Context(),
+		me.Context(),
 		"Startring service",
-		"service", Instance.String(),
-		"id", Instance.Options().ID,
-		"name", Instance.Options().Name,
-		"version", Instance.Options().Version,
-		"branch", Instance.Options().Branch,
+		"service", me.String(),
+		"id", me.Options().ID,
+		"name", me.Options().Name,
+		"version", me.Options().Version,
+		"branch", me.Options().Branch,
 	)
 
 	// Start service
-	errs = Instance.Start()
+	errs = me.Start()
 	if errs != nil {
 		err = errors.Join(errs...)
 		logger.ErrorContext(
-			Instance.Context(),
+			me.Context(),
 			"Service start failed",
 			"errors", err.Error(),
 		)
@@ -101,38 +110,38 @@ func Run() error {
 	}
 
 	logger.InfoContext(
-		Instance.Context(),
+		me.Context(),
 		"Service started",
-		"service", Instance.String(),
-		"id", Instance.Options().ID,
-		"name", Instance.Options().Name,
-		"version", Instance.Options().Version,
-		"branch", Instance.Options().Branch,
+		"service", me.String(),
+		"id", me.Options().ID,
+		"name", me.Options().Name,
+		"version", me.Options().Version,
+		"branch", me.Options().Branch,
 	)
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT, os.Interrupt)
 	select {
 	case <-ch:
-	case <-Instance.Context().Done():
+	case <-me.Context().Done():
 	}
 
 	logger.InfoContext(
-		Instance.Context(),
+		me.Context(),
 		"Stopping service",
-		"service", Instance.String(),
-		"id", Instance.Options().ID,
-		"name", Instance.Options().Name,
-		"version", Instance.Options().Version,
-		"branch", Instance.Options().Branch,
+		"service", me.String(),
+		"id", me.Options().ID,
+		"name", me.Options().Name,
+		"version", me.Options().Version,
+		"branch", me.Options().Branch,
 	)
 
 	// Stop services
-	errs = Instance.Stop()
+	errs = me.Stop()
 	if errs != nil {
 		err = errors.Join(errs...)
 		logger.ErrorContext(
-			Instance.Context(),
+			me.Context(),
 			"Service stop failed",
 			"errors", err.Error(),
 		)
@@ -141,13 +150,13 @@ func Run() error {
 	}
 
 	logger.InfoContext(
-		Instance.Context(),
+		me.Context(),
 		"Service stopped",
-		"service", Instance.String(),
-		"id", Instance.Options().ID,
-		"name", Instance.Options().Name,
-		"version", Instance.Options().Version,
-		"branch", Instance.Options().Branch,
+		"service", me.String(),
+		"id", me.Options().ID,
+		"name", me.Options().Name,
+		"version", me.Options().Version,
+		"branch", me.Options().Branch,
 	)
 
 	return nil

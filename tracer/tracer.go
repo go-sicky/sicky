@@ -22,77 +22,52 @@
  */
 
 /**
- * @file cron.go
- * @package cron
+ * @file tracer.go
+ * @package tracer
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 09/14/2024
  */
 
-package cron
+package tracer
 
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
 )
 
-type Cron struct {
-	config  *Config
-	ctx     context.Context
-	options *job.Options
+// Tracer : tracer abstraction
+type Tracer interface {
+	// Get context
+	Context() context.Context
+	// Server options
+	Options() *Options
+	// Stringify
+	String() string
+	// Tracer ID
+	ID() uuid.UUID
+	// Tracer name
+	Name() string
+	// Start tracer
+	Start() error
+	// Stop tracer
+	Stop() error
+	// Trace context
+	Trace() error
 }
 
-// New cron job schedular
-func New(opts *job.Options, cfg *Config) *Cron {
-	opts = opts.Ensure()
-	cfg = cfg.Ensure()
+var (
+	tracers = make(map[uuid.UUID]Tracer)
+)
 
-	j := &Cron{
-		config:  cfg,
-		ctx:     context.Background(),
-		options: opts,
+func Instance(id uuid.UUID, tracer ...Tracer) Tracer {
+	if len(tracer) > 0 {
+		tracers[id] = tracer[0]
+
+		return tracer[0]
 	}
 
-	j.options.Logger.InfoContext(
-		j.ctx,
-		"Job created",
-		"job", j.String(),
-		"id", j.options.ID,
-		"name", j.options.Name,
-	)
-
-	job.Instance(opts.ID, j)
-
-	return j
-}
-
-func (job *Cron) Context() context.Context {
-	return job.ctx
-}
-
-func (job *Cron) Options() *job.Options {
-	return job.options
-}
-
-func (job *Cron) String() string {
-	return "cron"
-}
-
-func (job *Cron) ID() uuid.UUID {
-	return job.options.ID
-}
-
-func (job *Cron) Name() string {
-	return job.options.Name
-}
-
-func (job *Cron) Start() error {
-	return nil
-}
-
-func (job *Cron) Stop() error {
-	return nil
+	return tracers[id]
 }
 
 /*

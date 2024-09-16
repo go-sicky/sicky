@@ -36,6 +36,7 @@ import (
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
+	"github.com/google/uuid"
 )
 
 var (
@@ -49,6 +50,10 @@ type Registry interface {
 	Options() *Options
 	// Stringify
 	String() string
+	// Registry ID
+	ID() uuid.UUID
+	// Registry name
+	Name() string
 	// Register service
 	Register(server.Server) error
 	// Deregister service
@@ -60,14 +65,28 @@ type Registry interface {
 // Service definition
 type Service struct {
 	Name      string
-	Instances map[string]*Instance
+	Instances map[string]*Ins
 }
 
 // Service instance
-type Instance struct {
+type Ins struct {
 	Name     string
 	Addr     net.Addr
 	Metadata utils.Metadata
+}
+
+var (
+	registries = make(map[uuid.UUID]Registry)
+)
+
+func Instance(id uuid.UUID, rg ...Registry) Registry {
+	if len(rg) > 0 {
+		registries[id] = rg[0]
+
+		return rg[0]
+	}
+
+	return registries[id]
 }
 
 /*

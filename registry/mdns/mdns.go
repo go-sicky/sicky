@@ -83,6 +83,8 @@ func New(opts *registry.Options, cfg *Config) *MDNS {
 		"name", rg.options.Name,
 	)
 
+	registry.Instance(opts.ID, rg)
+
 	return rg
 }
 
@@ -96,6 +98,14 @@ func (rg *MDNS) Options() *registry.Options {
 
 func (rg *MDNS) String() string {
 	return "mdns"
+}
+
+func (rg *MDNS) ID() uuid.UUID {
+	return rg.options.ID
+}
+
+func (rg *MDNS) Name() string {
+	return rg.options.Name
 }
 
 func (rg *MDNS) Register(srv server.Server) error {

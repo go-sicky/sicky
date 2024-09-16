@@ -42,6 +42,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/google/uuid"
 )
 
 const (
@@ -105,7 +106,10 @@ func NewServer(name string, opts *server.Options, cfg *Config) *WebsocketServer 
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
-		"addr", addr.String())
+		"addr", addr.String(),
+	)
+
+	server.Instance(opts.ID, srv)
 
 	return srv
 }
@@ -120,6 +124,14 @@ func (srv *WebsocketServer) Options() *server.Options {
 
 func (srv *WebsocketServer) String() string {
 	return "websocket"
+}
+
+func (srv *WebsocketServer) ID() uuid.UUID {
+	return srv.options.ID
+}
+
+func (srv *WebsocketServer) Name() string {
+	return srv.options.Name
 }
 
 func (srv *WebsocketServer) Start() error {

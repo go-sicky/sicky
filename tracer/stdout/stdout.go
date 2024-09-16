@@ -22,76 +22,96 @@
  */
 
 /**
- * @file cron.go
- * @package cron
+ * @file stdout.go
+ * @package stdout
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 09/14/2024
  */
 
-package cron
+package stdout
 
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )
 
-type Cron struct {
-	config  *Config
-	ctx     context.Context
-	options *job.Options
+type StdoutTracer struct {
+	config   *Config
+	ctx      context.Context
+	options  *tracer.Options
+	exporter *stdouttrace.Exporter
 }
 
-// New cron job schedular
-func New(opts *job.Options, cfg *Config) *Cron {
+func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	j := &Cron{
+	tc := &StdoutTracer{
 		config:  cfg,
 		ctx:     context.Background(),
 		options: opts,
 	}
 
-	j.options.Logger.InfoContext(
-		j.ctx,
-		"Job created",
-		"job", j.String(),
-		"id", j.options.ID,
-		"name", j.options.Name,
-	)
+	var sto []stdouttrace.Option
+	if cfg.PrettyPrint {
+		sto = append(sto, stdouttrace.WithPrettyPrint())
+	}
 
-	job.Instance(opts.ID, j)
+	if !cfg.Timestamps {
+		sto = append(sto, stdouttrace.WithoutTimestamps())
+	}
 
-	return j
+	st, err := stdouttrace.New(sto...)
+	if err != nil {
+		tc.options.Logger.ErrorContext(
+			tc.ctx,
+			"Trace exporter create failed",
+			"exporter", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+		)
+
+		return nil
+	}
+
+	tc.exporter = st
+	tracer.Instance(opts.ID, tc)
+
+	return tc
 }
 
-func (job *Cron) Context() context.Context {
-	return job.ctx
+func (exp *StdoutTracer) Context() context.Context {
+	return exp.ctx
 }
 
-func (job *Cron) Options() *job.Options {
-	return job.options
+func (exp *StdoutTracer) Options() *tracer.Options {
+	return exp.options
 }
 
-func (job *Cron) String() string {
-	return "cron"
+func (exp *StdoutTracer) String() string {
+	return "stdout"
 }
 
-func (job *Cron) ID() uuid.UUID {
-	return job.options.ID
+func (tc *StdoutTracer) ID() uuid.UUID {
+	return tc.options.ID
 }
 
-func (job *Cron) Name() string {
-	return job.options.Name
+func (tc *StdoutTracer) Name() string {
+	return tc.options.Name
 }
 
-func (job *Cron) Start() error {
+func (tc *StdoutTracer) Start() error {
 	return nil
 }
 
-func (job *Cron) Stop() error {
+func (tc *StdoutTracer) Stop() error {
+	return nil
+}
+
+func (tc *StdoutTracer) Trace() error {
 	return nil
 }
 

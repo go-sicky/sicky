@@ -30,7 +30,11 @@
 
 package broker
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 type Broker interface {
 	// Get context
@@ -39,6 +43,10 @@ type Broker interface {
 	Options() *Options
 	// Stringify
 	String() string
+	// Broker ID
+	ID() uuid.UUID
+	// Broker name
+	Name() string
 	// Connect to broker
 	Connect() error
 	// Disconnect from broker
@@ -54,18 +62,17 @@ type Broker interface {
 type Handler func(*Message) error
 
 var (
-	Default Broker
-	events  = make(map[string]Broker, 0)
+	brokers = make(map[uuid.UUID]Broker, 0)
 )
 
-func Instance(name string, brk ...Broker) Broker {
+func Instance(id uuid.UUID, brk ...Broker) Broker {
 	if len(brk) > 0 {
-		events[name] = brk[0]
+		brokers[id] = brk[0]
 
 		return brk[0]
 	}
 
-	return events[name]
+	return brokers[id]
 }
 
 /*

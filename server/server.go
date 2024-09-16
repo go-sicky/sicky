@@ -35,6 +35,7 @@ import (
 	"net"
 
 	"github.com/go-sicky/sicky/utils"
+	"github.com/google/uuid"
 )
 
 // Server : server abstraction
@@ -45,6 +46,10 @@ type Server interface {
 	Options() *Options
 	// Stringify
 	String() string
+	// Server ID
+	ID() uuid.UUID
+	// Server name
+	Name() string
 	// Start the server
 	Start() error
 	// Stop the server
@@ -60,17 +65,17 @@ type Server interface {
 }
 
 var (
-	servers = make(map[string]Server)
+	servers = make(map[uuid.UUID]Server)
 )
 
-func Instance(name string, srv ...Server) Server {
+func Instance(id uuid.UUID, srv ...Server) Server {
 	if len(srv) > 0 {
-		servers[name] = srv[0]
+		servers[id] = srv[0]
 
 		return srv[0]
 	}
 
-	return servers[name]
+	return servers[id]
 }
 
 /*

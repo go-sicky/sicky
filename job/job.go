@@ -30,7 +30,11 @@
 
 package job
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 type Job interface {
 	// Get context
@@ -39,6 +43,10 @@ type Job interface {
 	Options() *Options
 	// Stringify
 	String() string
+	// Job ID
+	ID() uuid.UUID
+	// Job name
+	Name() string
 	// Start job
 	Start() error
 	// Stop job
@@ -46,17 +54,17 @@ type Job interface {
 }
 
 var (
-	jobs = make(map[string]Job)
+	jobs = make(map[uuid.UUID]Job)
 )
 
-func Instance(name string, job ...Job) Job {
+func Instance(id uuid.UUID, job ...Job) Job {
 	if len(job) > 0 {
-		jobs[name] = job[0]
+		jobs[id] = job[0]
 
 		return job[0]
 	}
 
-	return jobs[name]
+	return jobs[id]
 }
 
 /*

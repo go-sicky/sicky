@@ -36,6 +36,7 @@ import (
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/utils"
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 )
 
@@ -67,6 +68,8 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 		"name", brk.options.Name,
 	)
 
+	broker.Instance(opts.ID, brk)
+
 	return brk
 }
 
@@ -80,6 +83,14 @@ func (brk *Nats) Options() *broker.Options {
 
 func (brk *Nats) String() string {
 	return "nats"
+}
+
+func (brk *Nats) ID() uuid.UUID {
+	return brk.options.ID
+}
+
+func (brk *Nats) Name() string {
+	return brk.options.Name
 }
 
 func (brk *Nats) Connect() error {

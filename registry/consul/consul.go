@@ -35,6 +35,7 @@ import (
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
+	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
 )
 
@@ -81,6 +82,8 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 		"name", rg.options.Name,
 	)
 
+	registry.Instance(opts.ID, rg)
+
 	return rg
 }
 
@@ -94,6 +97,14 @@ func (rg *Consul) Options() *registry.Options {
 
 func (rg *Consul) String() string {
 	return "consul"
+}
+
+func (rg *Consul) ID() uuid.UUID {
+	return rg.options.ID
+}
+
+func (rg *Consul) Name() string {
+	return rg.options.Name
 }
 
 func (rg *Consul) Register(srv server.Server) error {

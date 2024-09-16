@@ -38,6 +38,7 @@ import (
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/tracer"
 )
 
 type Sicky struct {
@@ -47,6 +48,7 @@ type Sicky struct {
 
 	servers    []server.Server
 	brokers    []broker.Broker
+	tracers    []tracer.Tracer
 	jobs       []job.Job
 	registries []registry.Registry
 }
@@ -66,7 +68,9 @@ func New(opts *service.Options, cfg *Config) *Sicky {
 		registries: make([]registry.Registry, 0),
 	}
 
-	service.Instance = svc
+	if service.Instance == nil {
+		service.Instance = svc
+	}
 
 	svc.options.Logger.InfoContext(
 		svc.ctx,
@@ -120,6 +124,13 @@ func (s *Sicky) Start() []error {
 		}
 	}
 
+	// Tracers
+	for _, trc := range s.tracers {
+		if err = trc.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	// Registry
 	for _, rg := range s.registries {
 		rg.Watch()
@@ -153,6 +164,24 @@ func (s *Sicky) Stop() []error {
 		}
 	}
 
+	// Deregister
+	for _, rg := range s.registries {
+		for _, srv := range s.servers {
+			if err = rg.Deregister(srv); err != nil {
+				errs = append(errs, err)
+			}
+		}
+
+		rg.Context().Done()
+	}
+
+	// Tracers
+	for _, trc := range s.tracers {
+		if err = trc.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	// Disconnect brokers
 	for _, brk := range s.brokers {
 		if err = brk.Disconnect(); err != nil {
@@ -167,17 +196,6 @@ func (s *Sicky) Stop() []error {
 		}
 
 		srv.Context().Done()
-	}
-
-	// Deregister
-	for _, rg := range s.registries {
-		for _, srv := range s.servers {
-			if err = rg.Deregister(srv); err != nil {
-				errs = append(errs, err)
-			}
-		}
-
-		rg.Context().Done()
 	}
 
 	// Wrapper
@@ -205,6 +223,14 @@ func (s *Sicky) Brokers(brks ...broker.Broker) []broker.Broker {
 	}
 
 	return s.brokers
+}
+
+func (s *Sicky) Tracers(trcs ...tracer.Tracer) []tracer.Tracer {
+	if len(trcs) > 0 {
+		s.tracers = append(s.tracers, trcs...)
+	}
+
+	return s.tracers
 }
 
 func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {

@@ -38,6 +38,7 @@ import (
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -132,7 +133,10 @@ func New(name string, opts *server.Options, cfg *Config) *GRPCServer {
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
-		"addr", addr.String())
+		"addr", addr.String(),
+	)
+
+	server.Instance(opts.ID, srv)
 
 	return srv
 }
@@ -147,6 +151,14 @@ func (srv *GRPCServer) Options() *server.Options {
 
 func (srv *GRPCServer) String() string {
 	return "grpc"
+}
+
+func (srv *GRPCServer) ID() uuid.UUID {
+	return srv.options.ID
+}
+
+func (srv *GRPCServer) Name() string {
+	return srv.options.Name
 }
 
 func (srv *GRPCServer) Start() error {

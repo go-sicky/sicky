@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/broker"
+	"github.com/google/uuid"
 )
 
 type Nsq struct {
@@ -60,6 +61,8 @@ func New(opts *broker.Options, cfg *Config) *Nsq {
 		"name", brk.options.Name,
 	)
 
+	broker.Instance(opts.ID, brk)
+
 	return brk
 }
 
@@ -75,7 +78,19 @@ func (brk *Nsq) String() string {
 	return "nsq"
 }
 
+func (brk *Nsq) ID() uuid.UUID {
+	return brk.options.ID
+}
+
+func (brk *Nsq) Name() string {
+	return brk.options.Name
+}
+
 func (brk *Nsq) Connect() error {
+	return nil
+}
+
+func (brk *Nsq) Disconnect() error {
 	return nil
 }
 

@@ -22,76 +22,82 @@
  */
 
 /**
- * @file cron.go
- * @package cron
+ * @file grpc.go
+ * @package grpc
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 09/15/2024
  */
 
-package cron
+package grpc
 
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 )
 
-type Cron struct {
-	config  *Config
-	ctx     context.Context
-	options *job.Options
+type GRPCTracer struct {
+	config   *Config
+	ctx      context.Context
+	options  *tracer.Options
+	exporter *otlptrace.Exporter
 }
 
-// New cron job schedular
-func New(opts *job.Options, cfg *Config) *Cron {
+func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	j := &Cron{
+	tc := &GRPCTracer{
 		config:  cfg,
 		ctx:     context.Background(),
 		options: opts,
 	}
 
-	j.options.Logger.InfoContext(
-		j.ctx,
-		"Job created",
-		"job", j.String(),
-		"id", j.options.ID,
-		"name", j.options.Name,
-	)
+	var oo []otlptracegrpc.Option
 
-	job.Instance(opts.ID, j)
+	e, err := otlptracegrpc.New(tc.ctx, oo...)
+	if err != nil {
+		return nil
+	}
 
-	return j
+	tc.exporter = e
+	tracer.Instance(opts.ID, tc)
+
+	return tc
 }
 
-func (job *Cron) Context() context.Context {
-	return job.ctx
+func (tc *GRPCTracer) Context() context.Context {
+	return tc.ctx
 }
 
-func (job *Cron) Options() *job.Options {
-	return job.options
+func (tc *GRPCTracer) Options() *tracer.Options {
+	return tc.options
 }
 
-func (job *Cron) String() string {
-	return "cron"
+func (tc *GRPCTracer) String() string {
+	return "grpc"
 }
 
-func (job *Cron) ID() uuid.UUID {
-	return job.options.ID
+func (tc *GRPCTracer) ID() uuid.UUID {
+	return tc.options.ID
 }
 
-func (job *Cron) Name() string {
-	return job.options.Name
+func (tc *GRPCTracer) Name() string {
+	return tc.options.Name
 }
 
-func (job *Cron) Start() error {
+func (tc *GRPCTracer) Start() error {
 	return nil
 }
 
-func (job *Cron) Stop() error {
+func (tc *GRPCTracer) Stop() error {
+	return nil
+}
+
+func (tc *GRPCTracer) Trace() error {
 	return nil
 }
 

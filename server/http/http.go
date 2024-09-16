@@ -41,6 +41,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/google/uuid"
 )
 
 /* {{{ [Server] */
@@ -145,7 +146,10 @@ func New(name string, opts *server.Options, cfg *Config) *HTTPServer {
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
-		"addr", addr.String())
+		"addr", addr.String(),
+	)
+
+	server.Instance(opts.ID, srv)
 
 	return srv
 }
@@ -160,6 +164,14 @@ func (srv *HTTPServer) Options() *server.Options {
 
 func (srv *HTTPServer) String() string {
 	return "http"
+}
+
+func (srv *HTTPServer) ID() uuid.UUID {
+	return srv.options.ID
+}
+
+func (srv *HTTPServer) Name() string {
+	return srv.options.Name
 }
 
 func (srv *HTTPServer) Start() error {

@@ -22,77 +22,39 @@
  */
 
 /**
- * @file cron.go
- * @package cron
+ * @file options.go
+ * @package tracerr
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 09/14/2024
  */
 
-package cron
+package tracer
 
 import (
-	"context"
-
-	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
 )
 
-type Cron struct {
-	config  *Config
-	ctx     context.Context
-	options *job.Options
+type Options struct {
+	Name   string
+	ID     uuid.UUID
+	Logger logger.GeneralLogger
 }
 
-// New cron job schedular
-func New(opts *job.Options, cfg *Config) *Cron {
-	opts = opts.Ensure()
-	cfg = cfg.Ensure()
-
-	j := &Cron{
-		config:  cfg,
-		ctx:     context.Background(),
-		options: opts,
+func (o *Options) Ensure() *Options {
+	if o == nil {
+		o = new(Options)
 	}
 
-	j.options.Logger.InfoContext(
-		j.ctx,
-		"Job created",
-		"job", j.String(),
-		"id", j.options.ID,
-		"name", j.options.Name,
-	)
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
+	}
 
-	job.Instance(opts.ID, j)
+	if o.Name == "" {
+		o.Name = "Tracer::" + o.ID.String()
+	}
 
-	return j
-}
-
-func (job *Cron) Context() context.Context {
-	return job.ctx
-}
-
-func (job *Cron) Options() *job.Options {
-	return job.options
-}
-
-func (job *Cron) String() string {
-	return "cron"
-}
-
-func (job *Cron) ID() uuid.UUID {
-	return job.options.ID
-}
-
-func (job *Cron) Name() string {
-	return job.options.Name
-}
-
-func (job *Cron) Start() error {
-	return nil
-}
-
-func (job *Cron) Stop() error {
-	return nil
+	return o
 }
 
 /*
