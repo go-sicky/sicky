@@ -62,12 +62,9 @@ type GRPCServer struct {
 }
 
 // New GRPC server
-func New(name string, opts *server.Options, cfg *Config) *GRPCServer {
+func New(opts *server.Options, cfg *Config) *GRPCServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
-	if name != "" {
-		opts.Name = name
-	}
 
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)

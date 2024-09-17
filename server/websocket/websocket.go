@@ -66,12 +66,9 @@ type WebsocketServer struct {
 }
 
 // New Websocket server
-func NewServer(name string, opts *server.Options, cfg *Config) *WebsocketServer {
+func NewServer(opts *server.Options, cfg *Config) *WebsocketServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
-	if name != "" {
-		opts.Name = name
-	}
 
 	// TCP default
 	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)

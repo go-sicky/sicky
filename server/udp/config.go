@@ -22,70 +22,45 @@
  */
 
 /**
- * @file tracer.go
- * @package tracer
+ * @file config.go
+ * @package udp
  * @author Dr.NP <np@herewe.tech>
- * @since 09/14/2024
+ * @since 09/17/2024
  */
 
-package tracer
+package udp
 
-import (
-	"context"
-	"errors"
-
-	"github.com/google/uuid"
+const (
+	DefaultNetwork = "udp"
+	DefaultAddr    = ":9980"
 )
 
-// Tracer : tracer abstraction
-type Tracer interface {
-	// Get context
-	Context() context.Context
-	// Server options
-	Options() *Options
-	// Stringify
-	String() string
-	// Tracer ID
-	ID() uuid.UUID
-	// Tracer name
-	Name() string
-	// Start tracer
-	Start() error
-	// Stop tracer
-	Stop() error
-	// Trace context
-	Trace() error
+type Config struct {
+	Network string `json:"network" yaml:"network" mapstructure:"network"`
+	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
 }
 
-var (
-	tracers = make(map[uuid.UUID]Tracer)
-)
-
-func Instance(id uuid.UUID, tracer ...Tracer) Tracer {
-	if len(tracer) > 0 {
-		tracers[id] = tracer[0]
-
-		return tracer[0]
+func DefaultConfig() *Config {
+	return &Config{
+		Network: DefaultNetwork,
+		Addr:    DefaultAddr,
 	}
-
-	return tracers[id]
 }
 
-func Trace() error {
-	var (
-		errs error
-	)
-
-	for _, tr := range tracers {
-		if tr != nil {
-			err := tr.Trace()
-			if err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
 	}
 
-	return errs
+	if c.Network == "" {
+		c.Network = DefaultNetwork
+	}
+
+	if c.Addr == "" {
+		c.Addr = DefaultAddr
+	}
+
+	return c
 }
 
 /*
