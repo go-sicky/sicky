@@ -105,7 +105,7 @@ func (brk *Nats) Connect() error {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"broker connected",
+		"Broker connected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,

@@ -30,7 +30,14 @@
 
 package runtime
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"errors"
+	"net/http"
+
+	"github.com/go-sicky/sicky/logger"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
 
 var (
 	NumGRPCServerAccessCounter = prometheus.NewCounter(
@@ -45,10 +52,10 @@ var (
 			Help: "Number of http access",
 		},
 	)
-	NumNatsServerAccessCounter = prometheus.NewCounter(
+	NumUDPServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "num_nats_server_access",
-			Help: "Number of nats access",
+			Name: "num_udp_server_access",
+			Help: "Number of udp access",
 		},
 	)
 	NumWebsocketServerAccessCounter = prometheus.NewCounter(
@@ -70,10 +77,10 @@ var (
 			Help: "Number of http call",
 		},
 	)
-	NumNatsClientCallCounter = prometheus.NewCounter(
+	NumUDPClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "num_nats_client_call",
-			Help: "Number of nats call",
+			Name: "num_udp_client_call",
+			Help: "Number of udp call",
 		},
 	)
 	NumWebsocketClientCallCounter = prometheus.NewCounter(
@@ -83,6 +90,53 @@ var (
 		},
 	)
 )
+
+func StartMetrics() error {
+	metricsRegistry := prometheus.NewRegistry()
+	metricsRegistry.MustRegister(
+		NumGRPCServerAccessCounter,
+		NumHTTPServerAccessCounter,
+		NumUDPServerAccessCounter,
+		NumWebsocketServerAccessCounter,
+		NumGRPCClientCallCounter,
+		NumHTTPClientCallCounter,
+		NumUDPClientCallCounter,
+		NumWebsocketClientCallCounter,
+	)
+
+	http.Handle(
+		metricsExporterPath,
+		promhttp.HandlerFor(
+			metricsRegistry,
+			promhttp.HandlerOpts{
+				Registry: metricsRegistry,
+			},
+		),
+	)
+
+	metricsServer := &http.Server{
+		Addr: metricsExporterAddr,
+	}
+
+	go func() {
+		logger.Logger.Info(
+			"Prometheus exporter listening",
+			"addr", metricsExporterAddr,
+			"path", metricsExporterPath,
+		)
+
+		err := metricsServer.ListenAndServe()
+		if err != nil {
+			if errors.Is(err, http.ErrServerClosed) {
+				logger.Logger.Warn("Prometheus exporter closed", "error", err.Error())
+			} else {
+				logger.Logger.Error("Prometheus exporter listen failed", "error", err.Error())
+			}
+		}
+	}()
+
+	return nil
+}
 
 /*
  * Local variables:

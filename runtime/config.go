@@ -22,45 +22,65 @@
  */
 
 /**
- * @file runtime.go
+ * @file config.go
  * @package runtime
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 09/18/2024
  */
 
 package runtime
 
 import (
-	"github.com/spf13/pflag"
+	"net/url"
+	"strings"
+
+	"github.com/go-sicky/sicky/logger"
+	"github.com/spf13/viper"
+	_ "github.com/spf13/viper/remote"
 )
 
 var (
-	configLoc           = "config"
-	configType          = "json"
-	metricsExporterAddr = ":9870"
-	metricsExporterPath = "/metrics"
-
-	AppName = "sicky"
+	Config *viper.Viper
 )
 
-func Init(name string) error {
-	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
-	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
-	pflag.StringVar(&metricsExporterAddr, "metrics-addr", metricsExporterAddr, "Address of prometheus exporter.")
-	pflag.StringVar(&metricsExporterPath, "metrics-path", metricsExporterPath, "Path of prometheus exporter.")
-	pflag.Parse()
+func LoadConfig() error {
+	cfg := viper.New()
+	Config = cfg
 
-	if name != "" {
-		AppName = name
+	cfg.SetConfigType(configType)
+
+	// Try config source
+	u, err := url.Parse(configLoc)
+	if err == nil && u != nil && u.Scheme != "" && u.Path != "" {
+		// Remote config source
+		remote := strings.ToLower(u.Scheme)
+		err = cfg.AddRemoteProvider(remote, u.Host, u.Path)
+		if err != nil {
+			logger.Logger.Fatal("Add remote config source failed", "error", err.Error())
+		}
+
+		err = cfg.ReadRemoteConfig()
+	} else {
+		// Local file
+		cfg.SetConfigName(configLoc)
+		cfg.AddConfigPath("/etc")
+		cfg.AddConfigPath("/etc/" + AppName)
+		cfg.AddConfigPath("$HOME/." + AppName)
+		cfg.AddConfigPath(".")
+
+		err = cfg.ReadInConfig()
 	}
 
-	// Load config
-	LoadConfig()
+	if err != nil {
+		logger.Logger.Fatal("Read config failed", "error", err.Error())
+	}
 
-	// Start prometheus exporter
-	StartMetrics()
+	// Read config from environment variables
+	cfg.SetEnvPrefix(strings.ToUpper(AppName))
+	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	cfg.AutomaticEnv()
 
-	return nil
+	return err
 }
 
 /*

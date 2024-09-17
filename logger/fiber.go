@@ -34,7 +34,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-sicky/sicky/runtime"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -118,7 +117,7 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 
 	return func(c *fiber.Ctx) error {
 		// Metric
-		runtime.NumHTTPServerAccessCounter.Inc()
+		//runtime.NumHTTPServerAccessCounter.Inc()
 
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
