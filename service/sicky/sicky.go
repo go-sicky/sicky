@@ -104,9 +104,11 @@ func (s *Sicky) Start() []error {
 	)
 
 	// Wrapper
-	for _, fn := range s.options.BeforeStart() {
-		if err = fn(s); err != nil {
-			errs = append(errs, err)
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.BeforeStart() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
@@ -125,26 +127,32 @@ func (s *Sicky) Start() []error {
 	}
 
 	// Tracers
-	for _, trc := range s.tracers {
-		if err = trc.Start(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	// Registry
-	for _, rg := range s.registries {
-		rg.Watch()
-		for _, srv := range s.servers {
-			if err = rg.Register(srv); err != nil {
+	if !s.config.DisableTrace {
+		for _, trc := range s.tracers {
+			if err = trc.Start(); err != nil {
 				errs = append(errs, err)
 			}
 		}
 	}
 
+	// Registry
+	if !s.config.DisableServerRegister {
+		for _, rg := range s.registries {
+			rg.Watch()
+			for _, srv := range s.servers {
+				if err = rg.Register(srv); err != nil {
+					errs = append(errs, err)
+				}
+			}
+		}
+	}
+
 	// Wrapper
-	for _, fn := range s.options.AfterStart() {
-		if err = fn(s); err != nil {
-			errs = append(errs, err)
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.AfterStart() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
@@ -158,27 +166,33 @@ func (s *Sicky) Stop() []error {
 	)
 
 	// Wrapper
-	for _, fn := range s.options.BeforeStop() {
-		if err = fn(s); err != nil {
-			errs = append(errs, err)
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.BeforeStop() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
 	// Deregister
-	for _, rg := range s.registries {
-		for _, srv := range s.servers {
-			if err = rg.Deregister(srv); err != nil {
-				errs = append(errs, err)
+	if !s.config.DisableServerRegister {
+		for _, rg := range s.registries {
+			for _, srv := range s.servers {
+				if err = rg.Deregister(srv); err != nil {
+					errs = append(errs, err)
+				}
 			}
-		}
 
-		rg.Context().Done()
+			rg.Context().Done()
+		}
 	}
 
 	// Tracers
-	for _, trc := range s.tracers {
-		if err = trc.Stop(); err != nil {
-			errs = append(errs, err)
+	if !s.config.DisableTrace {
+		for _, trc := range s.tracers {
+			if err = trc.Stop(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
@@ -199,9 +213,11 @@ func (s *Sicky) Stop() []error {
 	}
 
 	// Wrapper
-	for _, fn := range s.options.AfterStop() {
-		if err = fn(s); err != nil {
-			errs = append(errs, err)
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.AfterStop() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
@@ -226,7 +242,7 @@ func (s *Sicky) Brokers(brks ...broker.Broker) []broker.Broker {
 }
 
 func (s *Sicky) Tracers(trcs ...tracer.Tracer) []tracer.Tracer {
-	if len(trcs) > 0 {
+	if !s.config.DisableTrace && len(trcs) > 0 {
 		s.tracers = append(s.tracers, trcs...)
 	}
 
@@ -234,7 +250,7 @@ func (s *Sicky) Tracers(trcs ...tracer.Tracer) []tracer.Tracer {
 }
 
 func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {
-	if len(jobs) > 0 {
+	if !s.config.DisableJobs && len(jobs) > 0 {
 		s.jobs = append(s.jobs, jobs...)
 	}
 
@@ -242,7 +258,7 @@ func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {
 }
 
 func (s *Sicky) Registries(rgs ...registry.Registry) []registry.Registry {
-	if len(rgs) > 0 {
+	if !s.config.DisableServerRegister && len(rgs) > 0 {
 		s.registries = append(s.registries, rgs...)
 	}
 

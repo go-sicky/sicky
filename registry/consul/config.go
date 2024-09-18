@@ -35,12 +35,12 @@ const (
 )
 
 type Config struct {
-	address []string
+	Addr string `json:"addr" yaml:"addr" mapstructure:"addr"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		address: []string{DefaultConsulAddress},
+		Addr: DefaultConsulAddress,
 	}
 }
 

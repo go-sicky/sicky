@@ -57,7 +57,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 	}
 
 	apiCfg := api.DefaultConfig()
-	apiCfg.Address = cfg.address[0]
+	apiCfg.Address = cfg.Addr
 	client, err := api.NewClient(apiCfg)
 	if err != nil {
 		rg.options.Logger.ErrorContext(

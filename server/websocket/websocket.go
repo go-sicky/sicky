@@ -66,7 +66,7 @@ type WebsocketServer struct {
 }
 
 // New Websocket server
-func NewServer(opts *server.Options, cfg *Config) *WebsocketServer {
+func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 

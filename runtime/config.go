@@ -75,6 +75,8 @@ func LoadConfig() error {
 		logger.Logger.Fatal("Read config failed", "error", err.Error())
 	}
 
+	logger.Logger.Info("Config read", "location", configLoc)
+
 	// Read config from environment variables
 	cfg.SetEnvPrefix(strings.ToUpper(AppName))
 	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))

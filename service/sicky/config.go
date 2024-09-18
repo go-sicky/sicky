@@ -30,7 +30,12 @@
 
 package sicky
 
-type Config struct{}
+type Config struct {
+	DisableTrace          bool `json:"disable_trace" yaml:"disable_trace" mapstructure:"disable_trace"`
+	DisableServerRegister bool `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
+	DisableWrappers       bool `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
+	DisableJobs           bool `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
+}
 
 func DefaultConfig() *Config {
 	return &Config{}
