@@ -22,73 +22,71 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file watcher.go
+ * @package consul
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 09/19/2024
  */
 
-package registry
+package consul
 
 import (
-	"context"
-	"net"
+	"sync"
 
-	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
+	"github.com/hashicorp/consul/api/watch"
 )
 
-var (
-	Pool map[string]*Service
-)
+type Watcher struct {
+	addr      string
+	watchPlan *watch.Plan
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Registry ID
-	ID() uuid.UUID
-	// Registry name
-	Name() string
-	// Register service
-	Register(server.Server) error
-	// Deregister service
-	Deregister(server.Server) error
-	// Watch services
-	Watch() error
-	// Get services list
-	Services() error
+	sync.RWMutex
 }
 
-// Service definition
-type Service struct {
-	Name      string
-	Instances map[string]*Ins
-}
-
-// Service instance
-type Ins struct {
-	Name     string
-	Addr     net.Addr
-	Metadata utils.Metadata
-}
-
-var (
-	registries = make(map[uuid.UUID]Registry)
-)
-
-func Instance(id uuid.UUID, rg ...Registry) Registry {
-	if len(rg) > 0 {
-		registries[id] = rg[0]
-
-		return rg[0]
+func newWatcher(rg *Consul) (*Watcher, error) {
+	w := &Watcher{
+		addr: rg.config.Addr,
+	}
+	params := map[string]any{
+		"type": "services",
 	}
 
-	return registries[id]
+	wp, err := watch.Parse(params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update signal
+	wp.HybridHandler = func(p watch.BlockingParamVal, data any) {
+		switch data.(type) {
+		case map[string][]string:
+			// for i, meta := range dt {
+			// 	// Iter
+			// 	fmt.Println(i)
+			// 	fmt.Println(meta)
+			// }
+
+			rg.Services()
+		default:
+			// Unsupport
+		}
+	}
+
+	w.watchPlan = wp
+
+	return w, nil
+}
+
+func (w *Watcher) Start() error {
+	go w.watchPlan.Run(w.addr)
+
+	return nil
+}
+
+func (w *Watcher) Stop() error {
+	w.watchPlan.Stop()
+
+	return nil
 }
 
 /*

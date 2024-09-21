@@ -32,6 +32,7 @@ package consul
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
@@ -44,6 +45,7 @@ type Consul struct {
 	ctx     context.Context
 	options *registry.Options
 	client  *api.Client
+	watcher *Watcher
 }
 
 func New(opts *registry.Options, cfg *Config) *Consul {
@@ -73,6 +75,19 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 	}
 
 	rg.client = client
+	w, err := newWatcher(rg)
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Create watcher failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+	} else {
+		rg.watcher = w
+	}
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
@@ -183,6 +198,51 @@ func (rg *Consul) Deregister(srv server.Server) error {
 }
 
 func (rg *Consul) Watch() error {
+	if rg.watcher != nil {
+		rg.watcher.Start()
+
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Registry watcher start",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+		)
+	} else {
+		rg.options.Logger.WarnContext(
+			rg.ctx,
+			"Registry has no watcher",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+		)
+	}
+
+	return nil
+}
+
+func (rg *Consul) Services() error {
+	list, meta, err := rg.client.Catalog().Services(nil)
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Grab services list failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+	}
+
+	for n, v := range list {
+		fmt.Println(n)
+		for _, vv := range v {
+			fmt.Println("=>", vv)
+		}
+	}
+
+	fmt.Println(meta)
+
 	return nil
 }
 

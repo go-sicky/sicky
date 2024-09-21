@@ -212,6 +212,10 @@ func (rg *MDNS) Watch() error {
 	return nil
 }
 
+func (Rg *MDNS) Services() error {
+	return nil
+}
+
 /*
  * 	 variables:
  * tab-width: 4
