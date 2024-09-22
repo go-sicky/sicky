@@ -32,6 +32,7 @@ package consul
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/go-sicky/sicky/registry"
@@ -222,7 +223,7 @@ func (rg *Consul) Watch() error {
 }
 
 func (rg *Consul) Services() error {
-	list, meta, err := rg.client.Catalog().Services(nil)
+	list, err := rg.client.Agent().Services()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -235,13 +236,20 @@ func (rg *Consul) Services() error {
 	}
 
 	for n, v := range list {
-		fmt.Println(n)
-		for _, vv := range v {
-			fmt.Println("=>", vv)
+		if n != "consul" {
+			// Sicky service
+			registry.RegisterInstance(&registry.Ins{
+				Name:        v.ID,
+				ServiceName: v.Service,
+				Metadata:    v.Meta,
+			},
+				rg.options.ID,
+			)
 		}
 	}
 
-	fmt.Println(meta)
+	b, _ := json.MarshalIndent(registry.Pool, "", "  ")
+	fmt.Println(string(b))
 
 	return nil
 }

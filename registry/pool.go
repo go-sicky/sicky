@@ -22,54 +22,55 @@
  */
 
 /**
- * @file registry.go
+ * @file pool.go
  * @package registry
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 09/22/2024
  */
 
 package registry
 
 import (
-	"context"
+	"net"
 
-	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Registry ID
-	ID() uuid.UUID
-	// Registry name
-	Name() string
-	// Register service
-	Register(server.Server) error
-	// Deregister service
-	Deregister(server.Server) error
-	// Watch services
-	Watch() error
-	// Get services list
-	Services() error
-}
-
 var (
-	registries = make(map[uuid.UUID]Registry)
+	Pool = make(map[string]*Service)
 )
 
-func Instance(id uuid.UUID, rg ...Registry) Registry {
-	if len(rg) > 0 {
-		registries[id] = rg[0]
+// Service definition
+type Service struct {
+	Name      string          `json:"name" yaml:"name"`
+	Instances map[string]*Ins `json:"instances" yaml:"instances"`
+}
 
-		return rg[0]
+// Service instance
+type Ins struct {
+	Name        string             `json:"name" yaml:"name"`
+	ServiceName string             `json:"service_name" yaml:"service_name"`
+	Registries  map[uuid.UUID]bool `json:"registries" yaml:"registries"`
+	Addr        net.Addr           `json:"addr" yaml:"addr"`
+	Metadata    utils.Metadata     `json:"metadata" yaml:"metadata"`
+}
+
+func RegisterInstance(ins *Ins, rg uuid.UUID) {
+	if Pool[ins.ServiceName] == nil {
+		Pool[ins.ServiceName] = &Service{
+			Name:      ins.ServiceName,
+			Instances: make(map[string]*Ins),
+		}
 	}
 
-	return registries[id]
+	// Check status
+	if Pool[ins.ServiceName].Instances[ins.Name] == nil {
+		ins.Registries = make(map[uuid.UUID]bool)
+		Pool[ins.ServiceName].Instances[ins.Name] = ins
+	}
+
+	Pool[ins.ServiceName].Instances[ins.Name].Registries[rg] = true
 }
 
 /*
