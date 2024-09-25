@@ -202,6 +202,7 @@ func (srv *WebsocketServer) Start() error {
 
 	srv.addr = listener.Addr()
 	srv.metadata.Set("server", srv.String())
+	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())

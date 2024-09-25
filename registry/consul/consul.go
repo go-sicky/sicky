@@ -32,8 +32,6 @@ package consul
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
@@ -218,38 +216,6 @@ func (rg *Consul) Watch() error {
 			"name", rg.options.Name,
 		)
 	}
-
-	return nil
-}
-
-func (rg *Consul) Services() error {
-	list, err := rg.client.Agent().Services()
-	if err != nil {
-		rg.options.Logger.ErrorContext(
-			rg.ctx,
-			"Grab services list failed",
-			"registry", rg.String(),
-			"id", rg.options.ID,
-			"name", rg.options.Name,
-			"error", err.Error(),
-		)
-	}
-
-	for n, v := range list {
-		if n != "consul" {
-			// Sicky service
-			registry.RegisterInstance(&registry.Ins{
-				Name:        v.ID,
-				ServiceName: v.Service,
-				Metadata:    v.Meta,
-			},
-				rg.options.ID,
-			)
-		}
-	}
-
-	b, _ := json.MarshalIndent(registry.Pool, "", "  ")
-	fmt.Println(string(b))
 
 	return nil
 }

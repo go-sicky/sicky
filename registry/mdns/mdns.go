@@ -32,10 +32,12 @@ package mdns
 
 import (
 	"context"
+	"net"
 	"strings"
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/grandcat/zeroconf"
 )
@@ -109,7 +111,7 @@ func (rg *MDNS) Name() string {
 }
 
 func (rg *MDNS) Register(srv server.Server) error {
-	service := "_" + strings.ToLower(srv.String()) + "._" + strings.ToLower(srv.Addr().Network())
+	service := "_sicky._" + strings.ToLower(srv.String()) + "._" + strings.ToLower(srv.Addr().Network())
 	zsrv, err := zeroconf.Register(
 		srv.Options().ID.String(),
 		service,
@@ -178,21 +180,47 @@ func (rg *MDNS) Watch() error {
 	go func(results <-chan *zeroconf.ServiceEntry) {
 		for entry := range results {
 			parts := strings.Split(strings.ToLower(entry.Instance), ".")
-			if len(parts) == 3 {
-				if parts[0] == "_grpc" || parts[0] == "_http" || parts[0] == "_websocket" {
+			if len(parts) == 4 && parts[0] == "_sicky" {
+				// Add watch
+				if parts[1] == "_grpc" ||
+					parts[1] == "_http" ||
+					parts[1] == "_websocket" ||
+					parts[1] == "_udp" {
 					if !rg.watcched[entry.Instance] {
 						rg.watcched[entry.Instance] = true
 						go func() {
-							rg.resolver.Browse(rg.ctx, parts[0]+"."+parts[1], rg.config.Domain, entries)
+							rg.options.Logger.DebugContext(
+								rg.ctx,
+								"zeroconf watch",
+								"registry", rg.String(),
+								"id", rg.options.ID,
+								"name", rg.options.Name,
+								"service", entry.Instance,
+							)
+							rg.resolver.Browse(rg.ctx, parts[0]+"."+parts[1]+"."+parts[2], rg.config.Domain, entries)
 						}()
 					}
 				}
+			} else {
+				// Instance
+				meta := utils.MetadataFromStrings(entry.Text)
+				ins := &registry.Ins{
+					Name:        entry.Instance,
+					ServiceName: entry.Service,
+					Metadata:    meta,
+				}
+				network := strings.ToLower(meta.Value("network", "tcp"))
+				address := strings.ToLower(meta.Value("address", ":0"))
+				switch network {
+				case "tcp", "tcp4", "tcp6":
+					ins.Addr, _ = net.ResolveTCPAddr(network, address)
+				case "udp", "udp4", "udp6":
+					ins.Addr, _ = net.ResolveUDPAddr(network, address)
+				case "unix", "unixpacket":
+					ins.Addr, _ = net.ResolveUnixAddr(network, address)
+				}
+				registry.RegisterInstance(ins, rg.options.ID)
 			}
-
-			// if entry.Service != serviceWildcard {
-			// 	b, _ := json.MarshalIndent(entry, "", "  ")
-			// 	fmt.Println(string(b))
-			// }
 		}
 	}(entries)
 
@@ -209,10 +237,6 @@ func (rg *MDNS) Watch() error {
 		"name", rg.options.Name,
 	)
 
-	return nil
-}
-
-func (Rg *MDNS) Services() error {
 	return nil
 }
 

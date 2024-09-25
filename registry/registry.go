@@ -54,8 +54,6 @@ type Registry interface {
 	Deregister(server.Server) error
 	// Watch services
 	Watch() error
-	// Get services list
-	Services() error
 }
 
 var (

@@ -44,6 +44,15 @@ func (md Metadata) Get(key string) (string, bool) {
 	return val, ok
 }
 
+func (md Metadata) Value(key, def string) string {
+	val, ok := md[key]
+
+	if !ok {
+		return def
+	}
+	return val
+}
+
 func (md Metadata) Set(key, val string) {
 	md[key] = val
 }

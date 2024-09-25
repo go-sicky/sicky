@@ -31,8 +31,11 @@
 package consul
 
 import (
+	"net"
+	"strings"
 	"sync"
 
+	"github.com/go-sicky/sicky/registry"
 	"github.com/hashicorp/consul/api/watch"
 )
 
@@ -60,13 +63,39 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 	wp.HybridHandler = func(p watch.BlockingParamVal, data any) {
 		switch data.(type) {
 		case map[string][]string:
-			// for i, meta := range dt {
-			// 	// Iter
-			// 	fmt.Println(i)
-			// 	fmt.Println(meta)
-			// }
+			list, err := rg.client.Agent().Services()
+			if err != nil {
+				rg.options.Logger.ErrorContext(
+					rg.ctx,
+					"Grab services list failed",
+					"registry", rg.String(),
+					"id", rg.options.ID,
+					"name", rg.options.Name,
+					"error", err.Error(),
+				)
+			}
 
-			rg.Services()
+			for n, v := range list {
+				if n != "consul" {
+					// Sicky service
+					ins := &registry.Ins{
+						Name:        v.ID,
+						ServiceName: v.Service,
+						Metadata:    v.Meta,
+					}
+					network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
+					address := strings.ToLower(ins.Metadata.Value("address", ":0"))
+					switch network {
+					case "tcp", "tcp4", "tcp6":
+						ins.Addr, _ = net.ResolveTCPAddr(network, address)
+					case "udp", "udp4", "udp6":
+						ins.Addr, _ = net.ResolveUDPAddr(network, address)
+					case "unix", "unixpacket":
+						ins.Addr, _ = net.ResolveUnixAddr(network, address)
+					}
+					registry.RegisterInstance(ins, rg.options.ID)
+				}
+			}
 		default:
 			// Unsupport
 		}
