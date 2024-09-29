@@ -159,7 +159,6 @@ func (rg *MDNS) Deregister(srv server.Server) error {
 	zsrv, ok := MdnsRegisters[srv.Options().ID]
 	if ok && zsrv != nil {
 		zsrv.Shutdown()
-
 		rg.options.Logger.InfoContext(
 			rg.ctx,
 			"Server deregistered",
@@ -205,10 +204,10 @@ func (rg *MDNS) Watch() error {
 				// Instance
 				meta := utils.MetadataFromStrings(entry.Text)
 				ins := &registry.Ins{
-					Name:        entry.Instance,
-					ServiceName: entry.Service,
-					Metadata:    meta,
+					ID:       entry.Instance,
+					Metadata: meta,
 				}
+				ins.Service = meta.Value("name", "")
 				network := strings.ToLower(meta.Value("network", "tcp"))
 				address := strings.ToLower(meta.Value("address", ":0"))
 				switch network {
@@ -220,6 +219,14 @@ func (rg *MDNS) Watch() error {
 					ins.Addr, _ = net.ResolveUnixAddr(network, address)
 				}
 				registry.RegisterInstance(ins, rg.options.ID)
+				rg.options.Logger.DebugContext(
+					rg.ctx,
+					"registry watch event",
+					"registry", rg.String(),
+					"id", rg.options.ID,
+					"name", rg.options.Name,
+					"service", ins.Service,
+				)
 			}
 		}
 	}(entries)

@@ -79,9 +79,9 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 				if n != "consul" {
 					// Sicky service
 					ins := &registry.Ins{
-						Name:        v.ID,
-						ServiceName: v.Service,
-						Metadata:    v.Meta,
+						ID:       v.ID,
+						Service:  v.Service,
+						Metadata: v.Meta,
 					}
 					network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
 					address := strings.ToLower(ins.Metadata.Value("address", ":0"))
@@ -94,6 +94,14 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 						ins.Addr, _ = net.ResolveUnixAddr(network, address)
 					}
 					registry.RegisterInstance(ins, rg.options.ID)
+					rg.options.Logger.DebugContext(
+						rg.ctx,
+						"registry watch event",
+						"registry", rg.String(),
+						"id", rg.options.ID,
+						"name", rg.options.Name,
+						"service", v.Service,
+					)
 				}
 			}
 		default:

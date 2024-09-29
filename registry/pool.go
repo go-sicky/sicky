@@ -43,34 +43,34 @@ var (
 
 // Service definition
 type Service struct {
-	Name      string          `json:"name" yaml:"name"`
+	Service   string          `json:"service" yaml:"service"`
 	Instances map[string]*Ins `json:"instances" yaml:"instances"`
 }
 
 // Service instance
 type Ins struct {
-	Name        string             `json:"name" yaml:"name"`
-	ServiceName string             `json:"service_name" yaml:"service_name"`
-	Registries  map[uuid.UUID]bool `json:"registries" yaml:"registries"`
-	Addr        net.Addr           `json:"addr" yaml:"addr"`
-	Metadata    utils.Metadata     `json:"metadata" yaml:"metadata"`
+	ID         string             `json:"id" yaml:"id"`
+	Service    string             `json:"service" yaml:"service"`
+	Registries map[uuid.UUID]bool `json:"registries" yaml:"registries"`
+	Addr       net.Addr           `json:"addr" yaml:"addr"`
+	Metadata   utils.Metadata     `json:"metadata" yaml:"metadata"`
 }
 
 func RegisterInstance(ins *Ins, rg uuid.UUID) {
-	if Pool[ins.ServiceName] == nil {
-		Pool[ins.ServiceName] = &Service{
-			Name:      ins.ServiceName,
+	if Pool[ins.Service] == nil {
+		Pool[ins.Service] = &Service{
+			Service:   ins.Service,
 			Instances: make(map[string]*Ins),
 		}
 	}
 
 	// Check status
-	if Pool[ins.ServiceName].Instances[ins.Name] == nil {
+	if Pool[ins.Service].Instances[ins.ID] == nil {
 		ins.Registries = make(map[uuid.UUID]bool)
-		Pool[ins.ServiceName].Instances[ins.Name] = ins
+		Pool[ins.Service].Instances[ins.ID] = ins
 	}
 
-	Pool[ins.ServiceName].Instances[ins.Name].Registries[rg] = true
+	Pool[ins.Service].Instances[ins.ID].Registries[rg] = true
 }
 
 /*

@@ -85,6 +85,10 @@ func LoadConfig() error {
 	return err
 }
 
+func WatchConfig() error {
+	return nil
+}
+
 /*
  * Local variables:
  * tab-width: 4
