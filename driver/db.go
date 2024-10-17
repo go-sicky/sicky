@@ -22,7 +22,7 @@
  */
 
 /**
- * @file bun.go
+ * @file db.go
  * @package driver
  * @author Dr.NP <np@herewe.tech>
  * @since 11/29/2023
@@ -45,14 +45,14 @@ import (
 	"github.com/uptrace/bun/driver/pgdriver"
 )
 
-type BunConfig struct {
+type DBConfig struct {
 	Driver string `json:"driver" yaml:"driver" mapstructure:"driver"`
 	DSN    string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
 }
 
 var DB *bun.DB
 
-func InitBun(cfg *BunConfig) (*bun.DB, error) {
+func InitDB(cfg *DBConfig) (*bun.DB, error) {
 	var (
 		sqldb *sql.DB
 		err   error

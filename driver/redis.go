@@ -37,9 +37,9 @@ import (
 )
 
 type RedisConfig struct {
-	Addr     string `json:"addr" mapstructure:"addr"`
-	Password string `json:"password" mapstructure:"password"`
-	DB       int    `json:"db" mapstructure:"db"`
+	Addr     string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Password string `json:"password" yaml:"password" mapstructure:"password"`
+	DB       int    `json:"db" yaml:"db" mapstructure:"db"`
 }
 
 var Redis *redis.Client
