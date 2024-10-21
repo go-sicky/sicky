@@ -22,7 +22,7 @@
  */
 
 /**
- * @file http.go
+ * @file logger.go
  * @package http
  * @author Dr.NP <np@herewe.tech>
  * @since 09/06/2024

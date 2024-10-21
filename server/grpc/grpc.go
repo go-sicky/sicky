@@ -121,6 +121,11 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	// 	logger.NewGRPCServerInterceptor(srv.options.Logger()),
 	// ))
 
+	// Access logger
+	gopts = append(gopts, grpc.ChainUnaryInterceptor(
+		NewAccessLoggerInterceptor(srv.options.Logger),
+	))
+
 	app := grpc.NewServer(gopts...)
 	reflection.Register(app)
 	srv.app = app

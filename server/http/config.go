@@ -47,14 +47,14 @@ const (
 
 var (
 	DefaultAccessLogger = &AccessLoggerConfig{
-		RequestIDContextKey:    "requestid",
-		TraceIDContextKey:      "traceid",
-		SpanIDContextKey:       "spanid",
-		ParentSpanIDContextKey: "parentspanid",
-		SampledContextKey:      "sampled",
-		AccessLevel:            "debug",
-		ClientErrorLevel:       "warn",
-		ServerErrorLevel:       "error",
+		RequestIDContextKey:    DefaultRequestIDContextKey,
+		TraceIDContextKey:      DefaultTraceIDContextKey,
+		SpanIDContextKey:       DefaultSpanIDContextKey,
+		ParentSpanIDContextKey: DefaultParentSpanIDContextKey,
+		SampledContextKey:      DefaultSampledContextKey,
+		AccessLevel:            DefaultAccessLevel,
+		ClientErrorLevel:       DefaultClientErrorLevel,
+		ServerErrorLevel:       DefaultServerErrorLevel,
 	}
 )
 
