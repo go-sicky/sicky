@@ -329,16 +329,18 @@ func (srv *HTTPServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *HTTPServer) Handle(hdl Handler) {
-	hdl.Register(srv.app)
-	srv.options.Logger.InfoContext(
-		srv.ctx,
-		"HTTP handler registered",
-		"server", srv.String(),
-		"id", srv.options.ID,
-		"name", srv.options.Name,
-		"handler", hdl.Name(),
-	)
+func (srv *HTTPServer) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		hdl.Register(srv.app)
+		srv.options.Logger.InfoContext(
+			srv.ctx,
+			"HTTP handler registered",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"handler", hdl.Name(),
+		)
+	}
 }
 
 /* }}} */

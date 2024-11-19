@@ -33,6 +33,7 @@ package driver
 import (
 	"context"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -45,6 +46,10 @@ type RedisConfig struct {
 var Redis *redis.Client
 
 func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,
@@ -52,8 +57,19 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	})
 	err := rdb.Ping(context.TODO()).Err()
 	if err != nil {
+		logger.Logger.Error(
+			"Redis initialize failed",
+			"error", err.Error(),
+		)
+
 		return nil, err
 	}
+
+	logger.Logger.Info(
+		"Redis initialized",
+		"addr", cfg.Addr,
+		"db", cfg.DB,
+	)
 
 	Redis = rdb
 

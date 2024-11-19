@@ -197,12 +197,27 @@ func (srv *UDPServer) Metadata() utils.Metadata {
 	return srv.metadata
 }
 
+func (srv *UDPServer) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		hdl.Register()
+		srv.options.Logger.InfoContext(
+			srv.ctx,
+			"UDP handler registered",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"handler", hdl.Name(),
+		)
+	}
+}
+
 /* }}} */
 
 /* {{{ [Handler] */
 type Handler interface {
 	Name() string
 	Type() string
+	Register()
 }
 
 /* }}} */

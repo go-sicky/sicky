@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/go-sicky/sicky/logger"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/uptrace/bun"
@@ -48,6 +49,7 @@ import (
 type DBConfig struct {
 	Driver string `json:"driver" yaml:"driver" mapstructure:"driver"`
 	DSN    string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	Debug  bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
 }
 
 var DB *bun.DB
@@ -58,6 +60,11 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 		err   error
 		db    *bun.DB
 	)
+
+	if cfg == nil {
+		return nil, nil
+	}
+
 	switch strings.ToLower(cfg.Driver) {
 	case "mysql":
 		sqldb, err = sql.Open("mysql", cfg.DSN)
@@ -88,8 +95,19 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 
 	err = db.Ping()
 	if err != nil {
+		logger.Logger.Error(
+			"Database initialize failed",
+			"error", err.Error(),
+		)
+
 		return nil, err
 	}
+
+	logger.Logger.Info(
+		"Database initialized",
+		"driver", cfg.Driver,
+		"debug", cfg.Debug,
+	)
 
 	DB = db
 
