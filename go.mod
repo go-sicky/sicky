@@ -16,12 +16,12 @@ require (
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/spf13/viper v1.20.0-alpha.6
 	github.com/spf13/viper/remote v1.20.0-alpha.6
-	github.com/uptrace/bun v1.2.5
-	github.com/uptrace/bun/dialect/mssqldialect v1.2.5
-	github.com/uptrace/bun/dialect/mysqldialect v1.2.5
-	github.com/uptrace/bun/dialect/pgdialect v1.2.5
-	github.com/uptrace/bun/dialect/sqlitedialect v1.2.5
-	github.com/uptrace/bun/driver/pgdriver v1.2.5
+	github.com/uptrace/bun v1.2.6
+	github.com/uptrace/bun/dialect/mssqldialect v1.2.6
+	github.com/uptrace/bun/dialect/mysqldialect v1.2.6
+	github.com/uptrace/bun/dialect/pgdialect v1.2.6
+	github.com/uptrace/bun/dialect/sqlitedialect v1.2.6
+	github.com/uptrace/bun/driver/pgdriver v1.2.6
 	go.opentelemetry.io/contrib/propagators/b3 v1.32.0
 	go.opentelemetry.io/otel v1.32.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.32.0
@@ -33,12 +33,18 @@ require (
 )
 
 require (
+	github.com/bahlo/generic-list-go v0.2.0 // indirect
+	github.com/buger/jsonparser v1.1.1 // indirect
+	github.com/wk8/go-ordered-map/v2 v2.1.9-0.20240816141633-0a40785b4f41 // indirect
+)
+
+require (
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/auth v0.10.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.5 // indirect
 	cloud.google.com/go/compute/metadata v0.5.2 // indirect
 	cloud.google.com/go/firestore v1.17.0 // indirect
-	cloud.google.com/go/longrunning v0.6.2 // indirect
+	cloud.google.com/go/longrunning v0.6.3 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
@@ -141,7 +147,7 @@ require (
 	golang.org/x/text v0.20.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
 	golang.org/x/tools v0.27.0 // indirect
-	google.golang.org/api v0.206.0 // indirect
+	google.golang.org/api v0.207.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241118233622-e639e219e697 // indirect
 	google.golang.org/protobuf v1.35.2 // indirect
