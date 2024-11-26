@@ -386,6 +386,8 @@ github.com/uptrace/bun/dialect/sqlitedialect v1.2.6 h1:p8vA39kR9Ypw0so+gUhFhd8NO
 github.com/uptrace/bun/dialect/sqlitedialect v1.2.6/go.mod h1:sdGy8eCv9WVGDrPhagE9i7FASeyj3BFkHzkRMF/qK3w=
 github.com/uptrace/bun/driver/pgdriver v1.2.6 h1:dD7ckqIhVDayfYTwMKZ0dJM9AZfNJNBu5Cg/8g0EMOk=
 github.com/uptrace/bun/driver/pgdriver v1.2.6/go.mod h1:ChrVrMZlRzPQHTP4QCm/p1FfQqgnYXWlES0GS9qjWEY=
+github.com/uptrace/bun/extra/bundebug v1.2.6 h1:5l61LXIR2YWk/gqGSq5esha+x/qPPyhtQKORAuTfV34=
+github.com/uptrace/bun/extra/bundebug v1.2.6/go.mod h1:11C5ajtPrFcmIRo31TfQrmK5D2LgNIxxTQEZMz6lD2k=
 github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6KllzawFIhcdPw=
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/valyala/fasthttp v1.57.0 h1:Xw8SjWGEP/+wAAgyy5XTvgrWlOD1+TxbbvNADYCm1Tg=

@@ -44,12 +44,14 @@ import (
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/pgdriver"
+	"github.com/uptrace/bun/extra/bundebug"
 )
 
 type DBConfig struct {
-	Driver string `json:"driver" yaml:"driver" mapstructure:"driver"`
-	DSN    string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
-	Debug  bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
+	Driver       string `json:"driver" yaml:"driver" mapstructure:"driver"`
+	DSN          string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	Debug        bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
+	SlowDuration int    `json:"slow_duration" yaml:"slow_duration" mapstructure:"time_duration"`
 }
 
 var DB *bun.DB
@@ -101,6 +103,13 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 		)
 
 		return nil, err
+	}
+
+	// Debug logger
+	if cfg.Debug {
+		db.AddQueryHook(bundebug.NewQueryHook())
+	} else if cfg.SlowDuration > 0 {
+		db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithEnabled(true)))
 	}
 
 	logger.Logger.Info(
