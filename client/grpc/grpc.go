@@ -32,46 +32,40 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 
 	"github.com/go-sicky/sicky/client"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/resolver/manual"
 )
 
 // GRPCClient : Client definition
 type GRPCClient struct {
-	config  *Config
-	options *client.Options
-	ctx     context.Context
-	//conn    *grpc.ClientConn
-	addr net.Addr
+	config    *Config
+	options   *client.Options
+	ctx       context.Context
+	conn      *grpc.ClientConn
+	connected bool
+	addr      net.Addr
 
 	//tracer trace.Tracer
 }
 
-var (
-	clients = make(map[string]*GRPCClient, 0)
-)
-
-func Instance(name string, clt ...*GRPCClient) *GRPCClient {
-	if len(clt) > 0 {
-		// Set value
-		clients[name] = clt[0]
-
-		return clt[0]
-	}
-
-	return clients[name]
-}
-
 // New GRPC client
-func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
-	// ctx := context.Background()
+func New(opts *client.Options, cfg *Config) *GRPCClient {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
 
-	// clt := &GRPCClient{
-	// 	config:  cfg,
-	// 	ctx:     ctx,
-	// 	options: client.NewOptions(),
-	// }
+	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
+	clt := &GRPCClient{
+		config:    cfg,
+		ctx:       context.Background(),
+		addr:      addr,
+		connected: false,
+		options:   opts,
+	}
 
 	// for _, opt := range opts {
 	// 	opt(clt.options)
@@ -101,29 +95,34 @@ func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 	// }
 
 	// clt.addr = addr
-	// gopts := make([]grpc.DialOption, 0)
+	gopts := make([]grpc.DialOption, 0)
 	// if clt.options.TLS() != nil {
 	// 	gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
 	// } else {
 	// 	gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	// }
+	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
+		// SSL
+	} else {
+		gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
 
-	// if cfg.MaxHeaderListSize > 0 {
-	// 	gopts = append(gopts, grpc.WithMaxHeaderListSize(cfg.MaxHeaderListSize))
-	// }
+	if cfg.MaxHeaderListSize > 0 {
+		gopts = append(gopts, grpc.WithMaxHeaderListSize(cfg.MaxHeaderListSize))
+	}
 
-	// if cfg.MaxMsgSize != 0 {
-	// 	gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize)))
-	// 	gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(cfg.MaxMsgSize)))
-	// }
+	if cfg.MaxMsgSize != 0 {
+		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize)))
+		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(cfg.MaxMsgSize)))
+	}
 
-	// if cfg.ReadBufferSize != 0 {
-	// 	gopts = append(gopts, grpc.WithReadBufferSize(cfg.ReadBufferSize))
-	// }
+	if cfg.ReadBufferSize != 0 {
+		gopts = append(gopts, grpc.WithReadBufferSize(cfg.ReadBufferSize))
+	}
 
-	// if cfg.WriteBufferSize != 0 {
-	// 	gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
-	// }
+	if cfg.WriteBufferSize != 0 {
+		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
+	}
 
 	// gopts = append(gopts,
 	// 	grpc.WithChainUnaryInterceptor(
@@ -133,20 +132,55 @@ func NewClient(cfg *Config, opts ...client.Option) *GRPCClient {
 	// 	grpc.WithDefaultServiceConfig(`{ "loadBalancingPolicy": "round_robin" }`),
 	// )
 	// // Issue : DNS round-robin load balancing support
-	// conn, err := grpc.Dial("dns:///"+cfg.Addr, gopts...)
-	// if err != nil {
-	// 	clt.options.Logger().ErrorContext(clt.ctx, "GRPC dial failed", "error", err.Error())
+	// Resolver
+	//r := manual.NewBuilderWithScheme("")
 
-	// 	return nil
-	// }
+	// Resolver
+	r := manual.NewBuilderWithScheme("sicky")
+	r.ResolveNowCallback = sickyResolveNow
+	r.UpdateStateCallback = sickyUpdateState
+	r.BuildCallback = sickyBuild
+	r.CloseCallback = sickyClose
+	gopts = append(gopts, grpc.WithResolvers(r))
 
-	// clt.conn = conn
-	// client.Instance(clt.Name(), clt)
-	// Instance(clt.Name(), clt)
-	// clt.options.Logger().InfoContext(clt.ctx, "GRPC client created", "id", clt.ID(), "name", clt.Name(), "addr", addr.String())
+	// Balancer
+	balancer := make(map[string]map[string]any)
+	balancer[cfg.Balancer] = make(map[string]any)
+	sc := &grpcServiceConfig{}
+	sc.LoadBalancingConfig = append(sc.LoadBalancingConfig, balancer)
+	b, _ := json.Marshal(sc)
+	gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
 
-	// return clt
-	return nil
+	// Client connection
+	conn, err := grpc.NewClient("sicky:///"+cfg.Service, gopts...)
+	if err != nil {
+		clt.options.Logger.ErrorContext(
+			clt.ctx,
+			"GRPC dial failed",
+			"client", clt.String(),
+			"id", clt.options.ID,
+			"name", clt.options.Name,
+			"balancer", cfg.Balancer,
+			"error", err.Error(),
+		)
+
+		return nil
+	}
+
+	clt.conn = conn
+	clt.options.Logger.InfoContext(
+		clt.ctx,
+		"Client created",
+		"client", clt.String(),
+		"id", clt.options.ID,
+		"name", clt.options.Name,
+		"balancer", cfg.Balancer,
+		"addr", addr.String(),
+	)
+
+	client.Instance(opts.ID, clt)
+
+	return clt
 }
 
 func (clt *GRPCClient) Options() *client.Options {
@@ -170,20 +204,21 @@ func (clt *GRPCClient) String() string {
 }
 
 func (clt *GRPCClient) Name() string {
-	return clt.config.Name
+	return clt.options.Name
 }
 
 func (clt *GRPCClient) ID() string {
-	return clt.options.ID()
+	return clt.options.ID.String()
 }
 
-// func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
-// 	return clt.conn.Invoke(ctx, method, args, reply, opts...)
-// }
+// For GRPC client connection
+func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
+	return clt.conn.Invoke(ctx, method, args, reply, opts...)
+}
 
-// func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-// 	return clt.conn.NewStream(ctx, desc, method, opts...)
-// }
+func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	return clt.conn.NewStream(ctx, desc, method, opts...)
+}
 
 /*
  * Local variables:

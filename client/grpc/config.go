@@ -30,30 +30,88 @@
 
 package grpc
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
-	DefaultNetwork = "tcp"
-	DefaultAddr    = "127.0.0.1:9991"
+	DefaultService  = "sicky"
+	DefaultNetwork  = "tcp"
+	DefaultAddr     = "127.0.0.1:9991"
+	DefaultBalancer = "round_robin"
+)
+
+var (
+	balancers = map[string]bool{
+		"least_request":        true,
+		"pick_first":           true,
+		"round_robin":          true,
+		"weighted_round_robin": true,
+	}
 )
 
 type Config struct {
-	Name              string        `json:"name" yaml:"name" mapstructure:"name"`
+	Service           string        `json:"service" yaml:"service" mapstructure:"service"`
 	Network           string        `json:"network" yaml:"network" mapstructure:"network"`
 	Addr              string        `json:"addr" yaml:"addr" mapstructure:"addr"`
-	Timeout           time.Duration `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	TLSCertPEM        string        `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM         string        `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
+	ConnectionTimeout time.Duration `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
 	MaxHeaderListSize uint32        `json:"max_header_list_size" yaml:"max_header_list_size" mapstructure:"max_header_list_size"`
 	MaxMsgSize        int           `json:"max_msg_size" yaml:"max_msg_size" mapstructure:"max_msg_size"`
 	ReadBufferSize    int           `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
 	WriteBufferSize   int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+	Balancer          string        `json:"balancer" yaml:"balancer" mapstructure:"balancer"`
 }
 
-func DefaultConfig(name string) *Config {
+func DefaultConfig() *Config {
 	return &Config{
-		Name:    name,
-		Network: DefaultNetwork,
-		Addr:    DefaultAddr,
+		Network:  DefaultNetwork,
+		Addr:     DefaultAddr,
+		Balancer: DefaultBalancer,
 	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	if c.Service == "" {
+		c.Service = DefaultService
+	}
+
+	if c.Network == "" {
+		c.Network = DefaultNetwork
+	}
+
+	if c.Addr == "" {
+		c.Addr = DefaultAddr
+	}
+
+	vb := strings.ToLower(c.Balancer)
+	if balancers[vb] {
+		c.Balancer = vb
+	}
+
+	return c
+}
+
+type grpcServiceConfig struct {
+	LoadBalancingConfig []map[string]map[string]any `json:"loadBalancingConfig,omitempty"`
+	RetryPolicy         *struct {
+		MaxAttempts    int    `json:"maxAttempts"`
+		InitialBackoff string `json:"initialBackoff"`
+		MaxBackoff     string `json:"maxBackoff"`
+	} `json:"retryPolicy,omitempty"`
+	HealthCheckConfig *struct {
+		ServiceName        string `json:"serviceName"`
+		FailureThreshold   int    `json:"failureThreshold"`
+		UnhealthyThreshold int    `json:"unhealthyThreshold"`
+		Interval           int    `json:"interval"`
+	} `json:"healthCheckConfig,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
 }
 
 /*

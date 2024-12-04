@@ -36,17 +36,31 @@ const (
 )
 
 type Config struct {
-	Name    string `json:"name" yaml:"name" mapstructure:"name"`
 	Network string `json:"network" yaml:"network" mapstructure:"network"`
 	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
 }
 
-func DefaultConfig(name string) *Config {
+func DefaultConfig() *Config {
 	return &Config{
-		Name:    name,
 		Network: DefaultNetwork,
 		Addr:    DefaultAddr,
 	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	if c.Network == "" {
+		c.Network = DefaultNetwork
+	}
+
+	if c.Addr == "" {
+		c.Addr = DefaultAddr
+	}
+
+	return c
 }
 
 /*

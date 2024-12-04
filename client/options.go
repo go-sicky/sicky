@@ -31,82 +31,162 @@
 package client
 
 import (
-	"context"
-	"crypto/tls"
-
 	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
+
+type ClientWrapper func() error
 
 // Options of client
 type Options struct {
-	ctx    context.Context
-	id     string
-	tls    *tls.Config
-	logger logger.GeneralLogger
+	Name   string
+	ID     uuid.UUID
+	Logger logger.GeneralLogger
 
-	traceProvider *sdktrace.TracerProvider
+	beforeConnect []ClientWrapper
+	afterConnect  []ClientWrapper
+	beforeClose   []ClientWrapper
+	afterClose    []ClientWrapper
 }
 
-func (o *Options) ID() string {
-	return o.id
-}
-
-func (o *Options) Context() context.Context {
-	return o.ctx
-}
-
-func (o *Options) TLS() *tls.Config {
-	return o.tls
-}
-
-func (o *Options) Logger() logger.GeneralLogger {
-	return o.logger
-}
-
-func (o *Options) TraceProvider() *sdktrace.TracerProvider {
-	return o.traceProvider
-}
-
-func NewOptions() *Options {
-	return &Options{
-		id: uuid.New().String(),
+func (o *Options) Ensure() *Options {
+	if o == nil {
+		o = new(Options)
 	}
-}
 
-type Option func(*Options)
-
-/* {{{ [Options] */
-func ID(id string) Option {
-	return func(opts *Options) {
-		opts.id = id
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
 	}
+
+	if o.Name == "" {
+		o.Name = "Client::" + o.ID.String()
+	}
+
+	if o.Logger == nil {
+		o.Logger = logger.DefaultGeneralLogger
+	}
+
+	if o.beforeConnect == nil {
+		o.beforeConnect = make([]ClientWrapper, 0)
+	}
+
+	if o.afterConnect == nil {
+		o.afterConnect = make([]ClientWrapper, 0)
+	}
+
+	if o.beforeClose == nil {
+		o.beforeClose = make([]ClientWrapper, 0)
+	}
+
+	if o.afterClose == nil {
+		o.afterClose = make([]ClientWrapper, 0)
+	}
+
+	return o
 }
 
-func Context(ctx context.Context) Option {
-	return func(opts *Options) {
-		opts.ctx = ctx
+/* {{{ [Wrappers] */
+func (o *Options) BeforeConnect(wrappers ...ClientWrapper) *Options {
+	if o != nil {
+		o.beforeConnect = append(o.beforeConnect, wrappers...)
 	}
+
+	return o
 }
 
-func TLS(tls *tls.Config) Option {
-	return func(opts *Options) {
-		opts.tls = tls
+func (o *Options) AfterConnect(wrappers ...ClientWrapper) *Options {
+	if o != nil {
+		o.afterConnect = append(o.afterConnect, wrappers...)
 	}
+
+	return o
 }
 
-func Logger(logger logger.GeneralLogger) Option {
-	return func(opts *Options) {
-		opts.logger = logger
+func (o *Options) BeforeClose(wrappers ...ClientWrapper) *Options {
+	if o != nil {
+		o.beforeClose = append(o.beforeClose, wrappers...)
 	}
+
+	return o
 }
 
-func TraceProvider(tp *sdktrace.TracerProvider) Option {
-	return func(opts *Options) {
-		opts.traceProvider = tp
+func (o *Options) AfterClose(wrappers ...ClientWrapper) *Options {
+	if o != nil {
+		o.afterClose = append(o.afterClose, wrappers...)
 	}
+
+	return o
 }
+
+/* }}} */
+
+// type Options struct {
+// 	ctx    context.Context
+// 	id     string
+// 	tls    *tls.Config
+// 	logger logger.GeneralLogger
+
+// 	traceProvider *sdktrace.TracerProvider
+// }
+
+// func (o *Options) ID() string {
+// 	return o.id
+// }
+
+// func (o *Options) Context() context.Context {
+// 	return o.ctx
+// }
+
+// func (o *Options) TLS() *tls.Config {
+// 	return o.tls
+// }
+
+// func (o *Options) Logger() logger.GeneralLogger {
+// 	return o.logger
+// }
+
+// func (o *Options) TraceProvider() *sdktrace.TracerProvider {
+// 	return o.traceProvider
+// }
+
+// func NewOptions() *Options {
+// 	return &Options{
+// 		id: uuid.New().String(),
+// 	}
+// }
+
+// type Option func(*Options)
+
+// /* {{{ [Options] */
+// func ID(id string) Option {
+// 	return func(opts *Options) {
+// 		opts.id = id
+// 	}
+// }
+
+// func Context(ctx context.Context) Option {
+// 	return func(opts *Options) {
+// 		opts.ctx = ctx
+// 	}
+// }
+
+// func TLS(tls *tls.Config) Option {
+// 	return func(opts *Options) {
+// 		opts.tls = tls
+// 	}
+// }
+
+// func Logger(logger logger.GeneralLogger) Option {
+// 	return func(opts *Options) {
+// 		opts.logger = logger
+// 	}
+// }
+
+// func TraceProvider(tp *sdktrace.TracerProvider) Option {
+// 	return func(opts *Options) {
+// 		opts.traceProvider = tp
+// 	}
+// }
 
 /* }}} */
 

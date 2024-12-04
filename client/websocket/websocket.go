@@ -34,8 +34,6 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/logger"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type WebsocketClient struct {
@@ -43,57 +41,68 @@ type WebsocketClient struct {
 	options *client.Options
 	ctx     context.Context
 
-	tracer trace.Tracer
+	//tracer trace.Tracer
 }
 
-var (
-	clients = make(map[string]*WebsocketClient, 0)
-)
+// var (
+// 	clients = make(map[string]*WebsocketClient, 0)
+// )
 
-func Instance(name string, clt ...*WebsocketClient) *WebsocketClient {
-	if len(clt) > 0 {
-		// Set value
-		clients[name] = clt[0]
+// func Instance(name string, clt ...*WebsocketClient) *WebsocketClient {
+// 	if len(clt) > 0 {
+// 		// Set value
+// 		clients[name] = clt[0]
 
-		return clt[0]
-	}
+// 		return clt[0]
+// 	}
 
-	return clients[name]
-}
+// 	return clients[name]
+// }
 
 // New websocket client
-func NewClient(cfg *Config, opts ...client.Option) *WebsocketClient {
-	ctx := context.Background()
+func New(opts *client.Options, cfg *Config) *WebsocketClient {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
 	clt := &WebsocketClient{
 		config:  cfg,
-		ctx:     ctx,
-		options: client.NewOptions(),
+		ctx:     context.Background(),
+		options: opts,
 	}
 
-	for _, opt := range opts {
-		opt(clt.options)
-	}
+	// for _, opt := range opts {
+	// 	opt(clt.options)
+	// }
 
-	// Set logger
-	if clt.options.Logger() == nil {
-		client.Logger(logger.Logger)(clt.options)
-	}
+	// // Set logger
+	// if clt.options.Logger() == nil {
+	// 	client.Logger(logger.Logger)(clt.options)
+	// }
 
-	// Set global context
-	if clt.options.Context() != nil {
-		clt.ctx = clt.options.Context()
-	} else {
-		client.Context(ctx)(clt.options)
-	}
+	// // Set global context
+	// if clt.options.Context() != nil {
+	// 	clt.ctx = clt.options.Context()
+	// } else {
+	// 	client.Context(ctx)(clt.options)
+	// }
 
-	// Set tracer
-	if clt.options.TraceProvider() != nil {
-		clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
-	}
+	// // Set tracer
+	// if clt.options.TraceProvider() != nil {
+	// 	clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
+	// }
 
-	client.Instance(clt.Name(), clt)
-	Instance(clt.Name(), clt)
-	clt.options.Logger().InfoContext(clt.ctx, "Websocket client created", "id", clt.ID(), "name", clt.Name())
+	// client.Instance(clt.Name(), clt)
+	// Instance(clt.Name(), clt)
+	// clt.options.Logger().InfoContext(clt.ctx, "Websocket client created", "id", clt.ID(), "name", clt.Name())
+	clt.options.Logger.InfoContext(
+		clt.ctx,
+		"Client created",
+		"client", clt.String(),
+		"id", clt.options.ID,
+		"name", clt.options.Name,
+	)
+
+	client.Instance(opts.ID, clt)
 
 	return clt
 }
@@ -119,11 +128,11 @@ func (clt *WebsocketClient) String() string {
 }
 
 func (clt *WebsocketClient) Name() string {
-	return clt.config.Name
+	return clt.options.Name
 }
 
 func (clt *WebsocketClient) ID() string {
-	return clt.options.ID()
+	return clt.options.ID.String()
 }
 
 func (clt *WebsocketClient) Handle(hdl WebsocketHandler) {

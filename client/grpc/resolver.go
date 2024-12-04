@@ -22,28 +22,33 @@
  */
 
 /**
- * @file config.go
- * @package nats
+ * @file resolver.go
+ * @package grpc
  * @author Dr.NP <np@herewe.tech>
- * @since 12/08/2023
+ * @since 12/04/2024
  */
 
-package nats
+package grpc
 
-type Config struct {
+import (
+	"fmt"
+
+	"google.golang.org/grpc/resolver"
+)
+
+// Resolver
+/* {{{ [sickyGRPCResolver] */
+func sickyResolveNow(rno resolver.ResolveNowOptions) {}
+
+func sickyUpdateState(err error) {}
+
+func sickyBuild(rt resolver.Target, rcc resolver.ClientConn, rbo resolver.BuildOptions) {
+	fmt.Println(rt.URL, rt.Endpoint(), rt.String())
 }
 
-func DefaultConfig() *Config {
-	return &Config{}
-}
+func sickyClose() {}
 
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
-	}
-
-	return c
-}
+/* }}} */
 
 /*
  * Local variables:

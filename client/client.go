@@ -30,6 +30,8 @@
 
 package client
 
+import "github.com/google/uuid"
+
 // Client : service callee
 type Client interface {
 	// Client options
@@ -49,18 +51,18 @@ type Client interface {
 }
 
 var (
-	clients = make(map[string]Client, 0)
+	clients = make(map[uuid.UUID]Client, 0)
 )
 
-func Instance(name string, clt ...Client) Client {
+func Instance(id uuid.UUID, clt ...Client) Client {
 	if len(clt) > 0 {
 		// Set value
-		clients[name] = clt[0]
+		clients[id] = clt[0]
 
 		return clt[0]
 	}
 
-	return clients[name]
+	return clients[id]
 }
 
 /*

@@ -31,13 +31,18 @@
 package websocket
 
 type Config struct {
-	Name string `json:"name" yaml:"name" mapstructure:"name"`
 }
 
-func DefaultConfig(name string) *Config {
-	return &Config{
-		Name: name,
+func DefaultConfig() *Config {
+	return &Config{}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
 	}
+
+	return c
 }
 
 /*
