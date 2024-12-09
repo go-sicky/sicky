@@ -304,6 +304,10 @@ func (srv *HTTPServer) Stop() error {
 	return nil
 }
 
+func (srv *HTTPServer) Runing() bool {
+	return srv.runing
+}
+
 func (srv *HTTPServer) Addr() net.Addr {
 	return srv.addr
 }

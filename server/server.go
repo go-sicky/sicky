@@ -54,6 +54,8 @@ type Server interface {
 	Start() error
 	// Stop the server
 	Stop() error
+	// Server is runing
+	Runing() bool
 	// Obtain address
 	Addr() net.Addr
 	// Obtain IP

@@ -140,8 +140,10 @@ func (s *Sicky) Start() []error {
 		for _, rg := range s.registries {
 			rg.Watch()
 			for _, srv := range s.servers {
-				if err = rg.Register(srv); err != nil {
-					errs = append(errs, err)
+				if srv.Runing() {
+					if err = rg.Register(srv); err != nil {
+						errs = append(errs, err)
+					}
 				}
 			}
 		}
@@ -178,8 +180,10 @@ func (s *Sicky) Stop() []error {
 	if !s.config.DisableServerRegister {
 		for _, rg := range s.registries {
 			for _, srv := range s.servers {
-				if err = rg.Deregister(srv); err != nil {
-					errs = append(errs, err)
+				if srv.Runing() {
+					if err = rg.Deregister(srv); err != nil {
+						errs = append(errs, err)
+					}
 				}
 			}
 

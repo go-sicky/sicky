@@ -73,6 +73,8 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 					"name", rg.options.Name,
 					"error", err.Error(),
 				)
+
+				return
 			}
 
 			for n, v := range list {
@@ -104,6 +106,8 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 					)
 				}
 			}
+
+			registry.PurgeInstances()
 		default:
 			// Unsupport
 		}

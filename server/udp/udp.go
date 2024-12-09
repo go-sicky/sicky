@@ -176,6 +176,10 @@ func (srv *UDPServer) Stop() error {
 	return nil
 }
 
+func (srv *UDPServer) Runing() bool {
+	return srv.runing
+}
+
 func (srv *UDPServer) Addr() net.Addr {
 	return srv.addr
 }

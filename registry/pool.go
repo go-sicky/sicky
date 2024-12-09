@@ -31,15 +31,18 @@
 package registry
 
 import (
-	"encoding/json"
 	"net"
+	"sync"
+	"time"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
 
 var (
-	Pool = make(map[string]*Service)
+	Pool     = make(map[string]*Service)
+	poolLock sync.RWMutex
 )
 
 // Service definition
@@ -50,14 +53,14 @@ type Service struct {
 
 // Service instance
 type Ins struct {
-	ID         string             `json:"id" yaml:"id"`
-	Service    string             `json:"service" yaml:"service"`
-	Registries map[uuid.UUID]bool `json:"registries" yaml:"registries"`
-	Addr       net.Addr           `json:"addr" yaml:"addr"`
-	Metadata   utils.Metadata     `json:"metadata" yaml:"metadata"`
+	ID       string         `json:"id" yaml:"id"`
+	Service  string         `json:"service" yaml:"service"`
+	Addr     net.Addr       `json:"addr" yaml:"addr"`
+	Metadata utils.Metadata `json:"metadata" yaml:"metadata"`
 }
 
 func RegisterInstance(ins *Ins, rg uuid.UUID) {
+	poolLock.Lock()
 	if Pool[ins.Service] == nil {
 		Pool[ins.Service] = &Service{
 			Service:   ins.Service,
@@ -67,17 +70,60 @@ func RegisterInstance(ins *Ins, rg uuid.UUID) {
 
 	// Check status
 	if Pool[ins.Service].Instances[ins.ID] == nil {
-		ins.Registries = make(map[uuid.UUID]bool)
 		Pool[ins.Service].Instances[ins.ID] = ins
 	}
 
-	Pool[ins.Service].Instances[ins.ID].Registries[rg] = true
+	poolLock.Unlock()
 }
 
-func Dump() string {
-	b, _ := json.MarshalIndent(Pool, "", "  ")
+func PurgeInstances() {
+	poolLock.Lock()
+	for service, svc := range Pool {
+		if service != svc.Service {
+			delete(Pool, service)
+		}
 
-	return string(b)
+		for id, ins := range svc.Instances {
+			if ins.ID != id {
+				delete(Pool[service].Instances, id)
+			}
+
+			// Check instance
+			exists := false
+			for _, rg := range registries {
+				if rg.CheckInstance(ins.ID) {
+					exists = true
+					break
+				}
+			}
+
+			if !exists {
+				// Remove instance
+				delete(Pool[service].Instances, id)
+			}
+		}
+
+		if len(svc.Instances) == 0 {
+			delete(Pool, service)
+		}
+	}
+
+	poolLock.Unlock()
+	logger.Logger.Debug(
+		"registry pool purged",
+	)
+}
+
+func init() {
+	// Purge pool every 60 seconds
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			PurgeInstances()
+		}
+	}()
 }
 
 /*

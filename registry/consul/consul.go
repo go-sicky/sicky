@@ -196,6 +196,26 @@ func (rg *Consul) Deregister(srv server.Server) error {
 	return nil
 }
 
+func (rg *Consul) CheckInstance(id string) bool {
+	svcs, err := rg.client.Agent().Services()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Get consul services failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+
+		return false
+	}
+
+	_, ok := svcs[id]
+
+	return ok
+}
+
 func (rg *Consul) Watch() error {
 	if rg.watcher != nil {
 		rg.watcher.Start()

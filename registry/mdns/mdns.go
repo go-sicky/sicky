@@ -174,6 +174,10 @@ func (rg *MDNS) Deregister(srv server.Server) error {
 	return nil
 }
 
+func (rg *MDNS) CheckInstance(id string) bool {
+	return false
+}
+
 func (rg *MDNS) Watch() error {
 	entries := make(chan *zeroconf.ServiceEntry)
 	go func(results <-chan *zeroconf.ServiceEntry) {

@@ -83,10 +83,6 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	// }
 
 	gopts := make([]grpc.ServerOption, 0)
-	// if srv.options.TLS() != nil {
-	// 	gopts = append(gopts, grpc.Creds(credentials.NewTLS(srv.options.TLS())))
-	// }
-
 	if cfg.MaxConcurrentStreams > 0 {
 		gopts = append(gopts, grpc.MaxConcurrentStreams(cfg.MaxConcurrentStreams))
 	}
@@ -294,6 +290,10 @@ func (srv *GRPCServer) Stop() error {
 	srv.runing = false
 
 	return nil
+}
+
+func (srv *GRPCServer) Runing() bool {
+	return srv.runing
 }
 
 func (srv *GRPCServer) Addr() net.Addr {

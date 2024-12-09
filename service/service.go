@@ -106,6 +106,9 @@ func Run(svc ...Service) error {
 			"errors", err.Error(),
 		)
 
+		// Stop and exit?
+		me.Stop()
+
 		return err
 	}
 

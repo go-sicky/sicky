@@ -52,6 +52,8 @@ type Registry interface {
 	Register(server.Server) error
 	// Deregister service
 	Deregister(server.Server) error
+	// Check service instance
+	CheckInstance(string) bool
 	// Watch services
 	Watch() error
 }

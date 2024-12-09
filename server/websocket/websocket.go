@@ -262,6 +262,10 @@ func (srv *WebsocketServer) Stop() error {
 	return nil
 }
 
+func (srv *WebsocketServer) Runing() bool {
+	return srv.runing
+}
+
 func (srv *WebsocketServer) Addr() net.Addr {
 	return srv.addr
 }
