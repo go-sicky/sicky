@@ -33,6 +33,7 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 
 	"github.com/go-sicky/sicky/client"
@@ -96,11 +97,6 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 
 	// clt.addr = addr
 	gopts := make([]grpc.DialOption, 0)
-	// if clt.options.TLS() != nil {
-	// 	gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(clt.options.TLS())))
-	// } else {
-	// 	gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	// }
 	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
 		// SSL
 	} else {
@@ -143,11 +139,19 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	r.CloseCallback = sickyClose
 	gopts = append(gopts, grpc.WithResolvers(r))
 
+	sc := &grpcServiceConfig{}
+
 	// Balancer
 	balancer := make(map[string]map[string]any)
 	balancer[cfg.Balancer] = make(map[string]any)
-	sc := &grpcServiceConfig{}
 	sc.LoadBalancingConfig = append(sc.LoadBalancingConfig, balancer)
+
+	// Timeout
+	if cfg.ConnectionTimeout > 0 {
+		sc.Timeout = cfg.ConnectionTimeout.String()
+	}
+
+	// Override default service config
 	b, _ := json.Marshal(sc)
 	gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
 
@@ -213,10 +217,16 @@ func (clt *GRPCClient) ID() string {
 
 // For GRPC client connection
 func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
+	fmt.Println("Invoke", "Method", method)
+	fmt.Println("Args", args)
+	fmt.Println("Reply", reply)
+
 	return clt.conn.Invoke(ctx, method, args, reply, opts...)
 }
 
 func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+	fmt.Println("Stream method", method)
+
 	return clt.conn.NewStream(ctx, desc, method, opts...)
 }
 

@@ -31,6 +31,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"net"
 
 	"github.com/go-sicky/sicky/utils"
@@ -71,6 +72,12 @@ func RegisterInstance(ins *Ins, rg uuid.UUID) {
 	}
 
 	Pool[ins.Service].Instances[ins.ID].Registries[rg] = true
+}
+
+func Dump() string {
+	b, _ := json.MarshalIndent(Pool, "", "  ")
+
+	return string(b)
 }
 
 /*

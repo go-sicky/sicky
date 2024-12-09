@@ -51,6 +51,22 @@ var (
 	}
 )
 
+type grpcServiceConfig struct {
+	LoadBalancingConfig []map[string]map[string]any `json:"loadBalancingConfig,omitempty"`
+	RetryPolicy         *struct {
+		MaxAttempts    int    `json:"maxAttempts"`
+		InitialBackoff string `json:"initialBackoff"`
+		MaxBackoff     string `json:"maxBackoff"`
+	} `json:"retryPolicy,omitempty"`
+	HealthCheckConfig *struct {
+		ServiceName        string `json:"serviceName"`
+		FailureThreshold   int    `json:"failureThreshold"`
+		UnhealthyThreshold int    `json:"unhealthyThreshold"`
+		Interval           int    `json:"interval"`
+	} `json:"healthCheckConfig,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
+}
+
 type Config struct {
 	Service           string        `json:"service" yaml:"service" mapstructure:"service"`
 	Network           string        `json:"network" yaml:"network" mapstructure:"network"`
@@ -96,22 +112,6 @@ func (c *Config) Ensure() *Config {
 	}
 
 	return c
-}
-
-type grpcServiceConfig struct {
-	LoadBalancingConfig []map[string]map[string]any `json:"loadBalancingConfig,omitempty"`
-	RetryPolicy         *struct {
-		MaxAttempts    int    `json:"maxAttempts"`
-		InitialBackoff string `json:"initialBackoff"`
-		MaxBackoff     string `json:"maxBackoff"`
-	} `json:"retryPolicy,omitempty"`
-	HealthCheckConfig *struct {
-		ServiceName        string `json:"serviceName"`
-		FailureThreshold   int    `json:"failureThreshold"`
-		UnhealthyThreshold int    `json:"unhealthyThreshold"`
-		Interval           int    `json:"interval"`
-	} `json:"healthCheckConfig,omitempty"`
-	Timeout string `json:"timeout,omitempty"`
 }
 
 /*
