@@ -31,17 +31,22 @@
 package registry
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
+
+type PoolEvent struct {
+	Changed bool
+}
 
 var (
 	Pool     = make(map[string]*Service)
+	PoolChan = make(chan PoolEvent)
 	poolLock sync.RWMutex
 )
 
@@ -59,7 +64,7 @@ type Ins struct {
 	Metadata utils.Metadata `json:"metadata" yaml:"metadata"`
 }
 
-func RegisterInstance(ins *Ins, rg uuid.UUID) {
+func RegisterInstance(ins *Ins) {
 	poolLock.Lock()
 	if Pool[ins.Service] == nil {
 		Pool[ins.Service] = &Service{
@@ -74,6 +79,20 @@ func RegisterInstance(ins *Ins, rg uuid.UUID) {
 	}
 
 	poolLock.Unlock()
+}
+
+func GetInstances(service string) map[string]*Ins {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	fmt.Println(service)
+	fmt.Println(Pool)
+	s, ok := Pool[service]
+	if ok && s.Instances != nil {
+		return s.Instances
+	}
+
+	return nil
 }
 
 func PurgeInstances() {
@@ -108,6 +127,12 @@ func PurgeInstances() {
 		}
 	}
 
+	select {
+	case PoolChan <- PoolEvent{Changed: true}:
+	default:
+		// Just ignore
+	}
+
 	poolLock.Unlock()
 	logger.Logger.Debug(
 		"registry pool purged",
@@ -117,7 +142,7 @@ func PurgeInstances() {
 func init() {
 	// Purge pool every 60 seconds
 	go func() {
-		ticker := time.NewTicker(time.Minute)
+		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {

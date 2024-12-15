@@ -37,8 +37,10 @@ import (
 	"net"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/registry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 )
 
@@ -171,6 +173,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		return nil
 	}
 
+	conn.Connect()
 	clt.conn = conn
 	clt.options.Logger.InfoContext(
 		clt.ctx,
@@ -184,6 +187,33 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 
 	client.Instance(opts.ID, clt)
 
+	// Pool notifier
+	go func() {
+		for ev := range registry.PoolChan {
+			if ev.Changed {
+				ins := registry.GetInstances(cfg.Service)
+				if len(ins) != 0 && r.CC != nil {
+					addrs := make([]resolver.Address, 0)
+					for _, in := range ins {
+						addr := resolver.Address{
+							Addr: in.Addr.String(),
+						}
+
+						addrs = append(addrs, addr)
+						clt.options.Logger.DebugContext(
+							clt.ctx,
+							"Append address to state",
+							"id", clt.options.ID,
+							"address", in.Addr.String(),
+						)
+					}
+
+					r.UpdateState(resolver.State{Addresses: addrs})
+				}
+			}
+		}
+	}()
+
 	return clt
 }
 
@@ -192,11 +222,15 @@ func (clt *GRPCClient) Options() *client.Options {
 }
 
 func (clt *GRPCClient) Connect() error {
+	clt.connected = true
+
 	return nil
 }
 
 func (clt *GRPCClient) Disconnect() error {
-	return nil
+	clt.connected = false
+
+	return clt.conn.Close()
 }
 
 func (clt *GRPCClient) Call() error {

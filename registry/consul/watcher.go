@@ -95,7 +95,7 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 					case "unix", "unixpacket":
 						ins.Addr, _ = net.ResolveUnixAddr(network, address)
 					}
-					registry.RegisterInstance(ins, rg.options.ID)
+					registry.RegisterInstance(ins)
 					rg.options.Logger.DebugContext(
 						rg.ctx,
 						"registry watch event",
