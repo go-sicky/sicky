@@ -23,22 +23,41 @@
 
 /**
  * @file config.go
- * @package service
+ * @package metrics
  * @author Dr.NP <np@herewe.tech>
- * @since 08/01/2024
+ * @since 12/16/2024
  */
 
-package service
+package metrics
 
-type Config struct{}
+const (
+	DefaultExporterAddr = ":9870"
+	DefaultExporterPath = "/metrics"
+)
+
+type Config struct {
+	ExporterAddr string `json:"exporter_addr" yaml:"exporter_addr" mapstructure:"exporter_addr"`
+	ExporterPath string `json:"exporter_path" yaml:"exporter_path" mapstructure:"exporter_path"`
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		ExporterAddr: DefaultExporterAddr,
+		ExporterPath: DefaultExporterPath,
+	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.ExporterAddr == "" {
+		c.ExporterAddr = DefaultExporterAddr
+	}
+
+	if c.ExporterPath == "" {
+		c.ExporterPath = DefaultExporterPath
 	}
 
 	return c

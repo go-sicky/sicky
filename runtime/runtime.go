@@ -31,6 +31,10 @@
 package runtime
 
 import (
+	"time"
+
+	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/registry"
 	"github.com/spf13/pflag"
 )
 
@@ -43,7 +47,7 @@ var (
 	AppName = "sicky"
 )
 
-func Init(name string) error {
+func Init(name string) {
 	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
 	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
 	pflag.StringVar(&metricsExporterAddr, "metrics-addr", metricsExporterAddr, "Address of prometheus exporter.")
@@ -55,12 +59,28 @@ func Init(name string) error {
 	}
 
 	// Load config
-	LoadConfig()
+	//LoadConfig()
 
 	// Start prometheus exporter
-	StartMetrics()
+	//StartMetrics()
+}
 
-	return nil
+func Start(cfg *Config) {
+	cfg = cfg.Ensure()
+
+	logger.Logger.Level(logger.LogLevel(cfg.LoggerLevel))
+
+	if cfg.RegistryPoolPurgeInterval > 0 {
+		// Start pool looper
+		go func() {
+			ticker := time.NewTicker(time.Second * time.Duration(cfg.RegistryPoolPurgeInterval))
+			defer ticker.Stop()
+
+			for range ticker.C {
+				registry.PurgeInstances()
+			}
+		}()
+	}
 }
 
 /*

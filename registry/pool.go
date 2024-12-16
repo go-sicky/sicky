@@ -33,7 +33,6 @@ package registry
 import (
 	"net"
 	"sync"
-	"time"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
@@ -134,18 +133,6 @@ func PurgeInstances() {
 	logger.Logger.Debug(
 		"registry pool purged",
 	)
-}
-
-func init() {
-	// Purge pool every 60 seconds
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			PurgeInstances()
-		}
-	}()
 }
 
 /*

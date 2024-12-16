@@ -204,6 +204,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 							clt.ctx,
 							"Append address to state",
 							"id", clt.options.ID,
+							"service", cfg.Service,
 							"address", in.Addr.String(),
 						)
 					}

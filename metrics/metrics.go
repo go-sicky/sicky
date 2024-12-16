@@ -23,12 +23,12 @@
 
 /**
  * @file metrics.go
- * @package runtime
+ * @package metrics
  * @author Dr.NP <np@herewe.tech>
  * @since 11/20/2023
  */
 
-package runtime
+package metrics
 
 import (
 	"errors"
@@ -91,7 +91,9 @@ var (
 	)
 )
 
-func StartMetrics() error {
+func StartMetrics(cfg *Config) error {
+	cfg = cfg.Ensure()
+
 	metricsRegistry := prometheus.NewRegistry()
 	metricsRegistry.MustRegister(
 		NumGRPCServerAccessCounter,
@@ -105,7 +107,7 @@ func StartMetrics() error {
 	)
 
 	http.Handle(
-		metricsExporterPath,
+		cfg.ExporterPath,
 		promhttp.HandlerFor(
 			metricsRegistry,
 			promhttp.HandlerOpts{
@@ -115,14 +117,14 @@ func StartMetrics() error {
 	)
 
 	metricsServer := &http.Server{
-		Addr: metricsExporterAddr,
+		Addr: cfg.ExporterAddr,
 	}
 
 	go func() {
 		logger.Logger.Info(
 			"Prometheus exporter listening",
-			"addr", metricsExporterAddr,
-			"path", metricsExporterPath,
+			"addr", cfg.ExporterAddr,
+			"path", cfg.ExporterPath,
 		)
 
 		err := metricsServer.ListenAndServe()

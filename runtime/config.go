@@ -39,14 +39,37 @@ import (
 	_ "github.com/spf13/viper/remote"
 )
 
-var (
-	Config *viper.Viper
+const (
+	DefaultLoggerLevel               = "info"
+	DefaultRegistryPoolPurgeInterval = 300
 )
 
-func LoadConfig() error {
-	cfg := viper.New()
-	Config = cfg
+type Config struct {
+	LoggerLevel               string `json:"logger_level" yaml:"logger_level" mapstructure:"logger_level"`
+	RegistryPoolPurgeInterval int    `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
+}
 
+func DefaultConfig() *Config {
+	return &Config{
+		LoggerLevel:               DefaultLoggerLevel,
+		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
+	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	if c.LoggerLevel == "" {
+		c.LoggerLevel = DefaultLoggerLevel
+	}
+
+	return c
+}
+
+func LoadConfig(raw any) error {
+	cfg := viper.New()
 	cfg.SetConfigType(configType)
 
 	// Try config source
@@ -81,6 +104,11 @@ func LoadConfig() error {
 	cfg.SetEnvPrefix(strings.ToUpper(AppName))
 	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	cfg.AutomaticEnv()
+
+	// Marshal
+	if raw != nil {
+		err = cfg.Unmarshal(raw)
+	}
 
 	return err
 }
