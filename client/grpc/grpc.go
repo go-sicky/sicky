@@ -33,7 +33,6 @@ package grpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 
 	"github.com/go-sicky/sicky/client"
@@ -139,6 +138,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	r.UpdateStateCallback = sickyUpdateState
 	r.BuildCallback = sickyBuild
 	r.CloseCallback = sickyClose
+	r.InitialState(resolver.State{})
 	gopts = append(gopts, grpc.WithResolvers(r))
 
 	sc := &grpcServiceConfig{}
@@ -251,17 +251,55 @@ func (clt *GRPCClient) ID() string {
 
 // For GRPC client connection
 func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
-	fmt.Println("Invoke", "Method", method)
-	fmt.Println("Args", args)
-	fmt.Println("Reply", reply)
+	// Invoke logger
+	clt.options.Logger.DebugContext(
+		ctx,
+		"Invoke GRPC call",
+		"client", clt.options.ID,
+		"name", clt.options.Name,
+		"method", method,
+		"args", args,
+		"reply", reply,
+	)
+	err := clt.conn.Invoke(ctx, method, args, reply, opts...)
+	if err != nil {
+		clt.options.Logger.ErrorContext(
+			ctx,
+			"Invoke GRPC call failed",
+			"client", clt.options.ID,
+			"name", clt.options.Name,
+			"method", method,
+			"error", err.Error(),
+		)
+	}
 
-	return clt.conn.Invoke(ctx, method, args, reply, opts...)
+	return err
 }
 
 func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	fmt.Println("Stream method", method)
+	// Stream call
+	clt.options.Logger.DebugContext(
+		ctx,
+		"Stream GRPC call",
+		"client", clt.options.ID,
+		"name", clt.options.Name,
+		"method", method,
+	)
+	stream, err := clt.conn.NewStream(ctx, desc, method, opts...)
+	if err != nil {
+		clt.options.Logger.ErrorContext(
+			ctx,
+			"Stream GRPC call failed",
+			"client", clt.options.ID,
+			"name", clt.options.Name,
+			"method", method,
+			"error", err.Error(),
+		)
 
-	return clt.conn.NewStream(ctx, desc, method, opts...)
+		return nil, err
+	}
+
+	return stream, nil
 }
 
 /*

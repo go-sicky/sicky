@@ -31,7 +31,6 @@
 package registry
 
 import (
-	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -85,8 +84,6 @@ func GetInstances(service string) map[string]*Ins {
 	poolLock.Lock()
 	defer poolLock.Unlock()
 
-	fmt.Println(service)
-	fmt.Println(Pool)
 	s, ok := Pool[service]
 	if ok && s.Instances != nil {
 		return s.Instances
@@ -142,7 +139,7 @@ func PurgeInstances() {
 func init() {
 	// Purge pool every 60 seconds
 	go func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 
 		for range ticker.C {

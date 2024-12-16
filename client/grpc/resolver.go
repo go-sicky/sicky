@@ -31,29 +31,21 @@
 package grpc
 
 import (
-	"fmt"
-
 	"google.golang.org/grpc/resolver"
 )
 
 // Resolver
 /* {{{ [sickyGRPCResolver] */
 func sickyResolveNow(rno resolver.ResolveNowOptions) {
-	fmt.Println("Update Resolver")
 }
 
 func sickyUpdateState(err error) {
-	fmt.Println(err)
 }
 
 func sickyBuild(rt resolver.Target, rcc resolver.ClientConn, rbo resolver.BuildOptions) {
-	fmt.Println("URL", rt.URL)
-	fmt.Println("Endpoint", rt.Endpoint())
-	fmt.Println("String", rt.String())
 }
 
 func sickyClose() {
-	fmt.Println("Resolver closed")
 }
 
 /* }}} */

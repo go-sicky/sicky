@@ -32,7 +32,6 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
@@ -43,10 +42,6 @@ func NewMetadataInterceptor() grpc.UnaryServerInterceptor {
 		md := propagation.HeaderCarrier{}
 		pg := propagation.Baggage{}
 		pg.Extract(ctx, &md)
-		for k, v := range md {
-			fmt.Println(k, "=>", v)
-		}
-
 		resp, err := handler(ctx, req)
 
 		return resp, err
