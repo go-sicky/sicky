@@ -22,49 +22,56 @@
  */
 
 /**
- * @file misc.go
- * @package utils
+ * @file runner.go
+ * @package runner
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 12/18/2024
  */
 
-package utils
+package runner
 
 import (
-	"bytes"
-	"crypto/md5"
-	"fmt"
-	"math/rand"
-	"runtime"
-	"strconv"
+	"context"
 
-	// For submodule upgrade
-	_ "google.golang.org/genproto/protobuf/api"
+	"github.com/google/uuid"
 )
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+type Runner interface {
+	// Get context
+	Context() context.Context
+	// Runner options
+	Options() *Options
+	// Stringify
+	String() string
+	// Runner ID
+	ID() uuid.UUID
+	// Runner name
+	Name() string
+	// Start runner
+	Start() error
+	// Stop runner
+	Stop() error
+	// Consume task
+	Task(*Task)
+}
 
-func RandomString(length int) string {
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+type Task struct {
+	ID   uuid.UUID
+	Data any
+}
+
+var (
+	runners = make(map[uuid.UUID]Runner)
+)
+
+func Instance(id uuid.UUID, runner ...Runner) Runner {
+	if len(runner) > 0 {
+		runners[id] = runner[0]
+
+		return runner[0]
 	}
 
-	return string(b)
-}
-
-func MD5String(input string) string {
-	return fmt.Sprintf("%x", md5.Sum([]byte(input)))
-}
-
-func GoroutineID() uint64 {
-	b := make([]byte, 64)
-	b = b[:runtime.Stack(b, false)]
-	b = bytes.TrimPrefix(b, []byte("goroutine "))
-	b = b[:bytes.IndexByte(b, ' ')]
-	n, _ := strconv.ParseUint(string(b), 10, 64)
-
-	return n
+	return runners[id]
 }
 
 /*

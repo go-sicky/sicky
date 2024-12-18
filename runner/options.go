@@ -22,49 +22,63 @@
  */
 
 /**
- * @file misc.go
- * @package utils
+ * @file options.go
+ * @package runner
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 12/18/2024
  */
 
-package utils
+package runner
 
 import (
-	"bytes"
-	"crypto/md5"
-	"fmt"
-	"math/rand"
 	"runtime"
-	"strconv"
 
-	// For submodule upgrade
-	_ "google.golang.org/genproto/protobuf/api"
+	"github.com/go-sicky/sicky/logger"
+	"github.com/google/uuid"
 )
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const (
+	DefaultBufferSize = 256
+)
 
-func RandomString(length int) string {
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+type Options struct {
+	Name       string
+	ID         uuid.UUID
+	Logger     logger.GeneralLogger
+	NThreads   int
+	BufferSize int
+
+	Handler func(*Task) error
+}
+
+func (o *Options) Ensure() *Options {
+	if o == nil {
+		o = new(Options)
 	}
 
-	return string(b)
-}
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
+	}
 
-func MD5String(input string) string {
-	return fmt.Sprintf("%x", md5.Sum([]byte(input)))
-}
+	if o.Name == "" {
+		o.Name = "Runner::" + o.ID.String()
+	}
 
-func GoroutineID() uint64 {
-	b := make([]byte, 64)
-	b = b[:runtime.Stack(b, false)]
-	b = bytes.TrimPrefix(b, []byte("goroutine "))
-	b = b[:bytes.IndexByte(b, ' ')]
-	n, _ := strconv.ParseUint(string(b), 10, 64)
+	if o.Logger == nil {
+		o.Logger = logger.DefaultGeneralLogger
+	}
 
-	return n
+	if o.NThreads <= 0 {
+		// Default : 4 times of NumCPU()
+		o.NThreads = runtime.NumCPU() * 4
+	}
+
+	if o.BufferSize < 0 {
+		// Default : 256
+		o.BufferSize = DefaultBufferSize
+	}
+
+	return o
 }
 
 /*

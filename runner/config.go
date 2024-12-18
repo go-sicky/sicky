@@ -22,50 +22,15 @@
  */
 
 /**
- * @file misc.go
- * @package utils
+ * @file config.go
+ * @package runner
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 12/18/2024
  */
 
-package utils
+package runner
 
-import (
-	"bytes"
-	"crypto/md5"
-	"fmt"
-	"math/rand"
-	"runtime"
-	"strconv"
-
-	// For submodule upgrade
-	_ "google.golang.org/genproto/protobuf/api"
-)
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
-func RandomString(length int) string {
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-
-	return string(b)
-}
-
-func MD5String(input string) string {
-	return fmt.Sprintf("%x", md5.Sum([]byte(input)))
-}
-
-func GoroutineID() uint64 {
-	b := make([]byte, 64)
-	b = b[:runtime.Stack(b, false)]
-	b = bytes.TrimPrefix(b, []byte("goroutine "))
-	b = b[:bytes.IndexByte(b, ' ')]
-	n, _ := strconv.ParseUint(string(b), 10, 64)
-
-	return n
-}
+type Config struct{}
 
 /*
  * Local variables:

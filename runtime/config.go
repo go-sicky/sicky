@@ -40,18 +40,18 @@ import (
 )
 
 const (
-	DefaultLoggerLevel               = "info"
+	DefaultLogLevel                  = "info"
 	DefaultRegistryPoolPurgeInterval = 300
 )
 
 type Config struct {
-	LoggerLevel               string `json:"logger_level" yaml:"logger_level" mapstructure:"logger_level"`
+	LogLevel                  string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
 	RegistryPoolPurgeInterval int    `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		LoggerLevel:               DefaultLoggerLevel,
+		LogLevel:                  DefaultLogLevel,
 		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
 	}
 }
@@ -61,8 +61,8 @@ func (c *Config) Ensure() *Config {
 		c = DefaultConfig()
 	}
 
-	if c.LoggerLevel == "" {
-		c.LoggerLevel = DefaultLoggerLevel
+	if c.LogLevel == "" {
+		c.LogLevel = DefaultLogLevel
 	}
 
 	return c

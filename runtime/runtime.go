@@ -68,7 +68,8 @@ func Init(name string) {
 func Start(cfg *Config) {
 	cfg = cfg.Ensure()
 
-	logger.Logger.Level(logger.LogLevel(cfg.LoggerLevel))
+	lvl := logger.LogLevel(cfg.LogLevel)
+	logger.Logger.Level(lvl)
 
 	if cfg.RegistryPoolPurgeInterval > 0 {
 		// Start pool looper

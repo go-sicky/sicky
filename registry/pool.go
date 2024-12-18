@@ -130,7 +130,7 @@ func PurgeInstances() {
 	}
 
 	poolLock.Unlock()
-	logger.Logger.Debug(
+	logger.Logger.Trace(
 		"registry pool purged",
 	)
 }
