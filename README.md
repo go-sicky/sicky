@@ -6,7 +6,8 @@
 
 Just like this
 
-'''go
+```go
+
 import (
 	"svc/handler"
 
@@ -64,6 +65,15 @@ func main() {
 
 	service.Run()
 }
-'''
 
-Rush!!
+```
+
+## Dependencies
+
+* gofiber
+* viper
+* otel
+* bun
+* swag
+* grpc-go
+* prometheus
