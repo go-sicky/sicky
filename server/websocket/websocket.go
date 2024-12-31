@@ -257,6 +257,14 @@ func (srv *WebsocketServer) Stop() error {
 
 	srv.app.Server().Shutdown()
 	srv.wg.Wait()
+	srv.options.Logger.InfoContext(
+		srv.ctx,
+		"HTTP server listened",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = false
 
 	return nil

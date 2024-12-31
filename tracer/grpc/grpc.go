@@ -32,11 +32,16 @@ package grpc
 
 import (
 	"context"
+	"os"
+	"time"
 
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 type GRPCTracer struct {
@@ -44,6 +49,7 @@ type GRPCTracer struct {
 	ctx      context.Context
 	options  *tracer.Options
 	exporter *otlptrace.Exporter
+	provider *trace.TracerProvider
 }
 
 func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
@@ -58,12 +64,67 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 
 	var oo []otlptracegrpc.Option
 
+	if cfg.Compress {
+		oo = append(oo, otlptracegrpc.WithCompressor("gzip"))
+	}
+
+	if cfg.Endpoint != "" {
+		oo = append(oo, otlptracegrpc.WithEndpoint(cfg.Endpoint))
+	}
+
+	if cfg.Timeout > 0 {
+		oo = append(oo, otlptracegrpc.WithTimeout(time.Duration(cfg.Timeout)*time.Second))
+	}
+
+	// Insecure default
+	oo = append(oo, otlptracegrpc.WithInsecure())
+
+	// Exporter
 	e, err := otlptracegrpc.New(tc.ctx, oo...)
 	if err != nil {
 		return nil
 	}
 
 	tc.exporter = e
+
+	// Resource
+	cn, _ := os.Hostname()
+	r, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			//semconv.ServiceName(cfg.Sicky.Service.Name),
+			//semconv.ServiceVersion(cfg.Sicky.Service.Version),
+			//semconv.ServiceInstanceID(options.id),
+			semconv.ContainerName(cn),
+		),
+	)
+
+	if err != nil {
+		tc.options.Logger.ErrorContext(
+			tc.ctx,
+			"Merge tracer provider resource failed",
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"error", err.Error(),
+		)
+	}
+
+	// Provider
+	tc.provider = trace.NewTracerProvider(
+		trace.WithBatcher(e),
+		trace.WithResource(r),
+	)
+
+	tc.options.Logger.InfoContext(
+		tc.ctx,
+		"Tracer created",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"endpoint", cfg.Endpoint,
+	)
 	tracer.Instance(opts.ID, tc)
 
 	return tc
@@ -90,10 +151,28 @@ func (tc *GRPCTracer) Name() string {
 }
 
 func (tc *GRPCTracer) Start() error {
+	tc.options.Logger.InfoContext(
+		tc.ctx,
+		"Tracer started",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"endpoint", tc.config.Endpoint,
+	)
+
 	return nil
 }
 
 func (tc *GRPCTracer) Stop() error {
+	tc.options.Logger.InfoContext(
+		tc.ctx,
+		"Tracer stopped",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"endpoint", tc.config.Endpoint,
+	)
+
 	return nil
 }
 

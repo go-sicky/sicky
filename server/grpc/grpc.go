@@ -287,6 +287,14 @@ func (srv *GRPCServer) Stop() error {
 
 	srv.app.GracefulStop()
 	srv.wg.Wait()
+	srv.options.Logger.InfoContext(
+		srv.ctx,
+		"Server shutdown",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = false
 
 	return nil

@@ -171,6 +171,14 @@ func (srv *UDPServer) Stop() error {
 	}
 
 	srv.wg.Wait()
+	srv.options.Logger.InfoContext(
+		srv.ctx,
+		"Server shutdown",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = false
 
 	return nil

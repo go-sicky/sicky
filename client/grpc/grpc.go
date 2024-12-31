@@ -200,9 +200,9 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 						}
 
 						addrs = append(addrs, addr)
-						clt.options.Logger.DebugContext(
+						clt.options.Logger.TraceContext(
 							clt.ctx,
-							"Append address to state",
+							"Append address to GRPC client resolver state",
 							"id", clt.options.ID,
 							"service", cfg.Service,
 							"address", in.Addr.String(),

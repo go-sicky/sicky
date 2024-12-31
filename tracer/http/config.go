@@ -30,17 +30,27 @@
 
 package http
 
+const (
+	DefaultEndpoint = ""
+)
+
 type Config struct {
 	Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
 }
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		Endpoint: DefaultEndpoint,
+	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Endpoint == "" {
+		c.Endpoint = DefaultEndpoint
 	}
 
 	return c

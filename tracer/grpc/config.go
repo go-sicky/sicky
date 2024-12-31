@@ -30,6 +30,10 @@
 
 package grpc
 
+const (
+	DefaultEndpoint = ""
+)
+
 type Config struct {
 	Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
 	Compress bool   `json:"compress" yaml:"compress" mapstructure:"compress"`
@@ -38,7 +42,7 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Endpoint: "",
+		Endpoint: DefaultEndpoint,
 		Compress: false,
 		Timeout:  0,
 	}
@@ -47,6 +51,10 @@ func DefaultConfig() *Config {
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Endpoint == "" {
+		c.Endpoint = DefaultEndpoint
 	}
 
 	return c

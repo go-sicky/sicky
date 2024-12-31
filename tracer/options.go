@@ -54,6 +54,10 @@ func (o *Options) Ensure() *Options {
 		o.Name = "Tracer::" + o.ID.String()
 	}
 
+	if o.Logger == nil {
+		o.Logger = logger.DefaultGeneralLogger
+	}
+
 	return o
 }
 

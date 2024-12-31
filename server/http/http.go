@@ -115,13 +115,8 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	app.Use(
 		cors.New(),
 		NewPropagationMiddleware(),
-		// tracer.NewFiberMiddleware(
-		// 	&tracer.FiberMiddlewareConfig{
-		// 		Tracer: srv.tracer,
-		// 	},
-		// ),
-		//logger.NewFiberMiddleware(),
-		//NewMetadataMiddleware(),
+		NewTracerMiddleware(),
+		NewMetadataMiddleware(),
 		NewAccessLoggerMiddleware(
 			&AccessLoggerMiddlewareConfig{
 				Logger:             opts.Logger,
@@ -299,6 +294,14 @@ func (srv *HTTPServer) Stop() error {
 
 	srv.app.Server().Shutdown()
 	srv.wg.Wait()
+	srv.options.Logger.InfoContext(
+		srv.ctx,
+		"Server shutdown",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"addr", srv.addr.String(),
+	)
 	srv.runing = false
 
 	return nil

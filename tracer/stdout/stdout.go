@@ -32,10 +32,14 @@ package stdout
 
 import (
 	"context"
+	"os"
 
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 type StdoutTracer struct {
@@ -43,6 +47,7 @@ type StdoutTracer struct {
 	ctx      context.Context
 	options  *tracer.Options
 	exporter *stdouttrace.Exporter
+	provider *trace.TracerProvider
 }
 
 func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
@@ -78,6 +83,44 @@ func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
 	}
 
 	tc.exporter = st
+
+	// Resource
+	cn, _ := os.Hostname()
+	r, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			//semconv.ServiceName(cfg.Sicky.Service.Name),
+			//semconv.ServiceVersion(cfg.Sicky.Service.Version),
+			//semconv.ServiceInstanceID(options.id),
+			semconv.ContainerName(cn),
+		),
+	)
+
+	if err != nil {
+		tc.options.Logger.ErrorContext(
+			tc.ctx,
+			"Merge tracer provider resource failed",
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"error", err.Error(),
+		)
+	}
+
+	// Provider
+	tc.provider = trace.NewTracerProvider(
+		trace.WithBatcher(st),
+		trace.WithResource(r),
+	)
+
+	tc.options.Logger.InfoContext(
+		tc.ctx,
+		"Tracer created",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+	)
 	tracer.Instance(opts.ID, tc)
 
 	return tc
@@ -104,10 +147,26 @@ func (tc *StdoutTracer) Name() string {
 }
 
 func (tc *StdoutTracer) Start() error {
+	tc.options.Logger.InfoContext(
+		tc.ctx,
+		"Tracer started",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+	)
+
 	return nil
 }
 
 func (tc *StdoutTracer) Stop() error {
+	tc.options.Logger.InfoContext(
+		tc.ctx,
+		"Tracer stopped",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+	)
+
 	return nil
 }
 
