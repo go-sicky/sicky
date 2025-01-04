@@ -32,9 +32,10 @@ package tracer
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Tracer : tracer abstraction
@@ -53,39 +54,26 @@ type Tracer interface {
 	Start() error
 	// Stop tracer
 	Stop() error
-	// Trace context
-	Trace() error
+	// Trace provider
+	Provider() *sdktrace.TracerProvider
+	// Get tracer
+	Tracer(name string) trace.Tracer
 }
 
 var (
-	tracers = make(map[uuid.UUID]Tracer)
+	tracers       = make(map[uuid.UUID]Tracer)
+	DefaultTracer Tracer
 )
 
 func Instance(id uuid.UUID, tracer ...Tracer) Tracer {
 	if len(tracer) > 0 {
 		tracers[id] = tracer[0]
+		DefaultTracer = tracer[0]
 
 		return tracer[0]
 	}
 
 	return tracers[id]
-}
-
-func Trace() error {
-	var (
-		errs error
-	)
-
-	for _, tr := range tracers {
-		if tr != nil {
-			err := tr.Trace()
-			if err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-	}
-
-	return errs
 }
 
 /*

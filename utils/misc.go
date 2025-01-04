@@ -33,6 +33,7 @@ package utils
 import (
 	"bytes"
 	"crypto/md5"
+	crand "crypto/rand"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -51,6 +52,13 @@ func RandomString(length int) string {
 	}
 
 	return string(b)
+}
+
+func RandomHex(length int) []byte {
+	bytes := make([]byte, length)
+	crand.Read(bytes)
+
+	return bytes
 }
 
 func MD5String(input string) string {

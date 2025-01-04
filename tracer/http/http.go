@@ -39,8 +39,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type HTTPTracer struct {
@@ -48,7 +49,7 @@ type HTTPTracer struct {
 	ctx      context.Context
 	options  *tracer.Options
 	exporter *otlptrace.Exporter
-	provider *trace.TracerProvider
+	provider *sdktrace.TracerProvider
 }
 
 func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
@@ -103,9 +104,9 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 	}
 
 	// Provider
-	tc.provider = trace.NewTracerProvider(
-		trace.WithBatcher(e),
-		trace.WithResource(r),
+	tc.provider = sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(e),
+		sdktrace.WithResource(r),
 	)
 
 	tc.options.Logger.InfoContext(
@@ -167,8 +168,16 @@ func (tc *HTTPTracer) Stop() error {
 	return nil
 }
 
-func (tc *HTTPTracer) Trace() error {
-	return nil
+func (tc *HTTPTracer) Exporter() *otlptrace.Exporter {
+	return tc.exporter
+}
+
+func (tc *HTTPTracer) Provider() *sdktrace.TracerProvider {
+	return tc.provider
+}
+
+func (tc *HTTPTracer) Tracer(name string) trace.Tracer {
+	return tc.provider.Tracer(name)
 }
 
 /*

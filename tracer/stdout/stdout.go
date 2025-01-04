@@ -36,10 +36,12 @@ import (
 
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type StdoutTracer struct {
@@ -47,7 +49,7 @@ type StdoutTracer struct {
 	ctx      context.Context
 	options  *tracer.Options
 	exporter *stdouttrace.Exporter
-	provider *trace.TracerProvider
+	provider *sdktrace.TracerProvider
 }
 
 func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
@@ -109,9 +111,9 @@ func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
 	}
 
 	// Provider
-	tc.provider = trace.NewTracerProvider(
-		trace.WithBatcher(st),
-		trace.WithResource(r),
+	tc.provider = sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(st),
+		sdktrace.WithResource(r),
 	)
 
 	tc.options.Logger.InfoContext(
@@ -138,40 +140,48 @@ func (exp *StdoutTracer) String() string {
 	return "stdout"
 }
 
-func (tc *StdoutTracer) ID() uuid.UUID {
-	return tc.options.ID
+func (exp *StdoutTracer) ID() uuid.UUID {
+	return exp.options.ID
 }
 
-func (tc *StdoutTracer) Name() string {
-	return tc.options.Name
+func (exp *StdoutTracer) Name() string {
+	return exp.options.Name
 }
 
-func (tc *StdoutTracer) Start() error {
-	tc.options.Logger.InfoContext(
-		tc.ctx,
+func (exp *StdoutTracer) Start() error {
+	exp.options.Logger.InfoContext(
+		exp.ctx,
 		"Tracer started",
-		"tracer", tc.String(),
-		"id", tc.options.ID,
-		"name", tc.options.Name,
+		"tracer", exp.String(),
+		"id", exp.options.ID,
+		"name", exp.options.Name,
 	)
 
 	return nil
 }
 
-func (tc *StdoutTracer) Stop() error {
-	tc.options.Logger.InfoContext(
-		tc.ctx,
+func (exp *StdoutTracer) Stop() error {
+	exp.options.Logger.InfoContext(
+		exp.ctx,
 		"Tracer stopped",
-		"tracer", tc.String(),
-		"id", tc.options.ID,
-		"name", tc.options.Name,
+		"tracer", exp.String(),
+		"id", exp.options.ID,
+		"name", exp.options.Name,
 	)
 
 	return nil
 }
 
-func (tc *StdoutTracer) Trace() error {
+func (exp *StdoutTracer) Exporter() *otlptrace.Exporter {
 	return nil
+}
+
+func (exp *StdoutTracer) Provider() *sdktrace.TracerProvider {
+	return exp.provider
+}
+
+func (exp *StdoutTracer) Tracer(name string) trace.Tracer {
+	return exp.provider.Tracer(name)
 }
 
 /*

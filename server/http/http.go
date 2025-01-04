@@ -37,11 +37,13 @@ import (
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 )
 
 /* {{{ [Server] */
@@ -79,9 +81,10 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	}
 
 	// Set tracer
-	// if srv.options.TraceProvider() != nil {
-	// 	srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
-	// }
+	var tr trace.Tracer
+	if tracer.DefaultTracer != nil {
+		tr = tracer.DefaultTracer.Tracer(srv.Name())
+	}
 
 	app := fiber.New(
 		fiber.Config{
@@ -112,13 +115,20 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 			recover.ConfigDefault,
 		))
 	}
+
+	// The order of middlewares is important
+	// Issue was resolved at dawn on the first day of 2025, thanks to the remote class reunion >_<!
 	app.Use(
 		cors.New(),
 		NewPropagationMiddleware(),
-		NewTracerMiddleware(),
+		NewTracerMiddleware(
+			TracerConfig{
+				Tracer: tr,
+			},
+		),
 		NewMetadataMiddleware(),
 		NewAccessLoggerMiddleware(
-			&AccessLoggerMiddlewareConfig{
+			AccessLoggerMiddlewareConfig{
 				Logger:             opts.Logger,
 				AccessLoggerConfig: cfg.AccessLogger,
 			},

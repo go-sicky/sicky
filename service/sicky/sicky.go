@@ -38,7 +38,6 @@ import (
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
-	"github.com/go-sicky/sicky/tracer"
 )
 
 type Sicky struct {
@@ -48,7 +47,6 @@ type Sicky struct {
 
 	servers    []server.Server
 	brokers    []broker.Broker
-	tracers    []tracer.Tracer
 	jobs       []job.Job
 	registries []registry.Registry
 }
@@ -126,15 +124,6 @@ func (s *Sicky) Start() []error {
 		}
 	}
 
-	// Tracers
-	if !s.config.DisableTrace {
-		for _, trc := range s.tracers {
-			if err = trc.Start(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-
 	// Registry
 	if !s.config.DisableServerRegister {
 		for _, rg := range s.registries {
@@ -191,15 +180,6 @@ func (s *Sicky) Stop() []error {
 		}
 	}
 
-	// Tracers
-	if !s.config.DisableTrace {
-		for _, trc := range s.tracers {
-			if err = trc.Stop(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-
 	// Disconnect brokers
 	for _, brk := range s.brokers {
 		if err = brk.Disconnect(); err != nil {
@@ -243,14 +223,6 @@ func (s *Sicky) Brokers(brks ...broker.Broker) []broker.Broker {
 	}
 
 	return s.brokers
-}
-
-func (s *Sicky) Tracers(trcs ...tracer.Tracer) []tracer.Tracer {
-	if !s.config.DisableTrace && len(trcs) > 0 {
-		s.tracers = append(s.tracers, trcs...)
-	}
-
-	return s.tracers
 }
 
 func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {

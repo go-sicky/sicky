@@ -31,10 +31,14 @@
 package runtime
 
 import (
+	"strings"
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/tracer/grpc"
+	"github.com/go-sicky/sicky/tracer/http"
+	"github.com/go-sicky/sicky/tracer/stdout"
 	"github.com/spf13/pflag"
 )
 
@@ -81,6 +85,24 @@ func Start(cfg *Config) {
 				registry.PurgeInstances()
 			}
 		}()
+	}
+
+	switch strings.ToLower(cfg.Tracer.Type) {
+	case "grpc":
+		grpc.New(nil, &grpc.Config{
+			Endpoint: cfg.Tracer.Endpoint,
+			Compress: cfg.Tracer.Compress,
+			Timeout:  cfg.Tracer.Timeout,
+		})
+	case "http":
+		http.New(nil, &http.Config{
+			Endpoint: cfg.Tracer.Endpoint,
+		})
+	case "stdout":
+		stdout.New(nil, &stdout.Config{
+			PrettyPrint: cfg.Tracer.PrettyPrint,
+			Timestamps:  cfg.Tracer.Timestamps,
+		})
 	}
 }
 

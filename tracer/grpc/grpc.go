@@ -40,8 +40,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type GRPCTracer struct {
@@ -49,7 +50,7 @@ type GRPCTracer struct {
 	ctx      context.Context
 	options  *tracer.Options
 	exporter *otlptrace.Exporter
-	provider *trace.TracerProvider
+	provider *sdktrace.TracerProvider
 }
 
 func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
@@ -112,9 +113,9 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 	}
 
 	// Provider
-	tc.provider = trace.NewTracerProvider(
-		trace.WithBatcher(e),
-		trace.WithResource(r),
+	tc.provider = sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(e),
+		sdktrace.WithResource(r),
 	)
 
 	tc.options.Logger.InfoContext(
@@ -176,8 +177,16 @@ func (tc *GRPCTracer) Stop() error {
 	return nil
 }
 
-func (tc *GRPCTracer) Trace() error {
-	return nil
+func (tc *GRPCTracer) Exporter() *otlptrace.Exporter {
+	return tc.exporter
+}
+
+func (tc *GRPCTracer) Provider() *sdktrace.TracerProvider {
+	return tc.provider
+}
+
+func (tc *GRPCTracer) Tracer(name string) trace.Tracer {
+	return tc.provider.Tracer(name)
 }
 
 /*

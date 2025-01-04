@@ -42,7 +42,6 @@ import (
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/tracer"
 )
 
 type Service interface {
@@ -60,7 +59,6 @@ type Service interface {
 	// Subdinates
 	Servers(...server.Server) []server.Server
 	Brokers(...broker.Broker) []broker.Broker
-	Tracers(...tracer.Tracer) []tracer.Tracer
 	Jobs(...job.Job) []job.Job
 	Registries(...registry.Registry) []registry.Registry
 }

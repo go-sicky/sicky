@@ -32,10 +32,12 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
+	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/utils"
+	futils "github.com/gofiber/fiber/v2/utils"
 	"go.opentelemetry.io/contrib/propagators/b3"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -73,6 +75,8 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		}
 
 		if cfg.Tracer == nil {
+			c.Locals(cfg.SpanIDContextKey, fmt.Sprintf("%x", utils.RandomHex(8)))
+
 			return c.Next()
 		}
 
@@ -84,7 +88,7 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		})
 
 		newCtx := pg.Extract(savedCtx, propagation.HeaderCarrier(reqHeader))
-		spanedCtx, span := cfg.Tracer.Start(newCtx, utils.CopyString(c.Path()))
+		spanedCtx, span := cfg.Tracer.Start(newCtx, futils.CopyString(c.Path()))
 		defer func() {
 			cancel()
 			span.End()

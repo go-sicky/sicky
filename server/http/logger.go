@@ -44,9 +44,9 @@ type AccessLoggerMiddlewareConfig struct {
 	Logger             logger.GeneralLogger
 }
 
-func accessLoggerMiddlewareConfigDefault(config ...*AccessLoggerMiddlewareConfig) *AccessLoggerMiddlewareConfig {
+func accessLoggerMiddlewareConfigDefault(config ...AccessLoggerMiddlewareConfig) AccessLoggerMiddlewareConfig {
 	if len(config) < 1 {
-		return &AccessLoggerMiddlewareConfig{
+		return AccessLoggerMiddlewareConfig{
 			AccessLoggerConfig: DefaultAccessLogger,
 			Next:               nil,
 			Logger:             logger.Logger,
@@ -65,7 +65,7 @@ func accessLoggerMiddlewareConfigDefault(config ...*AccessLoggerMiddlewareConfig
 	return cfg
 }
 
-func NewAccessLoggerMiddleware(config ...*AccessLoggerMiddlewareConfig) fiber.Handler {
+func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Handler {
 	cfg := accessLoggerMiddlewareConfigDefault(config...)
 	if cfg.Logger == nil {
 		cfg.Logger = logger.Logger
