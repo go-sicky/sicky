@@ -34,14 +34,17 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/go-sicky/sicky/driver"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/spf13/viper"
 	_ "github.com/spf13/viper/remote"
 )
 
 const (
 	DefaultLogLevel                  = "info"
-	DefaultRegistryPoolPurgeInterval = 300
+	DefaultRegistryPoolPurgeInterval = 0
+	DefaultTracerType                = "none"
 )
 
 type Config struct {
@@ -55,14 +58,22 @@ type Config struct {
 		PrettyPrint bool   `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
 		Timestamps  bool   `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
 	} `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
-	Metrics struct{} `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
+	Metrics *metrics.Config `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
+	Driver  struct {
+		DB    *driver.DBConfig    `json:"db" yaml:"db" mapstructure:"db"`
+		Redis *driver.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
+		Nats  *driver.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
+	} `json:"driver" yaml:"driver" mapstructure:"driver"`
 }
 
 func DefaultConfig() *Config {
-	return &Config{
+	c := &Config{
 		LogLevel:                  DefaultLogLevel,
 		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
 	}
+	c.Tracer.Type = DefaultTracerType
+
+	return c
 }
 
 func (c *Config) Ensure() *Config {

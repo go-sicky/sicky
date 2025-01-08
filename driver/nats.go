@@ -44,7 +44,9 @@ func InitNats(cfg *NatsConfig) (*nats.Conn, error) {
 		return nil, err
 	}
 
-	Nats = nc
+	if Nats == nil {
+		Nats = nc
+	}
 
 	return nc, nil
 }

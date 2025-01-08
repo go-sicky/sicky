@@ -34,6 +34,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-sicky/sicky/driver"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/tracer/grpc"
@@ -42,51 +43,90 @@ import (
 	"github.com/spf13/pflag"
 )
 
+type FlagSwitchCallback func() error
+
+type FlagSwitch struct {
+	Flag     string
+	On       bool
+	Usage    string
+	Callback FlagSwitchCallback
+}
+
 var (
 	configLoc           = "config"
 	configType          = "json"
 	metricsExporterAddr = ":9870"
 	metricsExporterPath = "/metrics"
 
+	switchesVars = make(map[string]*FlagSwitch)
+
 	AppName = "sicky"
 )
 
-func Init(name string) {
+func Init(name string, switches ...*FlagSwitch) {
 	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
 	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
 	pflag.StringVar(&metricsExporterAddr, "metrics-addr", metricsExporterAddr, "Address of prometheus exporter.")
 	pflag.StringVar(&metricsExporterPath, "metrics-path", metricsExporterPath, "Path of prometheus exporter.")
+	if len(switches) > 0 {
+		for _, sw := range switches {
+			//sw.On = false
+			switchesVars[sw.Flag] = sw
+			pflag.BoolVar(&sw.On, sw.Flag, sw.On, sw.Usage)
+		}
+	}
+
 	pflag.Parse()
 
 	if name != "" {
 		AppName = name
 	}
-
-	// Load config
-	//LoadConfig()
-
-	// Start prometheus exporter
-	//StartMetrics()
 }
 
 func Start(cfg *Config) {
 	cfg = cfg.Ensure()
 
+	// Logger level
 	lvl := logger.LogLevel(cfg.LogLevel)
 	logger.Logger.Level(lvl)
 
-	if cfg.RegistryPoolPurgeInterval > 0 {
-		// Start pool looper
-		go func() {
-			ticker := time.NewTicker(time.Second * time.Duration(cfg.RegistryPoolPurgeInterval))
-			defer ticker.Stop()
-
-			for range ticker.C {
-				registry.PurgeInstances()
-			}
-		}()
+	// Metrics
+	if cfg.Metrics != nil {
+		// <TODO>
 	}
 
+	// Driver
+	if cfg.Driver.DB != nil {
+		_, err := driver.InitDB(cfg.Driver.DB)
+		if err != nil {
+			logger.Logger.Fatal(
+				"Initialize database failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
+	if cfg.Driver.Redis != nil {
+		_, err := driver.InitRedis(cfg.Driver.Redis)
+		if err != nil {
+			logger.Logger.Fatal(
+				"Initialize redis failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
+	if cfg.Driver.Nats != nil {
+		_, err := driver.InitNats(cfg.Driver.Nats)
+		if err != nil {
+			logger.Logger.Fatal(
+				"Initialize nats failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
+	// Tracer
 	switch strings.ToLower(cfg.Tracer.Type) {
 	case "grpc":
 		grpc.New(nil, &grpc.Config{
@@ -103,6 +143,32 @@ func Start(cfg *Config) {
 			PrettyPrint: cfg.Tracer.PrettyPrint,
 			Timestamps:  cfg.Tracer.Timestamps,
 		})
+	}
+
+	// Command flags
+	for flag, sw := range switchesVars {
+		if sw.Flag == flag && sw.On && sw.Callback != nil {
+			err := sw.Callback()
+			if err != nil {
+				logger.Logger.Fatal(
+					"Call flag command failed",
+					"flag", flag,
+					"error", err.Error(),
+				)
+			}
+		}
+	}
+
+	if cfg.RegistryPoolPurgeInterval > 0 {
+		// Start pool looper
+		go func() {
+			ticker := time.NewTicker(time.Second * time.Duration(cfg.RegistryPoolPurgeInterval))
+			defer ticker.Stop()
+
+			for range ticker.C {
+				registry.PurgeInstances()
+			}
+		}()
 	}
 }
 

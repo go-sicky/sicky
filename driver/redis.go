@@ -71,7 +71,9 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 		"db", cfg.DB,
 	)
 
-	Redis = rdb
+	if Redis == nil {
+		Redis = rdb
+	}
 
 	return rdb, nil
 }

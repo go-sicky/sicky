@@ -118,7 +118,9 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 		"debug", cfg.Debug,
 	)
 
-	DB = db
+	if DB == nil {
+		DB = db
+	}
 
 	return db, nil
 }
