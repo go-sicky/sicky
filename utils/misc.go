@@ -34,6 +34,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"runtime"
@@ -73,6 +74,17 @@ func GoroutineID() uint64 {
 	n, _ := strconv.ParseUint(string(b), 10, 64)
 
 	return n
+}
+
+func CryptoPassword(original, salt string) string {
+	h := sha256.New()
+	h.Write([]byte(original + "@@" + salt))
+
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func EnsureStatus(status, bit int64) bool {
+	return (status & 1 << bit) != 0
 }
 
 /*
