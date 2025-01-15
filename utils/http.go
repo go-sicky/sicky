@@ -42,11 +42,12 @@ const (
 )
 
 type Envelope struct {
-	Code      int         `json:"code"`
-	Status    int         `json:"status"`
-	Timestamp time.Time   `json:"timestamp"`
-	Message   string      `json:"message"`
-	Data      interface{} `json:"data,omitempty"`
+	Code      int         `json:"code" yaml:"code" xml:"code"`
+	Status    int         `json:"status" yaml:"status" xml:"status"`
+	Timestamp time.Time   `json:"timestamp" yaml:"timestamp" xml:"timestamp"`
+	Message   string      `json:"message" yaml:"message" xml:"message"`
+	RequestID string      `json:"request_id,omitempty" yaml:"request_id,omitempty" xml:"request_id,omitempty"`
+	Data      interface{} `json:"data,omitempty" yaml:"data,omitempty" xml:"data,omitempty"`
 }
 
 func WrapHTTPResponse(data interface{}) *Envelope {
@@ -75,6 +76,12 @@ func (e *Envelope) SetStatus(status int) *Envelope {
 
 func (e *Envelope) SetMessage(msg string) *Envelope {
 	e.Message = msg
+
+	return e
+}
+
+func (e *Envelope) SetRequestID(requestID string) *Envelope {
+	e.RequestID = requestID
 
 	return e
 }
