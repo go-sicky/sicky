@@ -22,13 +22,13 @@
  */
 
 /**
- * @file udp.go
- * @package udp
+ * @file tcp.go
+ * @package tcp
  * @author Dr.NP <np@herewe.tech>
- * @since 09/17/2024
+ * @since 01/17/2025
  */
 
-package udp
+package tcp
 
 import (
 	"context"
@@ -40,16 +40,13 @@ import (
 	"github.com/google/uuid"
 )
 
-/* {{{ [Server] */
-
-// UDPServer : Server definition
-type UDPServer struct {
+type TCPServer struct {
 	config   *Config
 	ctx      context.Context
 	options  *server.Options
 	running  bool
-	addr     *net.UDPAddr
-	conn     *net.UDPConn
+	addr     *net.TCPAddr
+	conn     net.Listener
 	metadata utils.Metadata
 	handlers []Handler
 
@@ -57,13 +54,12 @@ type UDPServer struct {
 	wg sync.WaitGroup
 }
 
-// New UDP server
-func New(opts *server.Options, cfg *Config) *UDPServer {
+func New(opts *server.Options, cfg *Config) *TCPServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveUDPAddr(cfg.Network, cfg.Addr)
-	srv := &UDPServer{
+	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
+	srv := &TCPServer{
 		config:   cfg,
 		ctx:      context.Background(),
 		addr:     addr,
@@ -88,35 +84,74 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 	return srv
 }
 
-func (srv *UDPServer) Context() context.Context {
+func (srv *TCPServer) Context() context.Context {
 	return srv.ctx
 }
 
-func (srv *UDPServer) Options() *server.Options {
+func (srv *TCPServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *UDPServer) String() string {
-	return "udp"
+func (srv *TCPServer) String() string {
+	return "tcp"
 }
 
-func (srv *UDPServer) ID() uuid.UUID {
+func (srv *TCPServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
-func (srv *UDPServer) Name() string {
+func (srv *TCPServer) Name() string {
 	return srv.options.Name
 }
 
-func (srv *UDPServer) Start() error {
+func (srv *TCPServer) Running() bool {
+	return srv.running
+}
+
+func (srv *TCPServer) Addr() net.Addr {
+	return srv.addr
+}
+
+func (srv *TCPServer) IP() net.IP {
+	try := utils.AddrToIP(srv.addr)
+	if try.IsUnspecified() {
+		try, _ = utils.ObtainPreferIP(true)
+	}
+
+	return try
+}
+
+func (srv *TCPServer) Port() int {
+	return utils.AddrToPort(srv.addr)
+}
+
+func (srv *TCPServer) Metadata() utils.Metadata {
+	return srv.metadata
+}
+
+func (srv *TCPServer) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		srv.handlers = append(srv.handlers, hdl)
+		srv.options.Logger.InfoContext(
+			srv.ctx,
+			"TCP handler registered",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"handler", hdl.Name(),
+		)
+	}
+}
+
+func (srv *TCPServer) Start() error {
 	var (
 		err error
 	)
+
 	srv.Lock()
 	defer srv.Unlock()
 
 	if srv.running {
-		// running
 		return nil
 	}
 
@@ -127,10 +162,7 @@ func (srv *UDPServer) Start() error {
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 
-	srv.conn, err = net.ListenUDP(
-		srv.addr.Network(),
-		srv.addr,
-	)
+	srv.conn, err = net.Listen(srv.addr.Network(), srv.addr.String())
 	if err != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
@@ -149,20 +181,19 @@ func (srv *UDPServer) Start() error {
 	go func() error {
 		// srv.options.Logger.InfoContext(
 		// 	srv.ctx,
-		// 	"UDP server closed",
+		// 	"TCP server closed",
 		// 	"server", srv.String(),
 		// 	"id", srv.options.ID,
 		// 	"name", srv.options.Name,
 		// 	"network", srv.addr.Network(),
 		// 	"address", srv.addr.String(),
 		// )
-		buff := make([]byte, srv.config.BufferSize)
 		for {
-			n, addr, err := srv.conn.ReadFromUDP(buff)
+			client, err := srv.conn.Accept()
 			if err != nil {
 				srv.options.Logger.ErrorContext(
 					srv.ctx,
-					"ReadFromUDP failed",
+					"Accept() failed",
 					"server", srv.String(),
 					"id", srv.options.ID,
 					"name", srv.options.Name,
@@ -171,13 +202,11 @@ func (srv *UDPServer) Start() error {
 					"error", err.Error(),
 				)
 
-				// TODO : Exit read ???
+				// TODO : Exit accept
 				break
-			} else if n >= 0 {
-				dst := make([]byte, n)
-				copy(dst, buff)
+			} else {
 				for _, hdl := range srv.handlers {
-					hdl.OnData(addr, dst)
+					hdl.OnConnect(client)
 				}
 			}
 		}
@@ -189,7 +218,7 @@ func (srv *UDPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"UDP server listened",
+		"TCP server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -201,12 +230,11 @@ func (srv *UDPServer) Start() error {
 	return nil
 }
 
-func (srv *UDPServer) Stop() error {
+func (srv *TCPServer) Stop() error {
 	srv.Lock()
 	defer srv.Unlock()
 
 	if !srv.running {
-		// Not running
 		return nil
 	}
 
@@ -229,7 +257,7 @@ func (srv *UDPServer) Stop() error {
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"UDP server shutdown",
+		"TCP server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -241,52 +269,14 @@ func (srv *UDPServer) Stop() error {
 	return nil
 }
 
-func (srv *UDPServer) Running() bool {
-	return srv.running
-}
-
-func (srv *UDPServer) Addr() net.Addr {
-	return srv.addr
-}
-
-func (srv *UDPServer) IP() net.IP {
-	try := utils.AddrToIP(srv.addr)
-	if try.IsUnspecified() {
-		try, _ = utils.ObtainPreferIP(true)
-	}
-
-	return try
-}
-
-func (srv *UDPServer) Port() int {
-	return utils.AddrToPort(srv.addr)
-}
-
-func (srv *UDPServer) Metadata() utils.Metadata {
-	return srv.metadata
-}
-
-func (srv *UDPServer) Handle(hdls ...Handler) {
-	for _, hdl := range hdls {
-		srv.handlers = append(srv.handlers, hdl)
-		srv.options.Logger.InfoContext(
-			srv.ctx,
-			"UDP handler registered",
-			"server", srv.String(),
-			"id", srv.options.ID,
-			"name", srv.options.Name,
-			"handler", hdl.Name(),
-		)
-	}
-}
-
-/* }}} */
-
 /* {{{ [Handler] */
 type Handler interface {
 	Name() string
 	Type() string
-	OnData(*net.UDPAddr, []byte) error
+	OnConnect(net.Conn) error
+	OnClose(net.Conn) error
+	OnError(net.Conn, error) error
+	OnData(net.Conn, []byte) error
 }
 
 /* }}} */

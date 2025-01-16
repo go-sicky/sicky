@@ -51,7 +51,7 @@ type GRPCServer struct {
 	ctx      context.Context
 	options  *server.Options
 	app      *grpc.Server
-	runing   bool
+	running  bool
 	addr     net.Addr
 	metadata utils.Metadata
 
@@ -72,7 +72,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 		config:   cfg,
 		ctx:      context.Background(),
 		addr:     addr,
-		runing:   false,
+		running:  false,
 		options:  opts,
 		metadata: utils.NewMetadata(),
 	}
@@ -169,8 +169,8 @@ func (srv *GRPCServer) Start() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if srv.runing {
-		// Runing
+	if srv.running {
+		// running
 		return nil
 	}
 
@@ -271,7 +271,7 @@ func (srv *GRPCServer) Start() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.runing = true
+	srv.running = true
 
 	return nil
 }
@@ -280,8 +280,8 @@ func (srv *GRPCServer) Stop() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if !srv.runing {
-		// Not runing
+	if !srv.running {
+		// Not running
 		return nil
 	}
 
@@ -295,13 +295,13 @@ func (srv *GRPCServer) Stop() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.runing = false
+	srv.running = false
 
 	return nil
 }
 
-func (srv *GRPCServer) Runing() bool {
-	return srv.runing
+func (srv *GRPCServer) Running() bool {
+	return srv.running
 }
 
 func (srv *GRPCServer) Addr() net.Addr {

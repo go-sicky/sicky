@@ -22,52 +22,44 @@
  */
 
 /**
- * @file config.go
+ * @file udp.go
  * @package udp
  * @author Dr.NP <np@herewe.tech>
- * @since 09/17/2024
+ * @since 01/16/2025
  */
 
 package udp
 
-const (
-	DefaultNetwork   = "udp"
-	DefaultAddr      = ":9980"
-	DefaulBufferSize = 4096
+import (
+	"context"
+	"net"
+
+	"github.com/go-sicky/sicky/client"
 )
 
-type Config struct {
-	Network    string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	BufferSize int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
+type UDPClient struct {
+	config    *Config
+	options   *client.Options
+	ctx       context.Context
+	conn      *net.UDPConn
+	connected bool
+	addr      net.Addr
 }
 
-func DefaultConfig() *Config {
-	return &Config{
-		Network:    DefaultNetwork,
-		Addr:       DefaultAddr,
-		BufferSize: DefaulBufferSize,
-	}
-}
+func New(opts *client.Options, cfg *Config) *UDPClient {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
 
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
-	}
-
-	if c.Network == "" {
-		c.Network = DefaultNetwork
+	addr, _ := net.ResolveUDPAddr("udp", cfg.Addr)
+	clt := &UDPClient{
+		config:    cfg,
+		ctx:       context.Background(),
+		addr:      addr,
+		connected: false,
+		options:   opts,
 	}
 
-	if c.Addr == "" {
-		c.Addr = DefaultAddr
-	}
-
-	if c.BufferSize <= 0 {
-		c.BufferSize = DefaulBufferSize
-	}
-
-	return c
+	return clt
 }
 
 /*

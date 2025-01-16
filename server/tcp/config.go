@@ -23,30 +23,27 @@
 
 /**
  * @file config.go
- * @package udp
+ * @package tcp
  * @author Dr.NP <np@herewe.tech>
- * @since 09/17/2024
+ * @since 01/17/2025
  */
 
-package udp
+package tcp
 
 const (
-	DefaultNetwork   = "udp"
-	DefaultAddr      = ":9980"
-	DefaulBufferSize = 4096
+	DefaultNetwork = "tcp"
+	DefaultAddr    = ":9981"
 )
 
 type Config struct {
-	Network    string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	BufferSize int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
+	Network string `json:"network" yaml:"network" mapstructure:"network"`
+	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Network:    DefaultNetwork,
-		Addr:       DefaultAddr,
-		BufferSize: DefaulBufferSize,
+		Network: DefaultNetwork,
+		Addr:    DefaultAddr,
 	}
 }
 
@@ -61,10 +58,6 @@ func (c *Config) Ensure() *Config {
 
 	if c.Addr == "" {
 		c.Addr = DefaultAddr
-	}
-
-	if c.BufferSize <= 0 {
-		c.BufferSize = DefaulBufferSize
 	}
 
 	return c

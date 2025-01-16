@@ -55,7 +55,7 @@ type WebsocketServer struct {
 	ctx      context.Context
 	options  *server.Options
 	app      *fiber.App
-	runing   bool
+	running  bool
 	addr     net.Addr
 	metadata utils.Metadata
 
@@ -76,7 +76,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		config:   cfg,
 		ctx:      context.Background(),
 		addr:     addr,
-		runing:   false,
+		running:  false,
 		options:  opts,
 		metadata: utils.NewMetadata(),
 	}
@@ -141,8 +141,8 @@ func (srv *WebsocketServer) Start() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if srv.runing {
-		// Runing
+	if srv.running {
+		// running
 		return nil
 	}
 
@@ -241,7 +241,7 @@ func (srv *WebsocketServer) Start() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.runing = true
+	srv.running = true
 
 	return nil
 }
@@ -250,8 +250,8 @@ func (srv *WebsocketServer) Stop() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if !srv.runing {
-		// Not runing
+	if !srv.running {
+		// Not running
 		return nil
 	}
 
@@ -265,13 +265,13 @@ func (srv *WebsocketServer) Stop() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.runing = false
+	srv.running = false
 
 	return nil
 }
 
-func (srv *WebsocketServer) Runing() bool {
-	return srv.runing
+func (srv *WebsocketServer) Running() bool {
+	return srv.running
 }
 
 func (srv *WebsocketServer) Addr() net.Addr {
