@@ -92,6 +92,8 @@ github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/me
 github.com/go-viper/mapstructure/v2 v2.2.1 h1:ZAaOCxANMuZx5RCeg0mBdEZk7DZasvvZIxtHqx8aGss=
 github.com/go-viper/mapstructure/v2 v2.2.1/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/godbus/dbus/v5 v5.0.4/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
+github.com/godoes/gorm-dameng v0.5.0 h1:lZ+GJjEv5Irzux3snmLcH7TOgaESgszOSXMfASo5v88=
+github.com/godoes/gorm-dameng v0.5.0/go.mod h1:A7YXTKW4wnr7ZSDIdCWkf/n73B2IwEPhblzc9dk3hUM=
 github.com/gofiber/contrib/websocket v1.3.3 h1:R6DlDKieGPMiDrqYNyobsHbvjqvxMHeCj/lLaca4jg8=
 github.com/gofiber/contrib/websocket v1.3.3/go.mod h1:07u6QGMsvX+sx7iGNCl5xhzuUVArWwLQ3tBIH24i+S8=
 github.com/gofiber/fiber/v2 v2.52.6 h1:Rfp+ILPiYSvvVuIPvxrBns+HJp8qGLDnLJawAu27XVI=
@@ -120,6 +122,8 @@ github.com/golang/protobuf v1.4.2/go.mod h1:oDoupMAO8OvCJWAcko0GGGIgR6R6ocIYbsSw
 github.com/golang/protobuf v1.4.3/go.mod h1:oDoupMAO8OvCJWAcko0GGGIgR6R6ocIYbsSw735rRwI=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
+github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=
+github.com/golang/snappy v0.0.4/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/google/btree v1.1.2 h1:xf4v41cLI2Z6FxbKm+8Bu+m8ifhj15JuZ9sa0jZCMUU=
 github.com/google/btree v1.1.2/go.mod h1:qOPhT0dTNdNzV6Z/lhRX0YXUafgPLFUh+gZMl761Gm4=
 github.com/google/go-cmp v0.3.0/go.mod h1:8QqcDgzrUqlUb/G2PQTWiueGozuR1884gddMywk6iLU=
@@ -280,8 +284,8 @@ github.com/prometheus/common v0.4.1/go.mod h1:TNfzLD0ON7rHzMJeJkieUDPYmFC7Snx/y8
 github.com/prometheus/common v0.9.1/go.mod h1:yhUN8i9wzaXS3w1O07YhxHEBxD+W35wd8bs7vj7HSQ4=
 github.com/prometheus/common v0.10.0/go.mod h1:Tlit/dnDKsSWFlCLTWaA1cyBgKHSMdTB80sz/V91rCo=
 github.com/prometheus/common v0.26.0/go.mod h1:M7rCNAaPfAosfx8veZJCuw84e35h3Cfd9VFqTh1DIvc=
-github.com/prometheus/common v0.61.0 h1:3gv/GThfX0cV2lpO7gkTUwZru38mxevy90Bj8YFSRQQ=
-github.com/prometheus/common v0.61.0/go.mod h1:zr29OCN/2BsJRaFwG8QOBr41D6kkchKbpeNH7pAjb/s=
+github.com/prometheus/common v0.62.0 h1:xasJaQlnWAeyHdUBeGjXmutelfJHWMRr+Fg4QszZ2Io=
+github.com/prometheus/common v0.62.0/go.mod h1:vyBcEuLSvWos9B1+CyL7JZ2up+uFzXhkqml0W5zIY1I=
 github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d/go.mod h1:c3At6R/oaqEKCNdg8wHV1ftS6bRYblBhIjjI8uT2IGk=
 github.com/prometheus/procfs v0.0.2/go.mod h1:TjEm7ze935MbeOT/UhFTIMYKhuLP4wbCsTZCD3I8kEA=
 github.com/prometheus/procfs v0.0.8/go.mod h1:7Qr8sr6344vo1JqZ6HhLceV9o3AJ1Ff+GxbHq6oeK9A=
@@ -347,6 +351,8 @@ github.com/uptrace/bun/dialect/mssqldialect v1.2.8 h1:rNvhiMpOTrCub2E2e4eiAai/mN
 github.com/uptrace/bun/dialect/mssqldialect v1.2.8/go.mod h1:08TBgE135eqYpl0PEA78D7gcS0Hxu74Onmo/SIApPkU=
 github.com/uptrace/bun/dialect/mysqldialect v1.2.8 h1:0OBLIbxptPwXdkjDk+PNAyNKhs8d1m3QLNg5i+VIkl4=
 github.com/uptrace/bun/dialect/mysqldialect v1.2.8/go.mod h1:P/eOt7YkTM1k6ik/s9/jXv6QW9mljx3TVNLyrXgcikM=
+github.com/uptrace/bun/dialect/oracledialect v1.2.8 h1:sKqhHZwp0zEiS49NBqk1OYiO9Puju9w7FJaKO1FaiqM=
+github.com/uptrace/bun/dialect/oracledialect v1.2.8/go.mod h1:prMyvaCvbP0ZDRLtjyHCOLk8hQrDRpjD+2gkyc9BBAc=
 github.com/uptrace/bun/dialect/pgdialect v1.2.8 h1:9n3qVh6yc+u7F3lpXzsWrAFJG1yLHUC2thjCCVEDpM8=
 github.com/uptrace/bun/dialect/pgdialect v1.2.8/go.mod h1:plksD43MjAlPGYLD9/SzsLUpGH5poXE9IB1+ka/sEzE=
 github.com/uptrace/bun/dialect/sqlitedialect v1.2.8 h1:Huqw7YhLFTbocbSv8NETYYXqKtwLa6XsciCWtjzWSWU=

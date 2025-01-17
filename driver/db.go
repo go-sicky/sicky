@@ -37,10 +37,12 @@ import (
 	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/go-sicky/sicky/logger"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/godoes/gorm-dameng/dm8"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/mssqldialect"
 	"github.com/uptrace/bun/dialect/mysqldialect"
+	"github.com/uptrace/bun/dialect/oracledialect"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -69,6 +71,7 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 
 	switch strings.ToLower(cfg.Driver) {
 	case "mysql":
+		// MySQL
 		sqldb, err = sql.Open("mysql", cfg.DSN)
 		if err != nil {
 			return nil, err
@@ -76,6 +79,7 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 
 		db = bun.NewDB(sqldb, mysqldialect.New())
 	case "mssql":
+		// MS-SQLServer
 		sqldb, err = sql.Open("sqlserver", cfg.DSN)
 		if err != nil {
 			return nil, err
@@ -83,12 +87,21 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 
 		db = bun.NewDB(sqldb, mssqldialect.New())
 	case "sqlite":
+		// SQLite
 		sqldb, err = sql.Open("sqlite3", cfg.DSN)
 		if err != nil {
 			return nil, err
 		}
 
 		db = bun.NewDB(sqldb, sqlitedialect.New())
+	case "dm":
+		// DaMeng
+		sqldb, err = sql.Open("dm", cfg.DSN)
+		if err != nil {
+			return nil, err
+		}
+
+		db = bun.NewDB(sqldb, oracledialect.New())
 	default:
 		// PostgreSQL
 		sqldb = sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(cfg.DSN)))
