@@ -31,19 +31,22 @@
 package tcp
 
 const (
-	DefaultNetwork = "tcp"
-	DefaultAddr    = ":9981"
+	DefaultNetwork    = "tcp"
+	DefaultAddr       = ":9981"
+	DefaultBufferSize = 4096
 )
 
 type Config struct {
-	Network string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Network    string `json:"network" yaml:"network" mapstructure:"network"`
+	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	BufferSize int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Network: DefaultNetwork,
-		Addr:    DefaultAddr,
+		Network:    DefaultNetwork,
+		Addr:       DefaultAddr,
+		BufferSize: DefaultBufferSize,
 	}
 }
 
@@ -58,6 +61,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.Addr == "" {
 		c.Addr = DefaultAddr
+	}
+
+	if c.BufferSize <= 0 {
+		c.BufferSize = DefaultBufferSize
 	}
 
 	return c

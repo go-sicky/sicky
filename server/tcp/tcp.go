@@ -31,7 +31,10 @@
 package tcp
 
 import (
+	"bufio"
 	"context"
+	"errors"
+	"io"
 	"net"
 	"sync"
 
@@ -191,16 +194,29 @@ func (srv *TCPServer) Start() error {
 		for {
 			client, err := srv.conn.Accept()
 			if err != nil {
-				srv.options.Logger.ErrorContext(
-					srv.ctx,
-					"Accept() failed",
-					"server", srv.String(),
-					"id", srv.options.ID,
-					"name", srv.options.Name,
-					"network", srv.addr.Network(),
-					"address", srv.addr.String(),
-					"error", err.Error(),
-				)
+				if errors.Is(err, net.ErrClosed) {
+					// Network closed
+					srv.options.Logger.InfoContext(
+						srv.ctx,
+						"TCP connection closed",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"network", srv.addr.Network(),
+						"address", srv.addr.String(),
+					)
+				} else {
+					srv.options.Logger.ErrorContext(
+						srv.ctx,
+						"TCP Accept failed",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"network", srv.addr.Network(),
+						"address", srv.addr.String(),
+						"error", err.Error(),
+					)
+				}
 
 				// TODO : Exit accept
 				break
@@ -209,6 +225,73 @@ func (srv *TCPServer) Start() error {
 					hdl.OnConnect(client)
 				}
 			}
+
+			go func(c net.Conn) {
+				buff := make([]byte, srv.config.BufferSize)
+				reader := bufio.NewReader(c)
+			read:
+				for {
+					n, err := reader.Read(buff)
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							break read
+						} else {
+							srv.options.Logger.ErrorContext(
+								srv.ctx,
+								"TCP Read error",
+								"server", srv.String(),
+								"id", srv.options.ID,
+								"name", srv.options.Name,
+								"network", srv.addr.Network(),
+								"address", srv.addr.String(),
+								"remote", c.RemoteAddr().String(),
+								"error", err.Error(),
+							)
+							for _, hdl := range srv.handlers {
+								hdl.OnError(client, err)
+							}
+						}
+					} else {
+						if n > 0 {
+							dst := make([]byte, n)
+							copy(dst, buff)
+							for _, hdl := range srv.handlers {
+								err = hdl.OnData(client, dst)
+								if err != nil {
+									srv.options.Logger.ErrorContext(
+										srv.ctx,
+										"TCP data process error",
+										"server", srv.String(),
+										"id", srv.options.ID,
+										"name", srv.options.Name,
+										"network", srv.addr.Network(),
+										"address", srv.addr.String(),
+										"remote", c.RemoteAddr().String(),
+										"error", err.Error(),
+									)
+								}
+							}
+						}
+					}
+				}
+
+				for _, hdl := range srv.handlers {
+					err = hdl.OnClose(client)
+					if err != nil {
+						srv.options.Logger.ErrorContext(
+							srv.ctx,
+							"TCP close process error",
+							"server", srv.String(),
+							"id", srv.options.ID,
+							"name", srv.options.Name,
+							"network", srv.addr.Network(),
+							"address", srv.addr.String(),
+							"remote", c.RemoteAddr().String(),
+							"error", err.Error(),
+						)
+					}
+				}
+			}(client)
 		}
 
 		srv.wg.Done()

@@ -58,6 +58,7 @@ type WebsocketServer struct {
 	running  bool
 	addr     net.Addr
 	metadata utils.Metadata
+	handlers []Handler
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -106,6 +107,16 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		"addr", addr.String(),
 	)
 
+	app.Use(cfg.Path, func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			c.Locals("allowed", true)
+
+			return c.Next()
+		}
+
+		return fiber.ErrUpgradeRequired
+	})
+	app.Get(cfg.Path, websocket.New(srv.operator))
 	server.Instance(opts.ID, srv)
 
 	return srv
@@ -299,112 +310,120 @@ func (srv *WebsocketServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *WebsocketServer) Handle(hdl Handler) {
-	srv.app.Use(hdl.Path(), func(c *fiber.Ctx) error {
-		if websocket.IsWebSocketUpgrade(c) {
-			c.Locals("allowed", true)
-
-			return c.Next()
-		}
-
-		return fiber.ErrUpgradeRequired
-	})
-
-	srv.app.Get(hdl.Path()+"/:tag", websocket.New(func(c *websocket.Conn) {
-		var (
-			tag  = c.Params("tag")
-			mt   int
-			body []byte
-			err  error
-		)
-
-		// On connect
-		srv.options.Logger.DebugContext(
+func (srv *WebsocketServer) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		srv.handlers = append(srv.handlers, hdl)
+		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"Websocket client established",
+			"Websocket handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
-			"tag", tag,
+			"handler", hdl.Name(),
 		)
-		NewSession(tag, c)
-		hdl.OnConnect(tag)
-	read:
-		for {
-			mt, body, err = c.ReadMessage()
-			if err != nil {
-				// On error
-				srv.options.Logger.WarnContext(
-					srv.ctx,
-					"Websocket read error",
-					"server", srv.String(),
-					"id", srv.options.ID,
-					"name", srv.options.Name,
-					"tag", tag,
-					"error", err.Error(),
-				)
-				hdl.OnError(tag, err)
-				break read
-			} else {
-				// Data
-				switch mt {
-				case websocket.TextMessage, websocket.BinaryMessage:
-					hdl.OnData(tag, body)
-				case websocket.PingMessage:
-					//c.WriteControl(websocket.PongMessage, nil, time.Now().Add(ControlDeadline))
-					break
-				case websocket.PongMessage:
-					// Ignore
-					break
-				case websocket.CloseMessage:
-					srv.options.Logger.InfoContext(
-						srv.ctx,
-						"Websocket client close message from tag",
-						"server", srv.String(),
-						"id", srv.options.ID,
-						"name", srv.options.Name,
-						"tag", tag,
-					)
-					//c.Close()
-					break read
-				default:
-					// Unknown
-					srv.options.Logger.WarnContext(
-						srv.ctx,
-						"Unsupportted websocket data type",
-						"server", srv.String(),
-						"id", srv.options.ID,
-						"name", srv.options.Name,
-						"tag", tag,
-						"type", mt,
-					)
+	}
+}
+
+func (srv *WebsocketServer) operator(c *websocket.Conn) {
+	var (
+		mt   int
+		body []byte
+		err  error
+	)
+
+	// OnConnect
+	srv.options.Logger.DebugContext(
+		srv.ctx,
+		"Websocket client established",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"client", c.RemoteAddr().String(),
+	)
+
+	for _, hdl := range srv.handlers {
+		err = hdl.OnConnect(c)
+		if err != nil {
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Websocket connect error",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"client", c.RemoteAddr().String(),
+				"error", err.Error(),
+			)
+		}
+	}
+
+read:
+	for {
+		mt, body, err = c.ReadMessage()
+		if err != nil {
+			// Read error
+			for _, hdl := range srv.handlers {
+				hdl.OnError(c, err)
+			}
+
+			break read
+		} else {
+			switch mt {
+			case websocket.TextMessage, websocket.BinaryMessage:
+				// OnData
+				for _, hdl := range srv.handlers {
+					err = hdl.OnData(c, mt, body)
+					if err != nil {
+						srv.options.Logger.ErrorContext(
+							srv.ctx,
+							"Websocket data process error",
+							"server", srv.String(),
+							"id", srv.options.ID,
+							"name", srv.options.Name,
+							"client", c.RemoteAddr().String(),
+							"error", err.Error(),
+						)
+					}
 				}
+			case websocket.PingMessage:
+				// Auto pong
+				break
+			case websocket.PongMessage:
+				// Ignore typo
+				break
+			case websocket.CloseMessage:
+				// Close
+				break read
+			default:
+				// Unnown
 			}
 		}
+	}
 
-		// On close
-		srv.options.Logger.DebugContext(
-			srv.ctx,
-			"Websocket client closed",
-			"server", srv.String(),
-			"id", srv.options.ID,
-			"name", srv.options.Name,
-			"tag", tag,
-		)
-		DeleteSession(tag)
-		hdl.OnClose(tag)
-	}))
+	// OnClose
+	for _, hdl := range srv.handlers {
+		err = hdl.OnClose(c)
+		if err != nil {
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Websocket close error",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"client", c.RemoteAddr().String(),
+				"error", err.Error(),
+			)
+		}
+	}
 }
 
 /* {{{ [Handler] */
 type Handler interface {
 	Name() string
 	Type() string
-	Path() string
-	OnConnect(string) error
-	OnClose(string) error
-	OnError(string, error) error
-	OnData(string, []byte) error
+	OnConnect(*websocket.Conn) error
+	OnClose(*websocket.Conn) error
+	OnError(*websocket.Conn, error) error
+	OnData(*websocket.Conn, int, []byte) error
 }
 
 /* }}} */

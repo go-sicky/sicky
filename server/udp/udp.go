@@ -32,6 +32,7 @@ package udp
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 
@@ -160,16 +161,29 @@ func (srv *UDPServer) Start() error {
 		for {
 			n, addr, err := srv.conn.ReadFromUDP(buff)
 			if err != nil {
-				srv.options.Logger.ErrorContext(
-					srv.ctx,
-					"ReadFromUDP failed",
-					"server", srv.String(),
-					"id", srv.options.ID,
-					"name", srv.options.Name,
-					"network", srv.addr.Network(),
-					"address", srv.addr.String(),
-					"error", err.Error(),
-				)
+				if errors.Is(err, net.ErrClosed) {
+					// Network closed
+					srv.options.Logger.InfoContext(
+						srv.ctx,
+						"UDP connection closed",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"network", srv.addr.Network(),
+						"address", srv.addr.String(),
+					)
+				} else {
+					srv.options.Logger.ErrorContext(
+						srv.ctx,
+						"UDP ReadFromUDP failed",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"network", srv.addr.Network(),
+						"address", srv.addr.String(),
+						"error", err.Error(),
+					)
+				}
 
 				// TODO : Exit read ???
 				break
@@ -177,7 +191,7 @@ func (srv *UDPServer) Start() error {
 				dst := make([]byte, n)
 				copy(dst, buff)
 				for _, hdl := range srv.handlers {
-					hdl.OnData(addr, dst)
+					hdl.OnData(srv.conn, addr, dst)
 				}
 			}
 		}
@@ -286,7 +300,7 @@ func (srv *UDPServer) Handle(hdls ...Handler) {
 type Handler interface {
 	Name() string
 	Type() string
-	OnData(*net.UDPAddr, []byte) error
+	OnData(*net.UDPConn, *net.UDPAddr, []byte) error
 }
 
 /* }}} */
