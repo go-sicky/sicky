@@ -132,6 +132,10 @@ func (srv *TCPServer) Metadata() utils.Metadata {
 	return srv.metadata
 }
 
+func (srv *TCPServer) App() net.Listener {
+	return srv.conn
+}
+
 func (srv *TCPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
@@ -144,6 +148,12 @@ func (srv *TCPServer) Handle(hdls ...Handler) {
 			"handler", hdl.Name(),
 		)
 	}
+}
+
+func (srv *TCPServer) Send(c net.Conn, data []byte) error {
+	_, err := c.Write(data)
+
+	return err
 }
 
 func (srv *TCPServer) Start() error {

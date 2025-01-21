@@ -280,6 +280,10 @@ func (srv *UDPServer) Metadata() utils.Metadata {
 	return srv.metadata
 }
 
+func (srv *UDPServer) App() *net.UDPConn {
+	return srv.conn
+}
+
 func (srv *UDPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
@@ -292,6 +296,10 @@ func (srv *UDPServer) Handle(hdls ...Handler) {
 			"handler", hdl.Name(),
 		)
 	}
+}
+
+func (srv *UDPServer) Send(c *net.UDPAddr, data []byte) error {
+	return nil
 }
 
 /* }}} */
