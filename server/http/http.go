@@ -139,7 +139,10 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 
 	// Register swagger
 	if cfg.EnableSwagger {
-		srv.Handle(NewSwagger())
+		srv.Handle(NewSwagger(
+			cfg.SwaggerPageTitle,
+			cfg.SwaggerValidatorURL,
+		))
 	}
 
 	srv.options.Logger.InfoContext(

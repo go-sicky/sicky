@@ -35,16 +35,35 @@ import (
 	"github.com/gofiber/swagger"
 )
 
-type Swagger struct{}
+type Swagger struct {
+	pageTitle    string
+	validatorURL string
+}
 
-func NewSwagger() *Swagger {
-	h := &Swagger{}
+func NewSwagger(title, url string) *Swagger {
+	h := &Swagger{
+		pageTitle:    title,
+		validatorURL: url,
+	}
 
 	return h
 }
 
 func (h *Swagger) Register(app *fiber.App) {
-	app.All("/docs/*", swagger.New(swagger.ConfigDefault))
+	cfg := swagger.ConfigDefault
+	if h.validatorURL != "" {
+		cfg.ValidatorUrl = h.validatorURL
+	} else {
+		cfg.ValidatorUrl = "localhost"
+	}
+
+	if h.pageTitle != "" {
+		cfg.Title = h.pageTitle
+	} else {
+		cfg.Title = "Sicky.Swagger.UI"
+	}
+
+	app.All("/docs/*", swagger.New(cfg))
 }
 
 func (h *Swagger) Name() string {

@@ -70,21 +70,23 @@ type AccessLoggerConfig struct {
 }
 
 type Config struct {
-	Network          string              `json:"network" yaml:"network" mapstructure:"network"`
-	Addr             string              `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM       string              `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM        string              `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	StrictRouting    bool                `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
-	CaseSensitive    bool                `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
-	Etag             bool                `json:"etag" yaml:"etag" mapstructure:"etag"`
-	BodyLimit        int                 `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
-	Concurrency      int                 `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
-	ReadBufferSize   int                 `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
-	WriteBufferSize  int                 `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
-	DisableKeepAlive bool                `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
-	EnableSwagger    bool                `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
-	EnableStackTrace bool                `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
-	AccessLogger     *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
+	Network             string              `json:"network" yaml:"network" mapstructure:"network"`
+	Addr                string              `json:"addr" yaml:"addr" mapstructure:"addr"`
+	TLSCertPEM          string              `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM           string              `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
+	StrictRouting       bool                `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
+	CaseSensitive       bool                `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
+	Etag                bool                `json:"etag" yaml:"etag" mapstructure:"etag"`
+	BodyLimit           int                 `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
+	Concurrency         int                 `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
+	ReadBufferSize      int                 `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
+	WriteBufferSize     int                 `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+	DisableKeepAlive    bool                `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
+	EnableSwagger       bool                `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	SwaggerPageTitle    string              `json:"swagger_page_title" yaml:"swagger_page_title" mapstructure:"swagger_page_title"`
+	SwaggerValidatorURL string              `json:"swagger_validator_url" yaml:"swagger_validator_url" mapstructure:"swagger_validator_url"`
+	EnableStackTrace    bool                `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
+	AccessLogger        *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
 }
 
 func DefaultConfig() *Config {
