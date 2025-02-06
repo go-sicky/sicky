@@ -33,15 +33,16 @@ package stdout
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 type StdoutTracer struct {
@@ -52,9 +53,9 @@ type StdoutTracer struct {
 	provider *sdktrace.TracerProvider
 }
 
-func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
-	opts = opts.Ensure()
-	cfg = cfg.Ensure()
+func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
+	opts := originalOpts.Ensure()
+	cfg := originalCfg.Ensure()
 
 	tc := &StdoutTracer{
 		config:  cfg,
@@ -71,7 +72,24 @@ func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
 		sto = append(sto, stdouttrace.WithoutTimestamps())
 	}
 
-	st, err := stdouttrace.New(sto...)
+	var exporter *stdouttrace.Exporter
+	defer func() {
+		if exporter != nil {
+			if shutdownErr := exporter.Shutdown(context.Background()); shutdownErr != nil {
+				tc.options.Logger.ErrorContext(
+					tc.ctx,
+					"Failed to shutdown tracer exporter during initialization",
+					"tracer", tc.String(),
+					"service", cfg.ServiceName,
+					"version", cfg.ServiceVersion,
+					"error", shutdownErr.Error(),
+				)
+			}
+		}
+	}()
+
+	var err error
+	exporter, err = stdouttrace.New(sto...)
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
@@ -79,49 +97,73 @@ func New(opts *tracer.Options, cfg *Config) *StdoutTracer {
 			"exporter", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
+			"error", err.Error(),
 		)
 
 		return nil
 	}
 
-	tc.exporter = st
+	tc.exporter = exporter
 
 	// Resource
 	cn, _ := os.Hostname()
-	r, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			//semconv.ServiceName(cfg.Sicky.Service.Name),
-			//semconv.ServiceVersion(cfg.Sicky.Service.Version),
-			//semconv.ServiceInstanceID(options.id),
-			semconv.ContainerName(cn),
-		),
-	)
 
-	if err != nil {
-		tc.options.Logger.ErrorContext(
+	// Validate configuration parameters
+	if cfg.SampleRate < 0 || cfg.SampleRate > 1 {
+		cfg.SampleRate = 1.0 // Reset to full sampling when rate is out of range
+		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Merge tracer provider resource failed",
+			"Invalid sample rate, reset to 1.0",
 			"tracer", tc.String(),
-			"id", tc.options.ID,
-			"name", tc.options.Name,
-			"error", err.Error(),
+			"invalid_rate", cfg.SampleRate,
 		)
 	}
 
-	// Provider
+	baseResource := resource.NewWithAttributes(
+		semconv.SchemaURL,
+		semconv.ServiceName(cfg.ServiceName),
+		semconv.ServiceVersion(cfg.ServiceVersion),
+		semconv.ServiceInstanceID(opts.ID.String()),
+		semconv.ContainerName(cn),
+	)
+
+	r, err := resource.Merge(
+		resource.Default(),
+		baseResource,
+	)
+	if err != nil {
+		tc.options.Logger.ErrorContext(
+			tc.ctx,
+			"Failed to merge tracing resources",
+			"tracer", tc.String(),
+			"service", cfg.ServiceName,
+			"version", cfg.ServiceVersion,
+			"error", err.Error(),
+		)
+
+		return nil // Return directly if resource creation fails
+	}
+
+	// Configure sampling strategy
+	sampler := sdktrace.ParentBased(
+		sdktrace.TraceIDRatioBased(cfg.SampleRate), // Get sample rate from config
+	)
+
+	// Create TracerProvider with batching configuration
 	tc.provider = sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(st),
+		sdktrace.WithBatcher(exporter), // Improve performance with batching
 		sdktrace.WithResource(r),
+		sdktrace.WithSampler(sampler), // Add sampling strategy
 	)
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer created",
+		"Tracer initialized successfully",
 		"tracer", tc.String(),
-		"id", tc.options.ID,
-		"name", tc.options.Name,
+		"service", cfg.ServiceName,
+		"version", cfg.ServiceVersion,
+		"sample_rate", cfg.SampleRate,
+		"pretty_print", cfg.PrettyPrint,
 	)
 	tracer.Instance(opts.ID, tc)
 
@@ -161,19 +203,43 @@ func (exp *StdoutTracer) Start() error {
 }
 
 func (exp *StdoutTracer) Stop() error {
+	start := time.Now()
+	if exp.provider != nil {
+		// Add shutdown logic to gracefully terminate the tracer
+		if err := exp.provider.Shutdown(exp.ctx); err != nil {
+			// Add additional cleanup for exporter
+			if exp.exporter != nil {
+				if shutdownErr := exp.exporter.Shutdown(context.Background()); shutdownErr != nil {
+					exp.options.Logger.WarnContext(
+						exp.ctx,
+						"Failed to shutdown tracer exporter",
+						"tracer", exp.String(),
+						"service", exp.config.ServiceName,
+						"version", exp.config.ServiceVersion,
+						"error", shutdownErr.Error(),
+					)
+				}
+			}
+			exp.logTracerError("Tracer provider shutdown failed", err)
+
+			return err
+		}
+	}
+
 	exp.options.Logger.InfoContext(
 		exp.ctx,
-		"Tracer stopped",
+		"Tracer stopped successfully",
 		"tracer", exp.String(),
-		"id", exp.options.ID,
-		"name", exp.options.Name,
+		"service", exp.config.ServiceName,
+		"version", exp.config.ServiceVersion,
+		"duration", time.Since(start).Round(time.Millisecond),
 	)
 
 	return nil
 }
 
-func (exp *StdoutTracer) Exporter() *otlptrace.Exporter {
-	return nil
+func (exp *StdoutTracer) StdoutExporter() *stdouttrace.Exporter {
+	return exp.exporter
 }
 
 func (exp *StdoutTracer) Provider() *sdktrace.TracerProvider {
@@ -181,7 +247,29 @@ func (exp *StdoutTracer) Provider() *sdktrace.TracerProvider {
 }
 
 func (exp *StdoutTracer) Tracer(name string) trace.Tracer {
+	if exp.provider == nil {
+		exp.options.Logger.WarnContext(
+			exp.ctx,
+			"Requested tracer from nil provider",
+			"tracer", exp.String(),
+			"service", exp.config.ServiceName,
+			"version", exp.config.ServiceVersion,
+		)
+		return noop.NewTracerProvider().Tracer(name)
+	}
+
 	return exp.provider.Tracer(name)
+}
+
+func (exp *StdoutTracer) logTracerError(msg string, err error) {
+	exp.options.Logger.ErrorContext(
+		exp.ctx,
+		msg,
+		"tracer", exp.String(),
+		"service", exp.config.ServiceName,
+		"version", exp.config.ServiceVersion,
+		"error", err.Error(),
+	)
 }
 
 /*

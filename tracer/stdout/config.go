@@ -30,21 +30,41 @@
 
 package stdout
 
+const (
+	DefaultServiceName    = "sicky"
+	DefaultServiceVersion = "latest"
+	DefaultSampleRate     = 1.0
+)
+
 type Config struct {
-	PrettyPrint bool `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
-	Timestamps  bool `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
+	ServiceName    string  `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
+	ServiceVersion string  `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
+	PrettyPrint    bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
+	Timestamps     bool    `json:"timestamp" yaml:"timestamp" mapstructure:"timestamps"`
+	SampleRate     float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		PrettyPrint: false,
-		Timestamps:  true,
+		PrettyPrint:    false,
+		Timestamps:     true,
+		ServiceName:    DefaultServiceName,
+		ServiceVersion: DefaultServiceVersion,
+		SampleRate:     DefaultSampleRate,
 	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.ServiceName == "" {
+		c.ServiceName = DefaultServiceName
+	}
+
+	if c.ServiceVersion == "" {
+		c.ServiceVersion = DefaultServiceVersion
 	}
 
 	return c
