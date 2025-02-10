@@ -32,19 +32,28 @@ package interactive
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"syscall"
 
+	"github.com/fatih/color"
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
-	"github.com/go-sicky/sicky/tracer"
 )
 
 type Interactive struct {
 	config  *Config
 	ctx     context.Context
 	options *service.Options
+
+	servers    []server.Server
+	brokers    []broker.Broker
+	jobs       []job.Job
+	registries []registry.Registry
+	handlers   []Handler
 }
 
 func New(opts *service.Options, cfg *Config) *Interactive {
@@ -60,6 +69,16 @@ func New(opts *service.Options, cfg *Config) *Interactive {
 	if service.Instance == nil {
 		service.Instance = svc
 	}
+
+	svc.options.Logger.InfoContext(
+		svc.ctx,
+		"Service created",
+		"service", svc.String(),
+		"id", svc.options.ID,
+		"name", svc.options.Name,
+		"version", svc.options.Version,
+		"branch", svc.options.Branch,
+	)
 
 	return svc
 }
@@ -77,32 +96,182 @@ func (s *Interactive) String() string {
 }
 
 func (s *Interactive) Start() []error {
-	return nil
+	var (
+		err  error
+		errs []error
+	)
+
+	// Wrapper
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.BeforeStart() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	if s.config.StartupInfo != "" {
+		fmt.Println(s.config.StartupInfo)
+	}
+
+	// Wrapper
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.AfterStart() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	go func() {
+		for {
+			exit := s.interact()
+			if exit {
+				break
+			}
+		}
+
+		fmt.Println()
+		syscall.Kill(syscall.Getpid(), syscall.SIGQUIT)
+	}()
+
+	return errs
 }
 
 func (s *Interactive) Stop() []error {
-	return nil
+	var (
+		err  error
+		errs []error
+	)
+
+	// Wrapper
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.BeforeStop() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	// Wrapper
+	if !s.config.DisableWrappers {
+		for _, fn := range s.options.AfterStop() {
+			if err = fn(s); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	return errs
 }
 
 func (s *Interactive) Servers(srvs ...server.Server) []server.Server {
-	return nil
+	if len(srvs) > 0 {
+		s.servers = append(s.servers, srvs...)
+	}
+
+	return s.servers
 }
 
 func (s *Interactive) Brokers(brks ...broker.Broker) []broker.Broker {
-	return nil
-}
+	if len(brks) > 0 {
+		s.brokers = append(s.brokers, brks...)
+	}
 
-func (s *Interactive) Tracers(trcs ...tracer.Tracer) []tracer.Tracer {
-	return nil
+	return s.brokers
 }
 
 func (s *Interactive) Jobs(jobs ...job.Job) []job.Job {
-	return nil
+	if !s.config.DisableJobs && len(jobs) > 0 {
+		s.jobs = append(s.jobs, jobs...)
+	}
+
+	return s.jobs
 }
 
 func (s *Interactive) Registries(rgs ...registry.Registry) []registry.Registry {
-	return nil
+	if !s.config.DisableServerRegister && len(rgs) > 0 {
+		s.registries = append(s.registries, rgs...)
+	}
+
+	return s.registries
 }
+
+func (s *Interactive) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		s.handlers = append(s.handlers, hdl)
+		s.options.Logger.InfoContext(
+			s.ctx,
+			"Interaction handler registered",
+			"service", s.String(),
+			"id", s.options.ID,
+			"name", s.options.Name,
+			"handler", hdl.Name(),
+		)
+	}
+}
+
+func (s *Interactive) interact() bool {
+	var (
+		p   *color.Color
+		cmd string
+	)
+
+	switch strings.ToLower(s.config.PromptColor) {
+	case "green":
+		p = color.New(color.Bold, color.FgGreen)
+	case "yellow":
+		p = color.New(color.Bold, color.FgYellow)
+	case "cyan":
+		p = color.New(color.Bold, color.FgCyan)
+	case "red":
+		p = color.New(color.Bold, color.FgRed)
+	case "blue":
+		p = color.New(color.Bold, color.FgBlue)
+	default:
+		p = color.New(color.Bold, color.FgWhite)
+	}
+
+	p.PrintFunc()(s.config.Prompt)
+	fmt.Scanf("%s", &cmd)
+
+	cmd = strings.TrimSpace(cmd)
+	parts := strings.SplitN(cmd, " ", 2)
+	if len(parts) > 0 {
+		if parts[0] == s.config.StopCommand {
+			// Quit
+			for _, hdl := range s.handlers {
+				err := hdl.OnStop()
+				if err != nil {
+					fmt.Println("Error : ", err.Error())
+				}
+			}
+
+			return true
+		} else {
+			// Normal
+			for _, hdl := range s.handlers {
+				err := hdl.OnInteract(parts[0], cmd)
+				if err != nil {
+					fmt.Println("Error : ", err.Error())
+				}
+			}
+		}
+	} // Or do nothing
+
+	fmt.Println()
+
+	return false
+}
+
+/* {{{[Command handler] */
+type Handler interface {
+	Name() string
+	OnInteract(cmd, full string) error
+	OnStop() error
+}
+
+/* }}} */
 
 /*/*
  * Local variables:

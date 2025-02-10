@@ -61,6 +61,7 @@ var (
 	switchesVars = make(map[string]*FlagSwitch)
 
 	AppName = "sicky"
+	silence = false
 )
 
 func Init(name string, switches ...*FlagSwitch) {
@@ -83,12 +84,20 @@ func Init(name string, switches ...*FlagSwitch) {
 	}
 }
 
+func Silence() {
+	silence = true
+}
+
 func Start(cfg *Config) {
 	cfg = cfg.Ensure()
 
 	// Logger level
-	lvl := logger.LogLevel(cfg.LogLevel)
-	logger.Logger.Level(lvl)
+	if silence {
+		logger.Logger.Level(logger.SilenceLevel)
+	} else {
+		lvl := logger.LogLevel(cfg.LogLevel)
+		logger.Logger.Level(lvl)
+	}
 
 	// Metrics
 	if cfg.Metrics != nil {

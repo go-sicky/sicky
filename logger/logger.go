@@ -57,6 +57,8 @@ const (
 	ErrorLevel
 	// FatalLevel level. Logs and then calls `logger.Exit(1)`. highest level of severity.
 	FatalLevel
+	// SilenceLevel level. Logs nothing.
+	SilenceLevel
 )
 
 func (l Level) String() string {
@@ -75,6 +77,8 @@ func (l Level) String() string {
 		return "error"
 	case FatalLevel:
 		return "fatal"
+	case SilenceLevel:
+		return "silence"
 	}
 
 	return "unknown"
@@ -101,14 +105,16 @@ func LogLevel(l string) Level {
 
 // Hack for log/slog
 var (
-	lTrace  = slog.Level(-8)
-	lNotice = slog.Level(2)
-	lFatal  = slog.Level(12)
+	lTrace   = slog.Level(-8)
+	lNotice  = slog.Level(2)
+	lFatal   = slog.Level(12)
+	lSilence = slog.Level(24)
 
 	AdditionalLabels = map[slog.Level]string{
-		lTrace:  "TRACE",
-		lNotice: "NOTICE",
-		lFatal:  "FATAL",
+		lTrace:   "TRACE",
+		lNotice:  "NOTICE",
+		lFatal:   "FATAL",
+		lSilence: "SILENCE",
 	}
 )
 
@@ -128,6 +134,8 @@ func level2slog(level Level) slog.Level {
 		return slog.LevelError
 	case FatalLevel:
 		return lFatal
+	case SilenceLevel:
+		return lSilence
 	}
 
 	return slog.LevelInfo

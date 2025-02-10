@@ -30,7 +30,22 @@
 
 package interactive
 
-type Config struct{}
+const (
+	DefaultStartupInfo = "\n @Sicky application\n"
+	DefaultPrompt      = "SICKY> "
+	DefaultPromptColor = "green"
+	DefaultStopCommand = "exit"
+)
+
+type Config struct {
+	StartupInfo           string `json:"startup_info" yaml:"startup_info" mapstructure:"startup_info"`
+	Prompt                string `json:"prompt" yaml:"prompt" mapstructure:"prompt"`
+	PromptColor           string `json:"prompt_color" yaml:"prompt_color" mapstructure:"prompt_color"`
+	StopCommand           string `json:"stop_command" yaml:"stop_command" mapstructure:"stop_command"`
+	DisableWrappers       bool   `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
+	DisableJobs           bool   `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
+	DisableServerRegister bool   `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
+}
 
 func DefaultConfig() *Config {
 	return &Config{}
@@ -39,6 +54,22 @@ func DefaultConfig() *Config {
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.StartupInfo == "" {
+		c.StartupInfo = DefaultStartupInfo
+	}
+
+	if c.Prompt == "" {
+		c.Prompt = DefaultPrompt
+	}
+
+	if c.PromptColor == "" {
+		c.PromptColor = DefaultPromptColor
+	}
+
+	if c.StopCommand == "" {
+		c.StopCommand = DefaultStopCommand
 	}
 
 	return c
