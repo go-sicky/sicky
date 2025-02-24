@@ -139,7 +139,7 @@ func (srv *TCPServer) App() net.Listener {
 func (srv *TCPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
-		srv.options.Logger.InfoContext(
+		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"TCP handler registered",
 			"server", srv.String(),

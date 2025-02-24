@@ -42,6 +42,7 @@ import (
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 )
 
 type Service interface {
@@ -61,6 +62,7 @@ type Service interface {
 	Brokers(...broker.Broker) []broker.Broker
 	Jobs(...job.Job) []job.Job
 	Registries(...registry.Registry) []registry.Registry
+	Tracers(...tracer.Tracer) []tracer.Tracer
 }
 
 var (

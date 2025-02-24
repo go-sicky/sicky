@@ -40,8 +40,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 type HTTPTracer struct {
@@ -74,6 +75,19 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 	// Exporter
 	e, err := otlptracehttp.New(tc.ctx, oo...)
 	if err != nil {
+		tc.options.Logger.ErrorContext(
+			tc.ctx,
+			"Trace exporter create failed",
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"endpoint", cfg.Endpoint,
+			"service", cfg.ServiceName,
+			"version", cfg.ServiceVersion,
+			"sample_rate", cfg.SampleRate,
+			"error", err.Error(),
+		)
+
 		return nil
 	}
 
@@ -81,32 +95,60 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 
 	// Resource
 	cn, _ := os.Hostname()
+
+	// Validate configuration parameters
+	if cfg.SampleRate < 0 || cfg.SampleRate > 1 {
+		cfg.SampleRate = 1.0 // Reset to full sampling when rate is out of range
+		tc.options.Logger.WarnContext(
+			tc.ctx,
+			"Invalid sample rate, reset to 1.0",
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"endpoint", cfg.Endpoint,
+			"service", cfg.ServiceName,
+			"version", cfg.ServiceVersion,
+			"sample_rate", cfg.SampleRate,
+		)
+	}
+
 	r, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			//semconv.ServiceName(cfg.Sicky.Service.Name),
-			//semconv.ServiceVersion(cfg.Sicky.Service.Version),
-			//semconv.ServiceInstanceID(options.id),
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(cfg.ServiceVersion),
+			semconv.ServiceInstanceID(opts.ID.String()),
 			semconv.ContainerName(cn),
 		),
 	)
-
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Merge tracer provider resource failed",
+			"Failed to merge tracing resources",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
+			"endpoint", cfg.Endpoint,
+			"service", cfg.ServiceName,
+			"version", cfg.ServiceVersion,
+			"sample_rate", cfg.SampleRate,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
+
+	// Configure sampling strategy
+	sampler := sdktrace.ParentBased(
+		sdktrace.TraceIDRatioBased(cfg.SampleRate), // Get sample rate from config
+	)
 
 	// Provider
 	tc.provider = sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(e),
 		sdktrace.WithResource(r),
+		sdktrace.WithSampler(sampler),
 	)
 
 	tc.options.Logger.InfoContext(
@@ -116,6 +158,9 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 		"id", tc.options.ID,
 		"name", tc.options.Name,
 		"endpoint", cfg.Endpoint,
+		"service", cfg.ServiceName,
+		"version", cfg.ServiceVersion,
+		"sample_rate", cfg.SampleRate,
 	)
 	tracer.Instance(opts.ID, tc)
 
@@ -131,7 +176,7 @@ func (tc *HTTPTracer) Options() *tracer.Options {
 }
 
 func (tc *HTTPTracer) String() string {
-	return "grpc"
+	return "http"
 }
 
 func (tc *HTTPTracer) ID() uuid.UUID {
@@ -150,12 +195,51 @@ func (tc *HTTPTracer) Start() error {
 		"id", tc.options.ID,
 		"name", tc.options.Name,
 		"endpoint", tc.config.Endpoint,
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
+		"sample_rate", tc.config.SampleRate,
 	)
 
 	return nil
 }
 
 func (tc *HTTPTracer) Stop() error {
+	if tc.provider != nil {
+		if err := tc.provider.Shutdown(tc.ctx); err != nil {
+			if tc.exporter != nil {
+				if shutdownErr := tc.exporter.Shutdown(tc.ctx); shutdownErr != nil {
+					tc.options.Logger.WarnContext(
+						tc.ctx,
+						"Failed to shutdown tracer exporter",
+						"tracer", tc.String(),
+						"id", tc.options.ID,
+						"name", tc.options.Name,
+						"endpoint", tc.config.Endpoint,
+						"service", tc.config.ServiceName,
+						"version", tc.config.ServiceVersion,
+						"sample_rate", tc.config.SampleRate,
+						"error", shutdownErr.Error(),
+					)
+				}
+			}
+
+			tc.options.Logger.ErrorContext(
+				tc.ctx,
+				"Tracer provider shutdown failed",
+				"tracer", tc.String(),
+				"id", tc.options.ID,
+				"name", tc.options.Name,
+				"endpoint", tc.config.Endpoint,
+				"service", tc.config.ServiceName,
+				"version", tc.config.ServiceVersion,
+				"sample_rate", tc.config.SampleRate,
+				"error", err.Error(),
+			)
+
+			return err
+		}
+	}
+
 	tc.options.Logger.InfoContext(
 		tc.ctx,
 		"Tracer stopped",
@@ -163,6 +247,9 @@ func (tc *HTTPTracer) Stop() error {
 		"id", tc.options.ID,
 		"name", tc.options.Name,
 		"endpoint", tc.config.Endpoint,
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
+		"sample_rate", tc.config.SampleRate,
 	)
 
 	return nil
@@ -177,6 +264,35 @@ func (tc *HTTPTracer) Provider() *sdktrace.TracerProvider {
 }
 
 func (tc *HTTPTracer) Tracer(name string) trace.Tracer {
+	if tc.provider == nil {
+		tc.options.Logger.WarnContext(
+			tc.ctx,
+			"Requested tracer from nil provider",
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"endpoint", tc.config.Endpoint,
+			"service", tc.config.ServiceName,
+			"version", tc.config.ServiceVersion,
+			"sample_rate", tc.config.SampleRate,
+		)
+
+		return noop.NewTracerProvider().Tracer(name)
+	}
+
+	tc.options.Logger.DebugContext(
+		tc.ctx,
+		"Requested tracer",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"endpoint", tc.config.Endpoint,
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
+		"sample_rate", tc.config.SampleRate,
+		"request", name,
+	)
+
 	return tc.provider.Tracer(name)
 }
 

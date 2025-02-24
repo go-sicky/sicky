@@ -44,15 +44,17 @@ import (
 )
 
 type TracerConfig struct {
-	Next             func(c *fiber.Ctx) bool
-	Tracer           trace.Tracer
-	SpanIDContextKey string
+	Next              func(c *fiber.Ctx) bool
+	Tracer            trace.Tracer
+	SpanIDContextKey  string
+	TraceIDContextKey string
 }
 
 var TracerConfigDefault = TracerConfig{
-	Next:             nil,
-	Tracer:           nil,
-	SpanIDContextKey: "spanid",
+	Next:              nil,
+	Tracer:            nil,
+	SpanIDContextKey:  "spanid",
+	TraceIDContextKey: "traceid",
 }
 
 func tracerConfigDefault(config ...TracerConfig) TracerConfig {
@@ -61,6 +63,17 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 	}
 
 	cfg := config[0]
+	if cfg.Next == nil {
+		cfg.Next = TracerConfigDefault.Next
+	}
+
+	if cfg.SpanIDContextKey == "" {
+		cfg.SpanIDContextKey = TracerConfigDefault.SpanIDContextKey
+	}
+
+	if cfg.TraceIDContextKey == "" {
+		cfg.TraceIDContextKey = TracerConfigDefault.TraceIDContextKey
+	}
 
 	return cfg
 }
@@ -96,9 +109,11 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 
 		self := span.SpanContext()
 		spanID := self.SpanID().String()
-		c.Locals(cfg.SpanIDContextKey, spanID)
-		c.SetUserContext(spanedCtx)
+		traceID := self.TraceID().String()
 
+		c.Locals(cfg.SpanIDContextKey, spanID)
+		c.Locals(cfg.TraceIDContextKey, traceID)
+		c.SetUserContext(spanedCtx)
 		err := c.Next()
 		if err != nil {
 			span.RecordError(err)

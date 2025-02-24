@@ -352,7 +352,7 @@ func (srv *HTTPServer) App() *fiber.App {
 func (srv *HTTPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		hdl.Register(srv.app)
-		srv.options.Logger.InfoContext(
+		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"HTTP handler registered",
 			"server", srv.String(),

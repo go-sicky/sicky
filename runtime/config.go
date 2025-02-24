@@ -51,12 +51,13 @@ type Config struct {
 	LogLevel                  string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
 	RegistryPoolPurgeInterval int    `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
 	Tracer                    struct {
-		Type        string `json:"type" yaml:"type" mapstructure:"type"`
-		Endpoint    string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
-		Compress    bool   `json:"compress" yaml:"compress" mapstructure:"compress"`
-		Timeout     int    `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
-		PrettyPrint bool   `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
-		Timestamps  bool   `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
+		Type        string  `json:"type" yaml:"type" mapstructure:"type"`
+		Endpoint    string  `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+		Compress    bool    `json:"compress" yaml:"compress" mapstructure:"compress"`
+		Timeout     int     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+		PrettyPrint bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
+		Timestamps  bool    `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
+		SampleRate  float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
 	} `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
 	Metrics *metrics.Config `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
 	Driver  struct {

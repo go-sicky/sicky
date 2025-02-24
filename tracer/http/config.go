@@ -31,16 +31,25 @@
 package http
 
 const (
-	DefaultEndpoint = ""
+	DefaultEndpoint       = "127.0.0.1:4318"
+	DefaultServiceName    = "sicky"
+	DefaultServiceVersion = "latest"
+	DefaultSampleRate     = 1.0
 )
 
 type Config struct {
-	Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+	ServiceName    string  `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
+	ServiceVersion string  `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
+	Endpoint       string  `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+	SampleRate     float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Endpoint: DefaultEndpoint,
+		Endpoint:       DefaultEndpoint,
+		ServiceName:    DefaultServiceName,
+		ServiceVersion: DefaultServiceVersion,
+		SampleRate:     DefaultSampleRate,
 	}
 }
 
@@ -51,6 +60,18 @@ func (c *Config) Ensure() *Config {
 
 	if c.Endpoint == "" {
 		c.Endpoint = DefaultEndpoint
+	}
+
+	if c.ServiceName == "" {
+		c.ServiceName = DefaultServiceName
+	}
+
+	if c.ServiceVersion == "" {
+		c.ServiceVersion = DefaultServiceVersion
+	}
+
+	if c.SampleRate > 1.0 || c.SampleRate < 0.0 {
+		c.SampleRate = DefaultSampleRate
 	}
 
 	return c

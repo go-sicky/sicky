@@ -139,18 +139,21 @@ func Start(cfg *Config) {
 	switch strings.ToLower(cfg.Tracer.Type) {
 	case "grpc":
 		grpc.New(nil, &grpc.Config{
-			Endpoint: cfg.Tracer.Endpoint,
-			Compress: cfg.Tracer.Compress,
-			Timeout:  cfg.Tracer.Timeout,
+			Endpoint:   cfg.Tracer.Endpoint,
+			Compress:   cfg.Tracer.Compress,
+			Timeout:    cfg.Tracer.Timeout,
+			SampleRate: cfg.Tracer.SampleRate,
 		})
 	case "http":
 		http.New(nil, &http.Config{
-			Endpoint: cfg.Tracer.Endpoint,
+			Endpoint:   cfg.Tracer.Endpoint,
+			SampleRate: cfg.Tracer.SampleRate,
 		})
 	case "stdout":
 		stdout.New(nil, &stdout.Config{
 			PrettyPrint: cfg.Tracer.PrettyPrint,
 			Timestamps:  cfg.Tracer.Timestamps,
+			SampleRate:  cfg.Tracer.SampleRate,
 		})
 	}
 

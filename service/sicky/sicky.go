@@ -38,6 +38,7 @@ import (
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/tracer"
 )
 
 type Sicky struct {
@@ -49,6 +50,7 @@ type Sicky struct {
 	brokers    []broker.Broker
 	jobs       []job.Job
 	registries []registry.Registry
+	tracers    []tracer.Tracer
 }
 
 func New(opts *service.Options, cfg *Config) *Sicky {
@@ -239,6 +241,14 @@ func (s *Sicky) Registries(rgs ...registry.Registry) []registry.Registry {
 	}
 
 	return s.registries
+}
+
+func (s *Sicky) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
+	if !s.config.DisableTracing && len(trs) > 0 {
+		s.tracers = append(s.tracers, trs...)
+	}
+
+	return s.tracers
 }
 
 /* }}} */

@@ -148,15 +148,6 @@ func (srv *UDPServer) Start() error {
 	}
 
 	go func() error {
-		// srv.options.Logger.InfoContext(
-		// 	srv.ctx,
-		// 	"UDP server closed",
-		// 	"server", srv.String(),
-		// 	"id", srv.options.ID,
-		// 	"name", srv.options.Name,
-		// 	"network", srv.addr.Network(),
-		// 	"address", srv.addr.String(),
-		// )
 		buff := make([]byte, srv.config.BufferSize)
 		for {
 			n, addr, err := srv.conn.ReadFromUDP(buff)
@@ -287,7 +278,7 @@ func (srv *UDPServer) App() *net.UDPConn {
 func (srv *UDPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
-		srv.options.Logger.InfoContext(
+		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"UDP handler registered",
 			"server", srv.String(),

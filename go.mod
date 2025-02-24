@@ -2,6 +2,9 @@ module github.com/go-sicky/sicky
 
 go 1.24.0
 
+//replace github.com/armon/go-metrics v0.5.4 => github.com/hashicorp/go-metrics v0.5.4
+replace github.com/armon/go-metrics => github.com/hashicorp/go-metrics v0.5.3
+
 require (
 	github.com/denisenkom/go-mssqldb v0.12.3
 	github.com/go-sql-driver/mysql v1.9.0
@@ -44,7 +47,7 @@ require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
-	github.com/armon/go-metrics v0.4.1 // indirect
+	github.com/armon/go-metrics v0.5.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

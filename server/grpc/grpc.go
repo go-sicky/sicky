@@ -332,7 +332,7 @@ func (srv *GRPCServer) App() *grpc.Server {
 func (srv *GRPCServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		hdl.Register(srv.app)
-		srv.options.Logger.InfoContext(
+		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"GRPC handler registered",
 			"server", srv.String(),

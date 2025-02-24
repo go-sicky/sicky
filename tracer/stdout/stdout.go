@@ -33,14 +33,13 @@ package stdout
 import (
 	"context"
 	"os"
-	"time"
 
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
@@ -72,29 +71,12 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 		sto = append(sto, stdouttrace.WithoutTimestamps())
 	}
 
-	var exporter *stdouttrace.Exporter
-	defer func() {
-		if exporter != nil {
-			if shutdownErr := exporter.Shutdown(context.Background()); shutdownErr != nil {
-				tc.options.Logger.ErrorContext(
-					tc.ctx,
-					"Failed to shutdown tracer exporter during initialization",
-					"tracer", tc.String(),
-					"service", cfg.ServiceName,
-					"version", cfg.ServiceVersion,
-					"error", shutdownErr.Error(),
-				)
-			}
-		}
-	}()
-
-	var err error
-	exporter, err = stdouttrace.New(sto...)
+	exporter, err := stdouttrace.New(sto...)
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
 			"Trace exporter create failed",
-			"exporter", tc.String(),
+			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
 			"error", err.Error(),
@@ -115,6 +97,10 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 			tc.ctx,
 			"Invalid sample rate, reset to 1.0",
 			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"service", cfg.ServiceName,
+			"version", cfg.ServiceVersion,
 			"invalid_rate", cfg.SampleRate,
 		)
 	}
@@ -136,6 +122,8 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 			tc.ctx,
 			"Failed to merge tracing resources",
 			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
 			"service", cfg.ServiceName,
 			"version", cfg.ServiceVersion,
 			"error", err.Error(),
@@ -170,106 +158,123 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 	return tc
 }
 
-func (exp *StdoutTracer) Context() context.Context {
-	return exp.ctx
+func (tc *StdoutTracer) Context() context.Context {
+	return tc.ctx
 }
 
-func (exp *StdoutTracer) Options() *tracer.Options {
-	return exp.options
+func (tc *StdoutTracer) Options() *tracer.Options {
+	return tc.options
 }
 
-func (exp *StdoutTracer) String() string {
+func (tc *StdoutTracer) String() string {
 	return "stdout"
 }
 
-func (exp *StdoutTracer) ID() uuid.UUID {
-	return exp.options.ID
+func (tc *StdoutTracer) ID() uuid.UUID {
+	return tc.options.ID
 }
 
-func (exp *StdoutTracer) Name() string {
-	return exp.options.Name
+func (tc *StdoutTracer) Name() string {
+	return tc.options.Name
 }
 
-func (exp *StdoutTracer) Start() error {
-	exp.options.Logger.InfoContext(
-		exp.ctx,
+func (tc *StdoutTracer) Start() error {
+	tc.options.Logger.InfoContext(
+		tc.ctx,
 		"Tracer started",
-		"tracer", exp.String(),
-		"id", exp.options.ID,
-		"name", exp.options.Name,
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
 	)
 
 	return nil
 }
 
-func (exp *StdoutTracer) Stop() error {
-	start := time.Now()
-	if exp.provider != nil {
+func (tc *StdoutTracer) Stop() error {
+	if tc.provider != nil {
 		// Add shutdown logic to gracefully terminate the tracer
-		if err := exp.provider.Shutdown(exp.ctx); err != nil {
+		if err := tc.provider.Shutdown(tc.ctx); err != nil {
 			// Add additional cleanup for exporter
-			if exp.exporter != nil {
-				if shutdownErr := exp.exporter.Shutdown(context.Background()); shutdownErr != nil {
-					exp.options.Logger.WarnContext(
-						exp.ctx,
+			if tc.exporter != nil {
+				if shutdownErr := tc.exporter.Shutdown(tc.ctx); shutdownErr != nil {
+					tc.options.Logger.WarnContext(
+						tc.ctx,
 						"Failed to shutdown tracer exporter",
-						"tracer", exp.String(),
-						"service", exp.config.ServiceName,
-						"version", exp.config.ServiceVersion,
+						"tracer", tc.String(),
+						"id", tc.options.ID,
+						"name", tc.options.Name,
+						"service", tc.config.ServiceName,
+						"version", tc.config.ServiceVersion,
 						"error", shutdownErr.Error(),
 					)
 				}
 			}
-			exp.logTracerError("Tracer provider shutdown failed", err)
+
+			tc.options.Logger.ErrorContext(
+				tc.ctx,
+				"Tracer provider shutdown failed",
+				"tracer", tc.String(),
+				"id", tc.options.ID,
+				"name", tc.options.Name,
+				"service", tc.config.ServiceName,
+				"version", tc.config.ServiceVersion,
+				"error", err.Error(),
+			)
 
 			return err
 		}
 	}
 
-	exp.options.Logger.InfoContext(
-		exp.ctx,
+	tc.options.Logger.InfoContext(
+		tc.ctx,
 		"Tracer stopped successfully",
-		"tracer", exp.String(),
-		"service", exp.config.ServiceName,
-		"version", exp.config.ServiceVersion,
-		"duration", time.Since(start).Round(time.Millisecond),
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
 	)
 
 	return nil
 }
 
-func (exp *StdoutTracer) StdoutExporter() *stdouttrace.Exporter {
-	return exp.exporter
+func (tc *StdoutTracer) StdoutExporter() *stdouttrace.Exporter {
+	return tc.exporter
 }
 
-func (exp *StdoutTracer) Provider() *sdktrace.TracerProvider {
-	return exp.provider
+func (tc *StdoutTracer) Provider() *sdktrace.TracerProvider {
+	return tc.provider
 }
 
-func (exp *StdoutTracer) Tracer(name string) trace.Tracer {
-	if exp.provider == nil {
-		exp.options.Logger.WarnContext(
-			exp.ctx,
+func (tc *StdoutTracer) Tracer(name string) trace.Tracer {
+	if tc.provider == nil {
+		tc.options.Logger.WarnContext(
+			tc.ctx,
 			"Requested tracer from nil provider",
-			"tracer", exp.String(),
-			"service", exp.config.ServiceName,
-			"version", exp.config.ServiceVersion,
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"service", tc.config.ServiceName,
+			"version", tc.config.ServiceVersion,
 		)
+
 		return noop.NewTracerProvider().Tracer(name)
 	}
 
-	return exp.provider.Tracer(name)
-}
-
-func (exp *StdoutTracer) logTracerError(msg string, err error) {
-	exp.options.Logger.ErrorContext(
-		exp.ctx,
-		msg,
-		"tracer", exp.String(),
-		"service", exp.config.ServiceName,
-		"version", exp.config.ServiceVersion,
-		"error", err.Error(),
+	tc.options.Logger.DebugContext(
+		tc.ctx,
+		"Requested tracer",
+		"tracer", tc.String(),
+		"id", tc.options.ID,
+		"name", tc.options.Name,
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
+		"request", name,
 	)
+
+	return tc.provider.Tracer(name)
 }
 
 /*
