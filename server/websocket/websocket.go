@@ -62,8 +62,6 @@ type WebsocketServer struct {
 
 	sync.RWMutex
 	wg sync.WaitGroup
-
-	//tracer trace.Tracer
 }
 
 // New Websocket server
@@ -81,11 +79,6 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		options:  opts,
 		metadata: utils.NewMetadata(),
 	}
-
-	// Set tracer
-	// if srv.options.TraceProvider() != nil {
-	// 	srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
-	// }
 
 	app := fiber.New(
 		fiber.Config{
@@ -246,7 +239,7 @@ func (srv *WebsocketServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listened",
+		"Websocket server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -270,7 +263,7 @@ func (srv *WebsocketServer) Stop() error {
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listened",
+		"Websocket server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,

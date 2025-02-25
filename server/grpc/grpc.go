@@ -37,8 +37,10 @@ import (
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -57,8 +59,6 @@ type GRPCServer struct {
 
 	sync.RWMutex
 	wg sync.WaitGroup
-
-	//tracer trace.Tracer
 }
 
 // New GRPC server
@@ -78,9 +78,10 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	}
 
 	// Set tracer
-	// if srv.options.TraceProvider() != nil {
-	// 	srv.tracer = srv.options.TraceProvider().Tracer(srv.Name() + "@" + srv.String())
-	// }
+	var tr trace.Tracer
+	if tracer.DefaultTracer != nil {
+		tr = tracer.DefaultTracer.Tracer(srv.Name())
+	}
 
 	gopts := make([]grpc.ServerOption, 0)
 	if cfg.MaxConcurrentStreams > 0 {
@@ -107,19 +108,22 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	// if srv.tracer != nil {
-	// 	gopts = append(gopts, grpc.ChainUnaryInterceptor(
-	// 		tracer.NewGRPCServerInterceptor(srv.tracer),
-	// 	))
-	// }
-
-	// gopts = append(gopts, grpc.ChainUnaryInterceptor(
-	// 	logger.NewGRPCServerInterceptor(srv.options.Logger()),
-	// ))
+	// Tracing
+	gopts = append(gopts, grpc.ChainUnaryInterceptor(
+		NewTracingInterceptor(
+			TracerConfig{
+				Tracer: tr,
+			},
+		),
+	))
 
 	// Access logger
 	gopts = append(gopts, grpc.ChainUnaryInterceptor(
-		NewAccessLoggerInterceptor(srv.options.Logger),
+		NewAccessLoggerInterceptor(
+			LoggerConfig{
+				Logger: opts.Logger,
+			},
+		),
 	))
 
 	app := grpc.NewServer(gopts...)
@@ -127,7 +131,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Server created",
+		"GRPC server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -240,7 +244,7 @@ func (srv *GRPCServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Server listen failed",
+				"GRPC server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -252,7 +256,7 @@ func (srv *GRPCServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"Server closed",
+			"GRPC server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -265,7 +269,7 @@ func (srv *GRPCServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Server listened",
+		"GRPC server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -289,7 +293,7 @@ func (srv *GRPCServer) Stop() error {
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Server shutdown",
+		"GRPC server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,

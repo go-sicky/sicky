@@ -60,8 +60,6 @@ type HTTPServer struct {
 
 	sync.RWMutex
 	wg sync.WaitGroup
-
-	//tracer trace.Tracer
 }
 
 // New HTTP server (go-fiber)
@@ -147,7 +145,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Server created",
+		"HTTP server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -260,7 +258,7 @@ func (srv *HTTPServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Server listen failed",
+				"HTTP server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -272,7 +270,7 @@ func (srv *HTTPServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"Server closed",
+			"HTTP server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -285,7 +283,7 @@ func (srv *HTTPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Server listened",
+		"HTTP server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -309,7 +307,7 @@ func (srv *HTTPServer) Stop() error {
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Server shutdown",
+		"HTTP server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,

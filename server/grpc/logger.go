@@ -40,7 +40,26 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func NewAccessLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryServerInterceptor {
+type LoggerConfig struct {
+	Logger logger.GeneralLogger
+}
+
+func loggerConfigDefault(config ...LoggerConfig) LoggerConfig {
+	if len(config) > 0 {
+		return config[0]
+	}
+
+	return LoggerConfig{
+		Logger: logger.Logger,
+	}
+}
+
+func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerInterceptor {
+	cfg := loggerConfigDefault(config...)
+	if cfg.Logger == nil {
+		cfg.Logger = logger.Logger
+	}
+
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		var (
 			requestID, traceID, spanID, userAgent string
@@ -48,17 +67,17 @@ func NewAccessLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryServerIntercep
 
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
-			rids := md.Get("requestid")
+			rids := md.Get("X-Request-ID")
 			if len(rids) > 0 {
 				requestID = rids[0]
 			}
 
-			tids := md.Get("traceid")
+			tids := md.Get("X-B3-Traceid")
 			if len(tids) > 0 {
 				traceID = tids[0]
 			}
 
-			sids := md.Get("spanid")
+			sids := md.Get("X-B3-Spanid")
 			if len(sids) > 0 {
 				spanID = sids[0]
 			}
@@ -97,7 +116,7 @@ func NewAccessLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryServerIntercep
 			args = append(args, "error", err.Error())
 		}
 
-		l.LogContext(ctx, ll, msg, args...)
+		cfg.Logger.LogContext(ctx, ll, msg, args...)
 
 		return resp, err
 	}

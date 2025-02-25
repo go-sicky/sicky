@@ -74,7 +74,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"UDP server created",
+		"TCP server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -192,15 +192,6 @@ func (srv *TCPServer) Start() error {
 	}
 
 	go func() error {
-		// srv.options.Logger.InfoContext(
-		// 	srv.ctx,
-		// 	"TCP server closed",
-		// 	"server", srv.String(),
-		// 	"id", srv.options.ID,
-		// 	"name", srv.options.Name,
-		// 	"network", srv.addr.Network(),
-		// 	"address", srv.addr.String(),
-		// )
 		for {
 			client, err := srv.conn.Accept()
 			if err != nil {
