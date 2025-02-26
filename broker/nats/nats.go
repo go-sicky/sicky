@@ -34,6 +34,8 @@ import (
 	"context"
 	"errors"
 
+	"maps"
+
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
@@ -47,6 +49,7 @@ type Nats struct {
 	conn    *nats.Conn
 
 	subscriptions map[string]*nats.Subscription
+	handlers      map[string]broker.Handler
 }
 
 func New(opts *broker.Options, cfg *Config) *Nats {
@@ -58,11 +61,12 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 		ctx:           context.Background(),
 		options:       opts,
 		subscriptions: make(map[string]*nats.Subscription),
+		handlers:      make(map[string]broker.Handler),
 	}
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Broker created",
+		"Nats broker created",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -98,14 +102,21 @@ func (brk *Nats) Connect() error {
 		brk.config.URL,
 	)
 	if err != nil {
-		brk.options.Logger.ErrorContext(brk.ctx, "broker connect failed", "error", err.Error())
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nats broker connect failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"error", err.Error(),
+		)
 
 		return err
 	}
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Broker connected",
+		"Nats broker connected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -114,17 +125,36 @@ func (brk *Nats) Connect() error {
 
 	brk.conn = nc
 
+	// Handlers
+	for topic, hdl := range brk.handlers {
+		err := brk.Subscribe(topic, hdl)
+		if err != nil {
+			brk.options.Logger.ErrorContext(
+				brk.ctx,
+				"Nats broker subscribe failed",
+				"broker", brk.String(),
+				"id", brk.options.ID,
+				"name", brk.options.Name,
+				"topic", topic,
+				"error", err.Error(),
+			)
+		}
+	}
+
 	return nil
 }
 
 func (brk *Nats) Disconnect() error {
 	if brk.conn != nil && !brk.conn.IsClosed() {
+		for topic := range brk.handlers {
+			brk.Unsubscribe(topic)
+		}
+
 		brk.conn.Close()
 		brk.conn = nil
-
 		brk.options.Logger.InfoContext(
 			brk.ctx,
-			"broker disconnected",
+			"Nats broker disconnected",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -176,7 +206,15 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 
 			err := h(m)
 			if err != nil {
-				brk.options.Logger.ErrorContext(brk.ctx, "broker handler error", "error", err.Error())
+				brk.options.Logger.ErrorContext(
+					brk.ctx,
+					"Nats broker handler error",
+					"broker", brk.String(),
+					"id", brk.options.ID,
+					"name", brk.options.Name,
+					"topic", topic,
+					"error", err.Error(),
+				)
 			}
 		}
 	})
@@ -186,6 +224,15 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 
 		return err
 	}
+
+	brk.options.Logger.DebugContext(
+		brk.ctx,
+		"Nats broker subscribed",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+		"topic", topic,
+	)
 
 	brk.subscriptions[topic] = sub
 
@@ -200,6 +247,30 @@ func (brk *Nats) Unsubscribe(topic string) error {
 
 	return nil
 }
+
+func (brk *Nats) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		list := hdl.Register()
+		maps.Copy(brk.handlers, list)
+		brk.options.Logger.DebugContext(
+			brk.ctx,
+			"Nats handler registered",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"handler", hdl.Name(),
+		)
+	}
+}
+
+/* {{{ [Handler] */
+type Handler interface {
+	Name() string
+	Type() string
+	Register() map[string]broker.Handler
+}
+
+/* }}} */
 
 /*
  * Local variables:
