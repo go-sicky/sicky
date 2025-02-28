@@ -30,15 +30,62 @@
 
 package nsq
 
-type Config struct{}
+const (
+	DefaultEndpoint    = "127.0.0.1:4150"
+	DefaultChannel     = "sicky"
+	DefaultMaxInFlight = 10
+	DefaultMsgTimeout  = 60
+	DefaultMaxAttempts = 10
+	DefaultCompression = "none"
+)
+
+type Config struct {
+	Endpoint    string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+	Channel     string `json:"channel" yaml:"channel" mapstructure:"channel"`
+	MaxInFlight int    `json:"max_in_flight" yaml:"max_in_flight" mapstructure:"max_in_flight"`
+	MsgTimeout  int    `json:"msg_timeout" yaml:"msg_timeout" mapstructure:"msg_timeout"`
+	MaxAttempts uint16 `json:"max_attempts" yaml:"max_attempts" mapstructure:"max_attempts"`
+	Compression string `json:"compression" yaml:"compression" mapstructure:"compression"`
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		Endpoint:    DefaultEndpoint,
+		Channel:     DefaultChannel,
+		MaxInFlight: DefaultMaxInFlight,
+		MsgTimeout:  DefaultMsgTimeout,
+		MaxAttempts: DefaultMaxAttempts,
+		Compression: DefaultCompression,
+	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Endpoint == "" {
+		c.Endpoint = DefaultEndpoint
+	}
+
+	if c.Channel == "" {
+		c.Channel = DefaultChannel
+	}
+
+	if c.MaxInFlight == 0 {
+		c.MaxInFlight = DefaultMaxInFlight
+	}
+
+	if c.MsgTimeout == 0 {
+		c.MsgTimeout = DefaultMsgTimeout
+	}
+
+	if c.MaxAttempts == 0 {
+		c.MaxAttempts = DefaultMaxAttempts
+	}
+
+	if c.Compression == "" {
+		c.Compression = DefaultCompression
 	}
 
 	return c

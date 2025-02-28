@@ -243,6 +243,7 @@ func (brk *Nats) Unsubscribe(topic string) error {
 	sub := brk.subscriptions[topic]
 	if sub != nil {
 		sub.Unsubscribe()
+		delete(brk.subscriptions, topic)
 	}
 
 	return nil

@@ -15,6 +15,7 @@ require (
 	github.com/hashicorp/consul/api v1.31.2
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/nats-io/nats.go v1.39.1
+	github.com/nsqio/go-nsq v1.1.0
 	github.com/prometheus/client_golang v1.21.0
 	github.com/redis/go-redis/v9 v9.7.1
 	github.com/spf13/viper v1.20.0-alpha.6

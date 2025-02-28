@@ -32,15 +32,27 @@ package nsq
 
 import (
 	"context"
+	"fmt"
+	"maps"
+	"strings"
+	"time"
 
 	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
+	"github.com/nsqio/go-nsq"
 )
 
 type Nsq struct {
-	config  *Config
-	ctx     context.Context
-	options *broker.Options
+	config    *Config
+	ctx       context.Context
+	options   *broker.Options
+	producer  *nsq.Producer
+	nsqCfg    *nsq.Config
+	nsqLogger *nsqLogger
+
+	subscriptions map[string]*nsq.Consumer
+	handlers      map[string]broker.Handler
 }
 
 func New(opts *broker.Options, cfg *Config) *Nsq {
@@ -48,19 +60,35 @@ func New(opts *broker.Options, cfg *Config) *Nsq {
 	cfg = cfg.Ensure()
 
 	brk := &Nsq{
-		config:  cfg,
-		ctx:     context.Background(),
-		options: opts,
+		config:        cfg,
+		ctx:           context.Background(),
+		options:       opts,
+		subscriptions: make(map[string]*nsq.Consumer),
+		handlers:      make(map[string]broker.Handler),
 	}
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Broker created",
+		"Nsq broker created",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
 	)
 
+	brk.nsqCfg = nsq.NewConfig()
+	brk.nsqCfg.MaxInFlight = cfg.MaxInFlight
+	brk.nsqCfg.MsgTimeout = time.Duration(cfg.MsgTimeout) * time.Second
+	brk.nsqCfg.MaxAttempts = cfg.MaxAttempts
+	brk.nsqCfg.Deflate = false
+	brk.nsqCfg.Snappy = false
+	switch strings.ToLower(cfg.Compression) {
+	case "deflate":
+		brk.nsqCfg.Deflate = true
+	case "snappy":
+		brk.nsqCfg.Snappy = true
+	}
+
+	brk.nsqLogger = newNsqLogger(brk.options.Logger)
 	broker.Instance(opts.ID, brk)
 
 	return brk
@@ -87,24 +115,252 @@ func (brk *Nsq) Name() string {
 }
 
 func (brk *Nsq) Connect() error {
+	p, err := nsq.NewProducer(brk.config.Endpoint, brk.nsqCfg)
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nsq broker create producer failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	p.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
+	err = p.Ping()
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nsq broker producer ping failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	brk.options.Logger.InfoContext(
+		brk.ctx,
+		"Nsq broker connected",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+		"addr", brk.config.Endpoint,
+	)
+
+	brk.producer = p
+
+	// Handlers
+	for topic, hdl := range brk.handlers {
+		err := brk.Subscribe(topic, hdl)
+		if err != nil {
+			brk.options.Logger.ErrorContext(
+				brk.ctx,
+				"Nsq broker subscribe failed",
+				"broker", brk.String(),
+				"id", brk.options.ID,
+				"name", brk.options.Name,
+				"topic", topic,
+				"error", err.Error(),
+			)
+		}
+	}
+
 	return nil
 }
 
 func (brk *Nsq) Disconnect() error {
+	for topic := range brk.subscriptions {
+		brk.Unsubscribe(topic)
+	}
+
+	if brk.producer != nil {
+		brk.producer.Stop()
+		brk.producer = nil
+	}
+
+	brk.options.Logger.InfoContext(
+		brk.ctx,
+		"Nsq broker disconnected",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+	)
+
 	return nil
 }
 
 func (brk *Nsq) Publish(topic string, m *broker.Message) error {
+	if brk.producer == nil {
+		// No producer
+		return nil
+	}
+
+	err := brk.producer.Publish(topic, m.Body())
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nsq broker publish failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"topic", topic,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
 	return nil
 }
 
 func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
+	if brk.subscriptions[topic] != nil {
+		brk.options.Logger.DebugContext(
+			brk.ctx,
+			"Nsq broker duplicated subscription",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"topic", topic,
+			"channel", brk.config.Channel,
+		)
+
+		return nil
+	}
+
+	consummer, err := nsq.NewConsumer(topic, brk.config.Channel, brk.nsqCfg)
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nsq broker create consummer failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"topic", topic,
+			"channel", brk.config.Channel,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	consummer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
+	consummer.AddHandler(&nsqHandler{
+		Topic:   topic,
+		Channel: brk.config.Channel,
+		Broker:  brk,
+	})
+	err = consummer.ConnectToNSQD(brk.config.Endpoint)
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nsq broker consummer connection failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"topic", topic,
+			"channel", brk.config.Channel,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	brk.subscriptions[topic] = consummer
+	brk.options.Logger.DebugContext(
+		brk.ctx,
+		"Nsq broker subscribed",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+		"topic", topic,
+		"channel", brk.config.Channel,
+	)
+
 	return nil
 }
 
 func (brk *Nsq) Unsubscribe(topic string) error {
+	consummer := brk.subscriptions[topic]
+	if consummer != nil {
+		consummer.Stop()
+		delete(brk.subscriptions, topic)
+		brk.options.Logger.DebugContext(
+			brk.ctx,
+			"Nsq broker unsubscribed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"topic", topic,
+			"channel", brk.config.Channel,
+		)
+	}
+
 	return nil
 }
+
+func (brk *Nsq) Handle(hdls ...Handler) {
+	for _, hdl := range hdls {
+		list := hdl.Register()
+		maps.Copy(brk.handlers, list)
+		brk.options.Logger.DebugContext(
+			brk.ctx,
+			"Nsq handler registered",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"handler", hdl.Name(),
+		)
+	}
+}
+
+/* {{{ [Handler] */
+type nsqHandler struct {
+	Topic   string
+	Channel string
+	Broker  *Nsq
+}
+
+func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
+	h.Broker.options.Logger.DebugContext(
+		h.Broker.ctx,
+		"Nsq message received",
+		"broker", h.Broker.String(),
+		"id", h.Broker.options.ID,
+		"name", h.Broker.options.Name,
+		"topic", h.Topic,
+		"channel", h.Channel,
+	)
+
+	if h.Broker.handlers[h.Topic] != nil {
+		msg := &broker.Message{}
+		msg.Body(m.Body)
+		// Optain header
+		md := utils.NewMetadata()
+		md.Set("id", fmt.Sprintf("%02x", m.ID))
+		md.Set("topic", h.Topic)
+		md.Set("channel", h.Channel)
+		msg.Header(md)
+
+		h.Broker.handlers[h.Topic](msg)
+	}
+
+	return nil
+}
+
+type Handler interface {
+	Name() string
+	Type() string
+	Register() map[string]broker.Handler
+}
+
+/* }}} */
 
 /*
  * Local variables:
