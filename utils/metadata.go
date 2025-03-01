@@ -61,6 +61,16 @@ func (md Metadata) Delete(key string) {
 	delete(md, key)
 }
 
+func (md Metadata) Merge(in Metadata) {
+	for k, v := range in {
+		md.Set(k, v)
+	}
+}
+
+func (md Metadata) Clone() Metadata {
+	return md.Copy()
+}
+
 func (md Metadata) Copy() Metadata {
 	o := make(Metadata, len(md))
 	for k, v := range md {

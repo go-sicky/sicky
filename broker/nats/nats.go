@@ -37,7 +37,6 @@ import (
 	"maps"
 
 	"github.com/go-sicky/sicky/broker"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 )
@@ -172,14 +171,39 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 
 	msg := nats.NewMsg(topic)
 	if m != nil {
-		for k, v := range m.Header() {
+		for k, v := range m.Metadata {
 			msg.Header.Add(k, v)
 		}
 
-		msg.Data = m.Body()
+		m.Topic = topic
+		msg.Data = m.Raw()
 	}
 
-	return brk.conn.PublishMsg(msg)
+	err := brk.conn.PublishMsg(msg)
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Nats broker publish failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"topic", topic,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	brk.options.Logger.DebugContext(
+		brk.ctx,
+		"Nats broker published",
+		"broker", brk.String(),
+		"id", brk.options.ID,
+		"name", brk.options.Name,
+		"topic", topic,
+	)
+
+	return nil
 }
 
 func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
@@ -193,17 +217,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 
 	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {
 		if h != nil {
-			m := &broker.Message{}
-			hdr := utils.NewMetadata()
-			for k, vs := range msg.Header {
-				if len(vs) > 0 {
-					hdr.Set(k, vs[0])
-				}
-			}
-
-			m.Header(hdr)
-			m.Body(msg.Data)
-
+			m := broker.NewMessage(msg.Data)
 			err := h(m)
 			if err != nil {
 				brk.options.Logger.ErrorContext(

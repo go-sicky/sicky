@@ -62,17 +62,43 @@ type Broker interface {
 type Handler func(*Message) error
 
 var (
-	brokers = make(map[uuid.UUID]Broker, 0)
+	brokers       = make(map[uuid.UUID]Broker, 0)
+	defaultBroker Broker
 )
 
 func Instance(id uuid.UUID, brk ...Broker) Broker {
 	if len(brk) > 0 {
 		brokers[id] = brk[0]
+		defaultBroker = brk[0]
 
 		return brk[0]
 	}
 
 	return brokers[id]
+}
+
+func Publish(topic string, m *Message) error {
+	if defaultBroker == nil {
+		return nil
+	}
+
+	return defaultBroker.Publish(topic, m)
+}
+
+func Subscribe(topic string, h Handler) error {
+	if defaultBroker == nil {
+		return nil
+	}
+
+	return defaultBroker.Subscribe(topic, h)
+}
+
+func Unsubscribe(topic string) error {
+	if defaultBroker == nil {
+		return nil
+	}
+
+	return defaultBroker.Unsubscribe(topic)
 }
 
 /*

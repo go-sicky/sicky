@@ -32,13 +32,11 @@ package nsq
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"strings"
 	"time"
 
 	"github.com/go-sicky/sicky/broker"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/nsqio/go-nsq"
 )
@@ -201,7 +199,8 @@ func (brk *Nsq) Publish(topic string, m *broker.Message) error {
 		return nil
 	}
 
-	err := brk.producer.Publish(topic, m.Body())
+	m.Topic = topic
+	err := brk.producer.Publish(topic, m.Raw())
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -339,15 +338,7 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 	)
 
 	if h.Broker.handlers[h.Topic] != nil {
-		msg := &broker.Message{}
-		msg.Body(m.Body)
-		// Optain header
-		md := utils.NewMetadata()
-		md.Set("id", fmt.Sprintf("%02x", m.ID))
-		md.Set("topic", h.Topic)
-		md.Set("channel", h.Channel)
-		msg.Header(md)
-
+		msg := broker.NewMessage(m.Body)
 		h.Broker.handlers[h.Topic](msg)
 	}
 

@@ -30,31 +30,80 @@
 
 package broker
 
-import "github.com/go-sicky/sicky/utils"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/go-sicky/sicky/utils"
+	"github.com/vmihailenco/msgpack/v5"
+	"google.golang.org/protobuf/proto"
+)
 
 type Message struct {
-	header utils.Metadata
-	body   []byte
+	// Header
+	Metadata utils.Metadata `msgpack:"metadata,omitempty" json:"metadata,omitempty"`
+	Mime     string         `msgpack:"mime,omitempty" json:"mime,omitempty"`
+	TraceID  string         `msgpack:"trace_id,omitempty" json:"trace_id,omitempty"`
+	Topic    string         `msgpack:"topic,omitempty" json:"topic,omitempty"`
+
+	// Content
+	Body []byte `msgpack:"body,omitempty" json:"body,omitempty"`
 }
 
-func (m *Message) Header(hdr ...utils.Metadata) utils.Metadata {
-	if len(hdr) > 0 {
-		m.header = hdr[0]
-	}
-
-	if m.header != nil {
-		return m.header
-	} else {
-		return utils.Metadata{}
+func (m *Message) Scan(v any) {
+	switch strings.ToLower(m.Mime) {
+	case "application/json":
+		json.Unmarshal(m.Body, v)
+	case "application/vnd.google.protobuf", "application/x-protobuf", "application/protobuf":
+		pm, ok := v.(proto.Message)
+		if ok {
+			proto.Unmarshal(m.Body, pm)
+		}
+	case "application/x-msgpack", "application/msgpack":
+		msgpack.Unmarshal(m.Body, v)
+	default:
+		// Raw
 	}
 }
 
-func (m *Message) Body(body ...[]byte) []byte {
-	if len(body) > 0 {
-		m.body = body[0]
+func (m *Message) Format(v any, mime ...string) {
+	tm := "application/json"
+	if len(mime) > 0 {
+		tm = mime[0]
 	}
 
-	return m.body
+	tm = strings.ToLower(tm)
+	switch tm {
+	case "application/json":
+		m.Body, _ = json.Marshal(v)
+	case "application/vnd.google.protobuf", "application/x-protobuf", "application/protobuf":
+		pm, ok := v.(proto.Message)
+		if ok {
+			m.Body, _ = proto.Marshal(pm)
+		}
+	case "application/x-msgpack", "application/msgpack":
+		m.Body, _ = msgpack.Marshal(v)
+	default:
+		// Raw
+	}
+
+	m.Mime = tm
+}
+
+func (m *Message) Raw() []byte {
+	b, _ := msgpack.Marshal(m)
+
+	return b
+}
+
+func NewMessage(raw []byte) *Message {
+	m := new(Message)
+	m.Metadata = utils.NewMetadata()
+	if raw != nil {
+		msgpack.Unmarshal(raw, m)
+	}
+
+	return m
 }
 
 /*
