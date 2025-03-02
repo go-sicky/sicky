@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/google/uuid"
 )
 
 // HTTPClient : Client definition
@@ -112,6 +113,10 @@ func (clt *HTTPClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *HTTPClient) Context() context.Context {
+	return clt.ctx
+}
+
 func (clt *HTTPClient) Connect() error {
 	return nil
 }
@@ -132,8 +137,8 @@ func (clt *HTTPClient) Name() string {
 	return clt.options.Name
 }
 
-func (clt *HTTPClient) ID() string {
-	return clt.options.ID.String()
+func (clt *HTTPClient) ID() uuid.UUID {
+	return clt.options.ID
 }
 
 /*

@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/google/uuid"
 )
 
 type WebsocketClient struct {
@@ -111,6 +112,10 @@ func (clt *WebsocketClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *WebsocketClient) Context() context.Context {
+	return clt.ctx
+}
+
 func (clt *WebsocketClient) Connect() error {
 	return nil
 }
@@ -131,8 +136,8 @@ func (clt *WebsocketClient) Name() string {
 	return clt.options.Name
 }
 
-func (clt *WebsocketClient) ID() string {
-	return clt.options.ID.String()
+func (clt *WebsocketClient) ID() uuid.UUID {
+	return clt.options.ID
 }
 
 func (clt *WebsocketClient) Handle(hdl WebsocketHandler) {

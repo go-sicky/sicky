@@ -32,17 +32,32 @@ package broker
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/go-sicky/sicky/utils"
 	"github.com/vmihailenco/msgpack/v5"
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	// Message data type
+	MsgRaw = iota
+	MsgJson
+	MsgMsgpack
+	MsgProtobuf
+)
+
+const (
+	// Message mime
+	MsgRawMime      = "application/octet-stream"
+	MsgJsonMime     = "application/json"
+	MsgMsgpackMime  = "application/x-msgpack"
+	MsgProtobufMime = "application/x-protobuf"
+)
+
 type Message struct {
 	// Header
 	Metadata utils.Metadata `msgpack:"metadata,omitempty" json:"metadata,omitempty"`
-	Mime     string         `msgpack:"mime,omitempty" json:"mime,omitempty"`
+	Mime     int            `msgpack:"mime" json:"mime"`
 	TraceID  string         `msgpack:"trace_id,omitempty" json:"trace_id,omitempty"`
 	Topic    string         `msgpack:"topic,omitempty" json:"topic,omitempty"`
 
@@ -51,40 +66,44 @@ type Message struct {
 }
 
 func (m *Message) Scan(v any) {
-	switch strings.ToLower(m.Mime) {
-	case "application/json":
+	switch m.Mime {
+	case MsgJson:
 		json.Unmarshal(m.Body, v)
-	case "application/vnd.google.protobuf", "application/x-protobuf", "application/protobuf":
+	case MsgProtobuf:
 		pm, ok := v.(proto.Message)
 		if ok {
 			proto.Unmarshal(m.Body, pm)
 		}
-	case "application/x-msgpack", "application/msgpack":
+	case MsgMsgpack:
 		msgpack.Unmarshal(m.Body, v)
 	default:
 		// Raw
 	}
 }
 
-func (m *Message) Format(v any, mime ...string) {
-	tm := "application/json"
+func (m *Message) Format(v any, mime ...int) {
+	tm := MsgJson
 	if len(mime) > 0 {
 		tm = mime[0]
 	}
 
-	tm = strings.ToLower(tm)
 	switch tm {
-	case "application/json":
+	case MsgJson:
 		m.Body, _ = json.Marshal(v)
-	case "application/vnd.google.protobuf", "application/x-protobuf", "application/protobuf":
+	case MsgProtobuf:
 		pm, ok := v.(proto.Message)
 		if ok {
 			m.Body, _ = proto.Marshal(pm)
 		}
-	case "application/x-msgpack", "application/msgpack":
+	case MsgMsgpack:
 		m.Body, _ = msgpack.Marshal(v)
 	default:
 		// Raw
+		b, ok := v.([]byte)
+		if ok {
+			m.Body = b
+			tm = MsgRaw
+		}
 	}
 
 	m.Mime = tm
@@ -98,9 +117,11 @@ func (m *Message) Raw() []byte {
 
 func NewMessage(raw []byte) *Message {
 	m := new(Message)
-	m.Metadata = utils.NewMetadata()
 	if raw != nil {
 		msgpack.Unmarshal(raw, m)
+	} else {
+		m.Metadata = utils.NewMetadata()
+		m.Mime = MsgRaw
 	}
 
 	return m

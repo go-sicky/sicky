@@ -37,6 +37,7 @@ import (
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/registry"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
@@ -222,6 +223,10 @@ func (clt *GRPCClient) Options() *client.Options {
 	return clt.options
 }
 
+func (clt *GRPCClient) Context() context.Context {
+	return clt.ctx
+}
+
 func (clt *GRPCClient) Connect() error {
 	clt.connected = true
 
@@ -246,8 +251,8 @@ func (clt *GRPCClient) Name() string {
 	return clt.options.Name
 }
 
-func (clt *GRPCClient) ID() string {
-	return clt.options.ID.String()
+func (clt *GRPCClient) ID() uuid.UUID {
+	return clt.options.ID
 }
 
 // For GRPC client connection

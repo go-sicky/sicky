@@ -22,13 +22,13 @@
  */
 
 /**
- * @file udp.go
- * @package udp
+ * @file tcp.go
+ * @package tcp
  * @author Dr.NP <np@herewe.tech>
- * @since 01/16/2025
+ * @since 03/02/2025
  */
 
-package udp
+package tcp
 
 import (
 	"context"
@@ -38,31 +38,31 @@ import (
 	"github.com/google/uuid"
 )
 
-type UDPClient struct {
+type TCPClient struct {
 	config    *Config
 	options   *client.Options
 	ctx       context.Context
-	conn      *net.UDPConn
+	conn      net.TCPConn
 	connected bool
-	addr      *net.UDPAddr
+	addr      *net.TCPAddr
 }
 
-func New(opts *client.Options, cfg *Config) *UDPClient {
+func New(opts *client.Options, cfg *Config) *TCPClient {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveUDPAddr("udp", cfg.Addr)
-	clt := &UDPClient{
+	addr, _ := net.ResolveTCPAddr("tcp", cfg.Addr)
+	clt := &TCPClient{
 		config:    cfg,
+		options:   opts,
 		ctx:       context.Background(),
 		addr:      addr,
 		connected: false,
-		options:   opts,
 	}
 
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"UDP client created",
+		"TCP client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,
@@ -74,58 +74,54 @@ func New(opts *client.Options, cfg *Config) *UDPClient {
 	return clt
 }
 
-func (clt *UDPClient) Options() *client.Options {
+func (clt *TCPClient) Options() *client.Options {
 	return clt.options
 }
 
-func (clt *UDPClient) Context() context.Context {
+func (clt *TCPClient) Context() context.Context {
 	return clt.ctx
 }
 
-func (clt *UDPClient) String() string {
-	return "udp"
+func (clt *TCPClient) String() string {
+	return "tcp"
 }
 
-func (clt *UDPClient) ID() uuid.UUID {
+func (clt *TCPClient) ID() uuid.UUID {
 	return clt.options.ID
 }
 
-func (clt *UDPClient) Name() string {
+func (clt *TCPClient) Name() string {
 	return clt.options.Name
 }
 
-func (clt *UDPClient) Connect() error {
+func (clt *TCPClient) Connect() error {
 	if clt.connected {
 		return nil
 	}
 
-	conn, err := net.DialUDP("udp", nil, clt.addr)
+	conn, err := net.DialTCP("tcp", nil, clt.addr)
 	if err != nil {
 		return err
 	}
 
-	clt.conn = conn
+	clt.conn = *conn
 	clt.connected = true
 
 	return nil
 }
 
-func (clt *UDPClient) Disconnect() error {
+func (clt *TCPClient) Disconnect() error {
 	if !clt.connected {
 		return nil
 	}
 
-	err := clt.conn.Close()
-	if err != nil {
-		return err
-	}
-
+	clt.conn.Close()
 	clt.connected = false
 
 	return nil
 }
 
-func (clt *UDPClient) Call() error {
+func (clt *TCPClient) Call() error {
 	return nil
 }
 

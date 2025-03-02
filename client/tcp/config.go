@@ -23,14 +23,15 @@
 
 /**
  * @file config.go
- * @package nats
+ * @package tcp
  * @author Dr.NP <np@herewe.tech>
- * @since 12/08/2023
+ * @since 03/02/2025
  */
 
-package nats
+package tcp
 
 type Config struct {
+	Addr string `json:"addr" yaml:"addr" mapstructure:"addr"`
 }
 
 func DefaultConfig() *Config {

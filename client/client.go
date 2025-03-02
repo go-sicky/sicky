@@ -30,10 +30,16 @@
 
 package client
 
-import "github.com/google/uuid"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 // Client : service callee
 type Client interface {
+	// Get context
+	Context() context.Context
 	// Client options
 	Options() *Options
 	// Connect
@@ -47,7 +53,7 @@ type Client interface {
 	// Get name
 	Name() string
 	// Get ID
-	ID() string
+	ID() uuid.UUID
 }
 
 var (
