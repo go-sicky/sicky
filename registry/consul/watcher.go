@@ -86,7 +86,11 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 						Metadata: v.Meta,
 					}
 					network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
-					address := strings.ToLower(ins.Metadata.Value("address", ":0"))
+					address := v.Address
+					if address == "" {
+						address = strings.ToLower(ins.Metadata.Value("address", ":0"))
+					}
+
 					switch network {
 					case "tcp", "tcp4", "tcp6":
 						ins.Addr, _ = net.ResolveTCPAddr(network, address)

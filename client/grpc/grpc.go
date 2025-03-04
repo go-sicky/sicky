@@ -33,7 +33,6 @@ package grpc
 import (
 	"context"
 	"encoding/json"
-	"net"
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/registry"
@@ -51,9 +50,6 @@ type GRPCClient struct {
 	ctx       context.Context
 	conn      *grpc.ClientConn
 	connected bool
-	addr      net.Addr
-
-	//tracer trace.Tracer
 }
 
 // New GRPC client
@@ -61,41 +57,12 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
 	clt := &GRPCClient{
 		config:    cfg,
 		ctx:       context.Background(),
-		addr:      addr,
 		connected: false,
 		options:   opts,
 	}
-
-	// for _, opt := range opts {
-	// 	opt(clt.options)
-	// }
-
-	// // Set logger
-	// if clt.options.Logger() == nil {
-	// 	client.Logger(logger.Logger)(clt.options)
-	// }
-
-	// // Set global context
-	// if clt.options.Context() != nil {
-	// 	clt.ctx = clt.options.Context()
-	// } else {
-	// 	client.Context(ctx)(clt.options)
-	// }
-
-	// // Set tracer
-	// if clt.options.TraceProvider() != nil {
-	// 	clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
-	// }
-
-	// // TCP default
-	// addr, err := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
-	// if err != nil {
-	// 	clt.options.Logger().ErrorContext(clt.ctx, "Resolve GRPC endpoint address failed", "error", err)
-	// }
 
 	// clt.addr = addr
 	gopts := make([]grpc.DialOption, 0)
@@ -127,11 +94,10 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	// 		tracer.NewGRPCClientInterceptor(clt.tracer),
 	// 		logger.NewGRPCClientInterceptor(clt.options.Logger()),
 	// 	),
-	// 	grpc.WithDefaultServiceConfig(`{ "loadBalancingPolicy": "round_robin" }`),
 	// )
-	// // Issue : DNS round-robin load balancing support
-	// Resolver
-	//r := manual.NewBuilderWithScheme("")
+	gopts = append(gopts, grpc.WithChainUnaryInterceptor(
+		NewClientLoggerInterceptor(clt.options.Logger),
+	))
 
 	// Resolver
 	r := manual.NewBuilderWithScheme("sicky")
@@ -159,7 +125,17 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
 
 	// Client connection
-	conn, err := grpc.NewClient("sicky:///"+cfg.Service, gopts...)
+	var (
+		conn *grpc.ClientConn
+		err  error
+	)
+
+	if cfg.Addr != "" {
+		conn, err = grpc.NewClient(cfg.Addr, gopts...)
+	} else {
+		conn, err = grpc.NewClient("sicky:///"+cfg.Service, gopts...)
+	}
+
 	if err != nil {
 		clt.options.Logger.ErrorContext(
 			clt.ctx,
@@ -183,7 +159,8 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		"id", clt.options.ID,
 		"name", clt.options.Name,
 		"balancer", cfg.Balancer,
-		"addr", addr.String(),
+		"service", cfg.Service,
+		"address", cfg.Addr,
 	)
 
 	client.Instance(opts.ID, clt)
@@ -191,7 +168,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	// Pool notifier
 	go func() {
 		for ev := range registry.PoolChan {
-			if ev.Changed {
+			if cfg.Service != "" && ev.Changed {
 				ins := registry.GetInstances(cfg.Service)
 				if len(ins) != 0 && r.CC != nil {
 					addrs := make([]resolver.Address, 0)

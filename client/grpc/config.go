@@ -83,6 +83,7 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
+		Service:  DefaultService,
 		Network:  DefaultNetwork,
 		Addr:     DefaultAddr,
 		Balancer: DefaultBalancer,
@@ -104,6 +105,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.Addr == "" {
 		c.Addr = DefaultAddr
+	}
+
+	if c.Balancer == "" {
+		c.Balancer = DefaultBalancer
 	}
 
 	vb := strings.ToLower(c.Balancer)

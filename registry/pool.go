@@ -64,6 +64,9 @@ type Ins struct {
 
 func RegisterInstance(ins *Ins) {
 	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	// Check service
 	if Pool[ins.Service] == nil {
 		Pool[ins.Service] = &Service{
 			Service:   ins.Service,
@@ -75,8 +78,6 @@ func RegisterInstance(ins *Ins) {
 	if Pool[ins.Service].Instances[ins.ID] == nil {
 		Pool[ins.Service].Instances[ins.ID] = ins
 	}
-
-	poolLock.Unlock()
 }
 
 func GetInstances(service string) map[string]*Ins {
@@ -93,6 +94,8 @@ func GetInstances(service string) map[string]*Ins {
 
 func PurgeInstances() {
 	poolLock.Lock()
+	defer poolLock.Unlock()
+
 	for service, svc := range Pool {
 		if service != svc.Service {
 			delete(Pool, service)
@@ -129,8 +132,7 @@ func PurgeInstances() {
 		// Just ignore
 	}
 
-	poolLock.Unlock()
-	logger.Logger.Trace(
+	logger.Logger.Debug(
 		"registry pool purged",
 	)
 }
