@@ -32,22 +32,23 @@ package websocket
 
 const (
 	DefaultNetwork = "tcp"
-	DefaultAddr    = ":9991"
+	DefaultAddress = ":9991"
 	DefaultPath    = "/conn"
 )
 
 type Config struct {
-	Network    string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM  string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	Path       string `json:"path" yaml:"path" mapstructure:"path"`
+	Network          string `json:"network" yaml:"network" mapstructure:"network"`
+	Address          string `json:"address" yaml:"address" mapstructure:"address"`
+	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
+	TLSCertPEM       string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM        string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
+	Path             string `json:"path" yaml:"path" mapstructure:"path"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		Network: DefaultNetwork,
-		Addr:    DefaultAddr,
+		Address: DefaultAddress,
 		Path:    DefaultPath,
 	}
 }
@@ -55,6 +56,18 @@ func DefaultConfig() *Config {
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Network == "" {
+		c.Network = DefaultNetwork
+	}
+
+	if c.Address == "" {
+		c.Address = DefaultAddress
+	}
+
+	if c.Path == "" {
+		c.Path = DefaultPath
 	}
 
 	return c

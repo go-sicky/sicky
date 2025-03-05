@@ -58,7 +58,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 	}
 
 	apiCfg := api.DefaultConfig()
-	apiCfg.Address = cfg.Addr
+	apiCfg.Address = cfg.Endpoint
 	client, err := api.NewClient(apiCfg)
 	if err != nil {
 		rg.options.Logger.ErrorContext(
@@ -125,8 +125,8 @@ func (rg *Consul) Register(srv server.Server) error {
 	reg := &api.AgentServiceRegistration{
 		ID:      srv.Options().ID.String(),
 		Name:    srv.Options().Name,
-		Address: srv.IP().String(),
-		Port:    srv.Port(),
+		Address: srv.AdvertiseIP().String(),
+		Port:    srv.AdvertisePort(),
 		Meta:    srv.Metadata(),
 	}
 	err := rg.client.Agent().ServiceRegister(reg)

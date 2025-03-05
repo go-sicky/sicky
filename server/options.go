@@ -31,6 +31,8 @@
 package server
 
 import (
+	"net"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
 )
@@ -41,6 +43,7 @@ type Options struct {
 	Name   string
 	ID     uuid.UUID
 	Logger logger.GeneralLogger
+	Addr   net.Addr
 
 	beforeStart []ServerWrapper
 	afterStart  []ServerWrapper

@@ -45,14 +45,15 @@ import (
 
 // UDPServer : Server definition
 type UDPServer struct {
-	config   *Config
-	ctx      context.Context
-	options  *server.Options
-	running  bool
-	addr     *net.UDPAddr
-	conn     *net.UDPConn
-	metadata utils.Metadata
-	handlers []Handler
+	config        *Config
+	ctx           context.Context
+	options       *server.Options
+	running       bool
+	addr          net.Addr
+	advertiseAddr net.Addr
+	conn          *net.UDPConn
+	metadata      utils.Metadata
+	handlers      []Handler
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -63,15 +64,43 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveUDPAddr(cfg.Network, cfg.Addr)
+	var (
+		addr          net.Addr
+		advertiseAddr net.Addr
+		err           error
+	)
+
+	addr, err = net.ResolveUDPAddr(cfg.Network, cfg.Address)
+	if err != nil {
+		opts.Logger.Fatal(
+			"Network address resolve failed",
+			"string", cfg.Address,
+			"error", err.Error(),
+		)
+	}
+
+	if cfg.AdvertiseAddress != "" {
+		advertiseAddr, err = net.ResolveUDPAddr(cfg.Network, cfg.AdvertiseAddress)
+		if err != nil {
+			opts.Logger.Fatal(
+				"Advertise network address resolve failed",
+				"string", cfg.AdvertiseAddress,
+				"error", err.Error(),
+			)
+		}
+	} else {
+		advertiseAddr = addr
+	}
+
 	srv := &UDPServer{
-		config:   cfg,
-		ctx:      context.Background(),
-		addr:     addr,
-		running:  false,
-		options:  opts,
-		metadata: utils.NewMetadata(),
-		handlers: make([]Handler, 0),
+		config:        cfg,
+		ctx:           context.Background(),
+		addr:          addr,
+		advertiseAddr: advertiseAddr,
+		running:       false,
+		options:       opts,
+		metadata:      utils.NewMetadata(),
+		handlers:      make([]Handler, 0),
 	}
 
 	srv.options.Logger.InfoContext(
@@ -124,13 +153,28 @@ func (srv *UDPServer) Start() error {
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
+	srv.metadata.Set("advertise_address", srv.advertiseAddr.String())
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
+	c, ok := srv.addr.(*net.UDPAddr)
+	if !ok {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Obtain UDP address failed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"network", srv.addr.Network(),
+			"address", srv.addr.String(),
+		)
+
+		return errors.New("obtain UDP address failed")
+	}
 
 	srv.conn, err = net.ListenUDP(
 		srv.addr.Network(),
-		srv.addr,
+		c,
 	)
 	if err != nil {
 		srv.options.Logger.ErrorContext(
@@ -256,7 +300,7 @@ func (srv *UDPServer) Addr() net.Addr {
 
 func (srv *UDPServer) IP() net.IP {
 	try := utils.AddrToIP(srv.addr)
-	if try.IsUnspecified() {
+	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
 
@@ -265,6 +309,23 @@ func (srv *UDPServer) IP() net.IP {
 
 func (srv *UDPServer) Port() int {
 	return utils.AddrToPort(srv.addr)
+}
+
+func (srv *UDPServer) AdvertiseAddr() net.Addr {
+	return srv.advertiseAddr
+}
+
+func (srv *UDPServer) AdvertiseIP() net.IP {
+	try := utils.AddrToIP(srv.advertiseAddr)
+	if try == nil || try.IsUnspecified() {
+		try, _ = utils.ObtainPreferIP(true)
+	}
+
+	return try
+}
+
+func (srv *UDPServer) AdvertisePort() int {
+	return utils.AddrToPort(srv.advertiseAddr)
 }
 
 func (srv *UDPServer) Metadata() utils.Metadata {

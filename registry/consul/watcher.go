@@ -31,8 +31,8 @@
 package consul
 
 import (
-	"net"
-	"strings"
+	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/go-sicky/sicky/registry"
@@ -40,7 +40,7 @@ import (
 )
 
 type Watcher struct {
-	addr      string
+	endpoint  string
 	watchPlan *watch.Plan
 
 	sync.RWMutex
@@ -48,7 +48,7 @@ type Watcher struct {
 
 func newWatcher(rg *Consul) (*Watcher, error) {
 	w := &Watcher{
-		addr: rg.config.Addr,
+		endpoint: rg.config.Endpoint,
 	}
 	params := map[string]any{
 		"type": "services",
@@ -79,34 +79,45 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 
 			for n, v := range list {
 				if n != "consul" {
+					b, _ := json.MarshalIndent(v, "", "  ")
+					fmt.Println(string(b))
 					// Sicky service
 					ins := &registry.Ins{
-						ID:       v.ID,
-						Service:  v.Service,
-						Metadata: v.Meta,
+						ID:               v.ID,
+						Service:          v.Service,
+						Metadata:         v.Meta,
+						Address:          v.Address,
+						AdvertiseAddress: v.Address,
+						Port:             v.Port,
+						AdvertisePort:    v.Port,
 					}
-					network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
-					address := v.Address
-					if address == "" {
-						address = strings.ToLower(ins.Metadata.Value("address", ":0"))
-					}
+					// network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
+					// address := v.Address
+					// if address == "" {
+					// 	address = strings.ToLower(ins.Metadata.Value("address", ":0"))
+					// }
 
-					switch network {
-					case "tcp", "tcp4", "tcp6":
-						ins.Addr, _ = net.ResolveTCPAddr(network, address)
-					case "udp", "udp4", "udp6":
-						ins.Addr, _ = net.ResolveUDPAddr(network, address)
-					case "unix", "unixpacket":
-						ins.Addr, _ = net.ResolveUnixAddr(network, address)
-					}
+					// switch network {
+					// case "tcp", "tcp4", "tcp6":
+					// 	ins.Address, _ = net.ResolveTCPAddr(network, address)
+					// case "udp", "udp4", "udp6":
+					// 	ins.Address, _ = net.ResolveUDPAddr(network, address)
+					// case "unix", "unixpacket":
+					// 	ins.Address, _ = net.ResolveUnixAddr(network, address)
+					// }
 					registry.RegisterInstance(ins)
 					rg.options.Logger.DebugContext(
 						rg.ctx,
-						"registry watch event",
+						"Consul registry watch event",
 						"registry", rg.String(),
 						"id", rg.options.ID,
 						"name", rg.options.Name,
-						"service", v.Service,
+						"server_id", ins.ID,
+						"server_name", ins.Service,
+						"server_address", ins.Address,
+						"server_port", ins.Port,
+						"server_advertise_address", ins.AdvertiseAddress,
+						"server_advertise_port", ins.AdvertisePort,
 					)
 				}
 			}
@@ -123,7 +134,7 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 }
 
 func (w *Watcher) Start() error {
-	go w.watchPlan.Run(w.addr)
+	go w.watchPlan.Run(w.endpoint)
 
 	return nil
 }

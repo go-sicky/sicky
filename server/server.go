@@ -62,6 +62,12 @@ type Server interface {
 	IP() net.IP
 	// Optain port
 	Port() int
+	// Obtain advertise address
+	AdvertiseAddr() net.Addr
+	// Advertise IP
+	AdvertiseIP() net.IP
+	// Advertise port
+	AdvertisePort() int
 	// Metadata
 	Metadata() utils.Metadata
 }

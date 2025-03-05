@@ -34,7 +34,7 @@ import "time"
 
 const (
 	DefaultNetwork = "tcp"
-	DefaultAddr    = ":0"
+	DefaultAddress = ":0"
 
 	// AccessLogger
 	DefaultRequestIDContextKey    = "requestid"
@@ -73,7 +73,8 @@ type AccessLoggerConfig struct {
 
 type Config struct {
 	Network              string              `json:"network" yaml:"network" mapstructure:"network"`
-	Addr                 string              `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Address              string              `json:"address" yaml:"address" mapstructure:"address"`
+	AdvertiseAddress     string              `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
 	TLSCertPEM           string              `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
 	TLSKeyPEM            string              `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
 	ConnectionTimeout    time.Duration       `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
@@ -89,7 +90,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Network: DefaultNetwork,
-		Addr:    DefaultAddr,
+		Address: DefaultAddress,
 	}
 }
 
@@ -102,8 +103,8 @@ func (c *Config) Ensure() *Config {
 		c.Network = DefaultNetwork
 	}
 
-	if c.Addr == "" {
-		c.Addr = DefaultAddr
+	if c.Address == "" {
+		c.Address = DefaultAddress
 	}
 
 	if c.AccessLogger == nil {

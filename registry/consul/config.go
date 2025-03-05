@@ -31,22 +31,26 @@
 package consul
 
 const (
-	DefaultConsulAddress = "http://localhost:8500"
+	DefaultConsulEndpoint = "http://localhost:8500"
 )
 
 type Config struct {
-	Addr string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Addr: DefaultConsulAddress,
+		Endpoint: DefaultConsulEndpoint,
 	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Endpoint == "" {
+		c.Endpoint = DefaultConsulEndpoint
 	}
 
 	return c

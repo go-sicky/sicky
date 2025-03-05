@@ -32,20 +32,21 @@ package udp
 
 const (
 	DefaultNetwork   = "udp"
-	DefaultAddr      = ":9980"
+	DefaultAddress   = ":9980"
 	DefaulBufferSize = 4096
 )
 
 type Config struct {
-	Network    string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr       string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	BufferSize int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
+	Network          string `json:"network" yaml:"network" mapstructure:"network"`
+	Address          string `json:"address" yaml:"address" mapstructure:"address"`
+	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
+	BufferSize       int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		Network:    DefaultNetwork,
-		Addr:       DefaultAddr,
+		Address:    DefaultAddress,
 		BufferSize: DefaulBufferSize,
 	}
 }
@@ -59,8 +60,8 @@ func (c *Config) Ensure() *Config {
 		c.Network = DefaultNetwork
 	}
 
-	if c.Addr == "" {
-		c.Addr = DefaultAddr
+	if c.Address == "" {
+		c.Address = DefaultAddress
 	}
 
 	if c.BufferSize <= 0 {

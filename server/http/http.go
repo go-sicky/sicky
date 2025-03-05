@@ -50,13 +50,14 @@ import (
 
 // HTTPServer : Server definition
 type HTTPServer struct {
-	config   *Config
-	ctx      context.Context
-	options  *server.Options
-	app      *fiber.App
-	running  bool
-	addr     net.Addr
-	metadata utils.Metadata
+	config        *Config
+	ctx           context.Context
+	options       *server.Options
+	app           *fiber.App
+	running       bool
+	addr          net.Addr
+	advertiseAddr net.Addr
+	metadata      utils.Metadata
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -67,15 +68,43 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
+	var (
+		addr          net.Addr
+		advertiseAddr net.Addr
+		err           error
+	)
+
 	// TCP default
-	addr, _ := net.ResolveTCPAddr(cfg.Network, cfg.Addr)
+	addr, err = net.ResolveTCPAddr(cfg.Network, cfg.Address)
+	if err != nil {
+		opts.Logger.Fatal(
+			"Network address resolve failed",
+			"string", cfg.Address,
+			"error", err.Error(),
+		)
+	}
+
+	if cfg.AdvertiseAddress != "" {
+		advertiseAddr, err = net.ResolveTCPAddr(cfg.Network, cfg.AdvertiseAddress)
+		if err != nil {
+			opts.Logger.Fatal(
+				"Network address resolve failed",
+				"string", cfg.AdvertiseAddress,
+				"error", err.Error(),
+			)
+		}
+	} else {
+		advertiseAddr = addr
+	}
+
 	srv := &HTTPServer{
-		config:   cfg,
-		ctx:      context.Background(),
-		addr:     addr,
-		running:  false,
-		options:  opts,
-		metadata: utils.NewMetadata(),
+		config:        cfg,
+		ctx:           context.Background(),
+		addr:          addr,
+		advertiseAddr: advertiseAddr,
+		running:       false,
+		options:       opts,
+		metadata:      utils.NewMetadata(),
 	}
 
 	// Set tracer
@@ -250,6 +279,7 @@ func (srv *HTTPServer) Start() error {
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
+	srv.metadata.Set("advertise_address", srv.advertiseAddr.String())
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
@@ -328,7 +358,7 @@ func (srv *HTTPServer) Addr() net.Addr {
 
 func (srv *HTTPServer) IP() net.IP {
 	try := utils.AddrToIP(srv.addr)
-	if try.IsUnspecified() {
+	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
 
@@ -337,6 +367,23 @@ func (srv *HTTPServer) IP() net.IP {
 
 func (srv *HTTPServer) Port() int {
 	return utils.AddrToPort(srv.addr)
+}
+
+func (srv *HTTPServer) AdvertiseAddr() net.Addr {
+	return srv.advertiseAddr
+}
+
+func (srv *HTTPServer) AdvertiseIP() net.IP {
+	try := utils.AddrToIP(srv.advertiseAddr)
+	if try == nil || try.IsUnspecified() {
+		try, _ = utils.ObtainPreferIP(true)
+	}
+
+	return try
+}
+
+func (srv *HTTPServer) AdvertisePort() int {
+	return utils.AddrToPort(srv.advertiseAddr)
 }
 
 func (srv *HTTPServer) Metadata() utils.Metadata {

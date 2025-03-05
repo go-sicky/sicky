@@ -31,7 +31,6 @@
 package registry
 
 import (
-	"net"
 	"sync"
 
 	"github.com/go-sicky/sicky/logger"
@@ -56,10 +55,13 @@ type Service struct {
 
 // Service instance
 type Ins struct {
-	ID       string         `json:"id" yaml:"id"`
-	Service  string         `json:"service" yaml:"service"`
-	Addr     net.Addr       `json:"addr" yaml:"addr"`
-	Metadata utils.Metadata `json:"metadata" yaml:"metadata"`
+	ID               string         `json:"id" yaml:"id"`
+	Service          string         `json:"service" yaml:"service"`
+	Address          string         `json:"address" yaml:"address"`
+	AdvertiseAddress string         `json:"advertise_address" yaml:"advertise_address"`
+	Port             int            `json:"port" yaml:"port"`
+	AdvertisePort    int            `json:"advertise_port" yaml:"advertise_port"`
+	Metadata         utils.Metadata `json:"metadata" yaml:"metadata"`
 }
 
 func RegisterInstance(ins *Ins) {

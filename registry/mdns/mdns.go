@@ -32,7 +32,6 @@ package mdns
 
 import (
 	"context"
-	"net"
 	"strings"
 
 	"github.com/go-sicky/sicky/registry"
@@ -116,7 +115,7 @@ func (rg *MDNS) Register(srv server.Server) error {
 		srv.Options().ID.String(),
 		service,
 		rg.config.Domain,
-		srv.Port(),
+		srv.AdvertisePort(),
 		srv.Metadata().Strings(),
 		nil,
 	)
@@ -212,16 +211,17 @@ func (rg *MDNS) Watch() error {
 					Metadata: meta,
 				}
 				ins.Service = meta.Value("name", "")
-				network := strings.ToLower(meta.Value("network", "tcp"))
-				address := strings.ToLower(meta.Value("address", ":0"))
-				switch network {
-				case "tcp", "tcp4", "tcp6":
-					ins.Addr, _ = net.ResolveTCPAddr(network, address)
-				case "udp", "udp4", "udp6":
-					ins.Addr, _ = net.ResolveUDPAddr(network, address)
-				case "unix", "unixpacket":
-					ins.Addr, _ = net.ResolveUnixAddr(network, address)
-				}
+				ins.Address = strings.ToLower(meta.Value("address", ":0"))
+				// network := strings.ToLower(meta.Value("network", "tcp"))
+				// switch network {
+				// case "tcp", "tcp4", "tcp6":
+				// 	ins.Addr, _ = net.ResolveTCPAddr(network, address)
+				// case "udp", "udp4", "udp6":
+				// 	ins.Addr, _ = net.ResolveUDPAddr(network, address)
+				// case "unix", "unixpacket":
+				// 	ins.Addr, _ = net.ResolveUnixAddr(network, address)
+				// }
+
 				registry.RegisterInstance(ins)
 				rg.options.Logger.DebugContext(
 					rg.ctx,

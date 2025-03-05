@@ -174,7 +174,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 					addrs := make([]resolver.Address, 0)
 					for _, in := range ins {
 						addr := resolver.Address{
-							Addr: in.Addr.String(),
+							Addr: in.Address,
 						}
 
 						addrs = append(addrs, addr)
@@ -183,7 +183,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 							"Append address to GRPC client resolver state",
 							"id", clt.options.ID,
 							"service", cfg.Service,
-							"address", in.Addr.String(),
+							"address", in.Address,
 						)
 					}
 
