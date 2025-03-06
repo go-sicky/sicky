@@ -22,38 +22,13 @@
  */
 
 /**
- * @file trace.go
- * @package grpc
+ * @file config.go
+ * @package logger
  * @author Dr.NP <np@herewe.tech>
- * @since 03/03/2025
+ * @since 03/06/2025
  */
 
-package grpc
-
-import (
-	"context"
-
-	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/grpc"
-)
-
-func NewClientTracingInterceptor(tracer trace.Tracer) grpc.UnaryClientInterceptor {
-	if tracer != nil {
-		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			_, span := tracer.Start(ctx, method)
-			defer span.End()
-
-			err := invoker(ctx, method, req, reply, cc, opts...)
-			if err != nil {
-				span.RecordError(err)
-			}
-
-			return err
-		}
-	} else {
-		return nil
-	}
-}
+package session
 
 /*
  * Local variables:

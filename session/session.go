@@ -22,38 +22,13 @@
  */
 
 /**
- * @file exporter.go
- * @package tracer
+ * @file session.go
+ * @package logger
  * @author Dr.NP <np@herewe.tech>
- * @since 09/15/2024
+ * @since 03/06/2025
  */
 
-package tracer
-
-import "context"
-
-type Exporter interface {
-	// Get context
-	Context() context.Context
-	// Server options
-	Options() *Options
-	// Stringify
-	String() string
-}
-
-// var (
-// 	exporters = make(map[string]Exporter)
-// )
-
-// func Instance(name string, exp ...Exporter) Exporter {
-// 	if len(exp) > 0 {
-// 		exporters[name] = exp[0]
-
-// 		return exp[0]
-// 	}
-
-// 	return exporters[name]
-// }
+package session
 
 /*
  * Local variables:

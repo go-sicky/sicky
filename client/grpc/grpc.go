@@ -37,7 +37,9 @@ import (
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
@@ -65,7 +67,6 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		options:   opts,
 	}
 
-	// clt.addr = addr
 	gopts := make([]grpc.DialOption, 0)
 	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
 		// SSL
@@ -90,13 +91,14 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		gopts = append(gopts, grpc.WithWriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	// gopts = append(gopts,
-	// 	grpc.WithChainUnaryInterceptor(
-	// 		tracer.NewGRPCClientInterceptor(clt.tracer),
-	// 		logger.NewGRPCClientInterceptor(clt.options.Logger()),
-	// 	),
-	// )
+	// Set tracer
+	var tr trace.Tracer
+	if tracer.DefaultTracer != nil {
+		tr = tracer.DefaultTracer.Tracer(clt.Name())
+	}
+
 	gopts = append(gopts, grpc.WithChainUnaryInterceptor(
+		NewClientTracingInterceptor(tr),
 		NewClientLoggerInterceptor(clt.options.Logger),
 	))
 
