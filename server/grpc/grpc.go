@@ -263,6 +263,10 @@ func (srv *GRPCServer) Start() error {
 	}
 
 	srv.addr = listener.Addr()
+	if srv.config.AdvertiseAddress == "" {
+		srv.advertiseAddr = listener.Addr()
+	}
+
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())

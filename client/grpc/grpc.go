@@ -33,6 +33,7 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/registry"
@@ -139,7 +140,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	if err != nil {
 		clt.options.Logger.ErrorContext(
 			clt.ctx,
-			"GRPC dial failed",
+			"GRPC client dial failed",
 			"client", clt.String(),
 			"id", clt.options.ID,
 			"name", clt.options.Name,
@@ -154,7 +155,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	clt.conn = conn
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"Client created",
+		"GRPC client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,
@@ -170,11 +171,11 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		for ev := range registry.PoolChan {
 			if cfg.Service != "" && ev.Changed {
 				ins := registry.GetInstances(cfg.Service)
-				if len(ins) != 0 && r.CC != nil {
+				if r.CC != nil {
 					addrs := make([]resolver.Address, 0)
 					for _, in := range ins {
 						addr := resolver.Address{
-							Addr: in.Address,
+							Addr: fmt.Sprintf("%s:%d", in.AdvertiseAddress, in.AdvertisePort),
 						}
 
 						addrs = append(addrs, addr)

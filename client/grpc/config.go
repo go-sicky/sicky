@@ -38,7 +38,7 @@ import (
 const (
 	DefaultService  = "sicky"
 	DefaultNetwork  = "tcp"
-	DefaultAddr     = "127.0.0.1:9991"
+	DefaultAddr     = ""
 	DefaultBalancer = "round_robin"
 )
 

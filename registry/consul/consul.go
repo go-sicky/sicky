@@ -222,7 +222,7 @@ func (rg *Consul) Watch() error {
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,
-			"Registry watcher start",
+			"Consul registry watcher start",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -230,7 +230,7 @@ func (rg *Consul) Watch() error {
 	} else {
 		rg.options.Logger.WarnContext(
 			rg.ctx,
-			"Registry has no watcher",
+			"Consul registry has no watcher",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,

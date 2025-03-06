@@ -31,8 +31,6 @@
 package consul
 
 import (
-	"encoding/json"
-	"fmt"
 	"sync"
 
 	"github.com/go-sicky/sicky/registry"
@@ -79,8 +77,6 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 
 			for n, v := range list {
 				if n != "consul" {
-					b, _ := json.MarshalIndent(v, "", "  ")
-					fmt.Println(string(b))
 					// Sicky service
 					ins := &registry.Ins{
 						ID:               v.ID,
