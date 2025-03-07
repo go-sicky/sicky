@@ -23,7 +23,7 @@
 
 /**
  * @file session.go
- * @package logger
+ * @package session
  * @author Dr.NP <np@herewe.tech>
  * @since 03/06/2025
  */

@@ -22,18 +22,17 @@
  */
 
 /**
- * @file nats.go
- * @package nats
+ * @file jetstream.go
+ * @package jetstream
  * @author Dr.NP <np@herewe.tech>
  * @since 08/04/2024
  */
 
-package nats
+package jetstream
 
 import (
 	"context"
 	"errors"
-
 	"maps"
 
 	"github.com/go-sicky/sicky/broker"
@@ -41,21 +40,23 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-type Nats struct {
-	config  *Config
-	ctx     context.Context
-	options *broker.Options
-	conn    *nats.Conn
+type Jetstream struct {
+	config     *Config
+	ctx        context.Context
+	options    *broker.Options
+	conn       *nats.Conn
+	streamer   nats.JetStreamContext
+	streamInfo *nats.StreamInfo
 
 	subscriptions map[string]*nats.Subscription
 	handlers      map[string]broker.Handler
 }
 
-func New(opts *broker.Options, cfg *Config) *Nats {
+func New(opts *broker.Options, cfg *Config) *Jetstream {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	brk := &Nats{
+	brk := &Jetstream{
 		config:        cfg,
 		ctx:           context.Background(),
 		options:       opts,
@@ -65,7 +66,7 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nats broker created",
+		"Jetstream broker created",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -76,34 +77,34 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 	return brk
 }
 
-func (brk *Nats) Context() context.Context {
+func (brk *Jetstream) Context() context.Context {
 	return brk.ctx
 }
 
-func (brk *Nats) Options() *broker.Options {
+func (brk *Jetstream) Options() *broker.Options {
 	return brk.options
 }
 
-func (brk *Nats) String() string {
-	return "nats"
+func (brk *Jetstream) String() string {
+	return "jetstream"
 }
 
-func (brk *Nats) ID() uuid.UUID {
+func (brk *Jetstream) ID() uuid.UUID {
 	return brk.options.ID
 }
 
-func (brk *Nats) Name() string {
+func (brk *Jetstream) Name() string {
 	return brk.options.Name
 }
 
-func (brk *Nats) Connect() error {
+func (brk *Jetstream) Connect() error {
 	nc, err := nats.Connect(
 		brk.config.URL,
 	)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nats broker connect failed",
+			"Jetstream broker connect failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -115,14 +116,48 @@ func (brk *Nats) Connect() error {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nats broker connected",
+		"Jetstream broker connected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
 		"url", brk.config.URL,
 	)
 
+	jc, err := nc.JetStream()
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Jetstream create stream context failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	si, err := jc.AddStream(&nats.StreamConfig{
+		Name:         brk.config.Stream.Name,
+		Subjects:     brk.config.Stream.Subjects,
+		MaxConsumers: brk.config.Stream.MaxConsummers,
+	})
+	if err != nil {
+		brk.options.Logger.ErrorContext(
+			brk.ctx,
+			"Jetstream create stream info failed",
+			"broker", brk.String(),
+			"id", brk.options.ID,
+			"name", brk.options.Name,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
 	brk.conn = nc
+	brk.streamer = jc
+	brk.streamInfo = si
 
 	// Handlers
 	for topic, hdl := range brk.handlers {
@@ -130,7 +165,7 @@ func (brk *Nats) Connect() error {
 		if err != nil {
 			brk.options.Logger.ErrorContext(
 				brk.ctx,
-				"Nats broker subscribe failed",
+				"Jetstream broker subscribe failed",
 				"broker", brk.String(),
 				"id", brk.options.ID,
 				"name", brk.options.Name,
@@ -143,7 +178,7 @@ func (brk *Nats) Connect() error {
 	return nil
 }
 
-func (brk *Nats) Disconnect() error {
+func (brk *Jetstream) Disconnect() error {
 	if brk.conn != nil && !brk.conn.IsClosed() {
 		for topic := range brk.handlers {
 			brk.Unsubscribe(topic)
@@ -153,7 +188,7 @@ func (brk *Nats) Disconnect() error {
 		brk.conn = nil
 		brk.options.Logger.InfoContext(
 			brk.ctx,
-			"Nats broker disconnected",
+			"Jetstream broker disconnected",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -164,7 +199,7 @@ func (brk *Nats) Disconnect() error {
 	return nil
 }
 
-func (brk *Nats) Publish(topic string, m *broker.Message) error {
+func (brk *Jetstream) Publish(topic string, m *broker.Message) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return errors.New("broker not connected")
 	}
@@ -179,11 +214,11 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 		msg.Data = m.Raw()
 	}
 
-	err := brk.conn.PublishMsg(msg)
+	ack, err := brk.streamer.PublishMsg(msg)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nats broker publish failed",
+			"Jetstream broker publish failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -196,17 +231,18 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Nats broker published",
+		"Jetstream broker published",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
 		"topic", topic,
+		"ack", ack.Sequence,
 	)
 
 	return nil
 }
 
-func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
+func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return errors.New("broker not connected")
 	}
@@ -215,14 +251,14 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		return errors.New("topic already subscribed")
 	}
 
-	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {
+	sub, err := brk.streamer.Subscribe(topic, func(msg *nats.Msg) {
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
 			err := h(m)
 			if err != nil {
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
-					"Nats broker handler error",
+					"Jetstream broker handler error",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -236,7 +272,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nats broker subscribe failed",
+			"Jetstream broker subscribe failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -249,7 +285,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Nats broker subscribed",
+		"Jetstream broker subscribed",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -261,7 +297,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	return nil
 }
 
-func (brk *Nats) Unsubscribe(topic string) error {
+func (brk *Jetstream) Unsubscribe(topic string) error {
 	sub := brk.subscriptions[topic]
 	if sub != nil {
 		sub.Unsubscribe()
@@ -271,7 +307,7 @@ func (brk *Nats) Unsubscribe(topic string) error {
 	return nil
 }
 
-func (brk *Nats) Handle(hdls ...Handler) {
+func (brk *Jetstream) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)

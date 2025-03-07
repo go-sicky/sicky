@@ -23,12 +23,69 @@
 
 /**
  * @file config.go
- * @package session
+ * @package jetstream
  * @author Dr.NP <np@herewe.tech>
  * @since 03/06/2025
  */
 
-package session
+package jetstream
+
+import "github.com/nats-io/nats.go"
+
+const (
+	DefaultStreamName          = "sicky"
+	DefaultStreamMaxConsummers = 256
+)
+
+type StreamConfig struct {
+	Name          string   `json:"name" yaml:"name" mapstructure:"name"`
+	Subjects      []string `json:"subjects" yaml:"subjects" mapstructure:"subjects"`
+	MaxConsummers int      `json:"max_consumers" yaml:"max_consumers" mapstructure:"max_consumers"`
+}
+
+type Config struct {
+	URL    string        `json:"url" yaml:"url" mapstructure:"url"`
+	Stream *StreamConfig `json:"stream" yaml:"stream" mapstructure:"stream"`
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		URL: nats.DefaultURL,
+		Stream: &StreamConfig{
+			Name:          DefaultStreamName,
+			Subjects:      []string{"*"},
+			MaxConsummers: DefaultStreamMaxConsummers,
+		},
+	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	if c.URL == "" {
+		c.URL = nats.DefaultURL
+	}
+
+	if c.Stream == nil {
+		c.Stream = DefaultConfig().Stream
+	}
+
+	if c.Stream.Name == "" {
+		c.Stream.Name = DefaultStreamName
+	}
+
+	if c.Stream.Subjects == nil {
+		c.Stream.Subjects = []string{"*"}
+	}
+
+	if c.Stream.MaxConsummers < 0 {
+		c.Stream.MaxConsummers = DefaultStreamMaxConsummers
+	}
+
+	return c
+}
 
 /*
  * Local variables:
