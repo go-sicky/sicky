@@ -22,13 +22,37 @@
  */
 
 /**
- * @file config.go
- * @package session
+ * @file session.go
+ * @package server
  * @author Dr.NP <np@herewe.tech>
  * @since 03/06/2025
  */
 
-package session
+package server
+
+import (
+	"time"
+
+	"github.com/go-sicky/sicky/utils"
+	"github.com/google/uuid"
+)
+
+type SessionType int
+
+const (
+	SessionTCP SessionType = iota
+	SessionUDP
+	SessionWebsocket
+)
+
+type SessionBase struct {
+	ID         uuid.UUID
+	LastActive time.Time
+	Type       SessionType
+	Key        string
+	Meta       utils.Metadata
+	Valid      bool
+}
 
 /*
  * Local variables:

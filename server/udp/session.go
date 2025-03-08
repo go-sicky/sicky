@@ -23,14 +23,15 @@
 
 /**
  * @file session.go
- * @package websocket
+ * @package udp
  * @author Dr.NP <np@herewe.tech>
- * @since 02/11/2023
+ * @since 03/08/2025
  */
 
-package websocket
+package udp
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -38,7 +39,6 @@ import (
 	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/gofiber/contrib/websocket"
 	"github.com/google/uuid"
 )
 
@@ -46,27 +46,30 @@ import (
 type Session struct {
 	server.SessionBase
 
-	conn *websocket.Conn
+	conn *net.UDPConn
+	addr *net.UDPAddr
 	pool *Pool
 }
 
-func NewSession(conn *websocket.Conn) *Session {
+func NewSession(conn *net.UDPConn, addr *net.UDPAddr) *Session {
 	return &Session{
 		SessionBase: server.SessionBase{
 			ID:         uuid.New(),
 			LastActive: time.Now(),
 			Meta:       utils.NewMetadata(),
-			Type:       server.SessionWebsocket,
+			Type:       server.SessionTCP,
 			Valid:      true,
 		},
 		conn: conn,
+		addr: addr,
 	}
 }
 
-func (s *Session) Send(mt int, data []byte) error {
+func (s *Session) Send(data []byte) error {
 	s.LastActive = time.Now()
+	_, err := s.conn.Write(data)
 
-	return s.conn.WriteMessage(mt, data)
+	return err
 }
 
 func (s *Session) Close() error {
@@ -74,11 +77,15 @@ func (s *Session) Close() error {
 		s.pool.RemoveByID(s.ID)
 	}
 
-	return s.conn.Close()
+	return nil
 }
 
-func (s *Session) Conn() *websocket.Conn {
+func (s *Session) Conn() *net.UDPConn {
 	return s.conn
+}
+
+func (s *Session) Addr() *net.UDPAddr {
+	return s.addr
 }
 
 /* }}} */
@@ -89,7 +96,8 @@ type Pool struct {
 
 	id              uuid.UUID
 	sessions        map[uuid.UUID]*Session
-	conns           map[*websocket.Conn]*Session
+	conns           map[*net.UDPConn]*Session
+	addrs           map[*net.UDPAddr]*Session
 	keys            map[string]*Session
 	maxIdleDuration time.Duration
 }
@@ -98,7 +106,8 @@ func NewPool(idle int) *Pool {
 	p := &Pool{
 		id:              uuid.New(),
 		sessions:        make(map[uuid.UUID]*Session),
-		conns:           make(map[*websocket.Conn]*Session),
+		conns:           make(map[*net.UDPConn]*Session),
+		addrs:           make(map[*net.UDPAddr]*Session),
 		keys:            make(map[string]*Session),
 		maxIdleDuration: time.Duration(idle) * time.Second,
 	}
@@ -121,7 +130,8 @@ func (p *Pool) Put(sess *Session) {
 	}
 
 	p.sessions[sess.ID] = sess
-	p.conns[sess.conn] = sess
+	//p.conns[sess.conn] = sess
+	p.addrs[sess.addr] = sess
 	if sess.Key != "" {
 		p.keys[sess.Key] = sess
 	}
@@ -138,8 +148,17 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 	return sess
 }
 
-func (p *Pool) GetByConn(conn *websocket.Conn) *Session {
+func (p *Pool) GetByConn(conn *net.UDPConn) *Session {
 	sess, ok := p.conns[conn]
+	if !ok {
+		return nil
+	}
+
+	return sess
+}
+
+func (p *Pool) GetByAddr(addr *net.UDPAddr) *Session {
+	sess, ok := p.addrs[addr]
 	if !ok {
 		return nil
 	}
@@ -163,7 +182,8 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	}
 
 	delete(p.sessions, id)
-	delete(p.conns, sess.conn)
+	//delete(p.conns, sess.conn)
+	delete(p.addrs, sess.addr)
 	if sess.Key != "" {
 		delete(p.keys, sess.Key)
 	}
@@ -192,9 +212,9 @@ func (p *Pool) Purge() {
 	for _, sess := range p.sessions {
 		if now.Sub(sess.LastActive) > p.maxIdleDuration {
 			logger.Logger.Debug(
-				"Websocket connection idle for a long time",
+				"UDP connection idle for a long time",
 				"session", sess.ID,
-				"remote_address", sess.conn.RemoteAddr().String(),
+				"remote_address", sess.addr.String(),
 			)
 
 			sess.Close()

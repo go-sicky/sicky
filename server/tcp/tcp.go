@@ -37,6 +37,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
@@ -53,6 +54,7 @@ type TCPServer struct {
 	conn          net.Listener
 	metadata      utils.Metadata
 	handlers      []Handler
+	pool          *Pool
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -98,6 +100,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
+		pool:          NewPool(cfg.MaxIdleDuration),
 		handlers:      make([]Handler, 0),
 	}
 
@@ -269,10 +272,12 @@ func (srv *TCPServer) Start() error {
 
 				// TODO : Exit accept
 				break
-			} else {
-				for _, hdl := range srv.handlers {
-					hdl.OnConnect(client)
-				}
+			}
+
+			sess := NewSession(client)
+			srv.pool.Put(sess)
+			for _, hdl := range srv.handlers {
+				hdl.OnConnect(sess)
 			}
 
 			go func(c net.Conn) {
@@ -282,7 +287,7 @@ func (srv *TCPServer) Start() error {
 				for {
 					n, err := reader.Read(buff)
 					if err != nil {
-						if errors.Is(err, io.EOF) {
+						if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) {
 							break read
 						} else {
 							srv.options.Logger.ErrorContext(
@@ -297,15 +302,16 @@ func (srv *TCPServer) Start() error {
 								"error", err.Error(),
 							)
 							for _, hdl := range srv.handlers {
-								hdl.OnError(client, err)
+								hdl.OnError(sess, err)
 							}
 						}
 					} else {
+						sess.LastActive = time.Now()
 						if n > 0 {
 							dst := make([]byte, n)
 							copy(dst, buff)
 							for _, hdl := range srv.handlers {
-								err = hdl.OnData(client, dst)
+								err = hdl.OnData(sess, dst)
 								if err != nil {
 									srv.options.Logger.ErrorContext(
 										srv.ctx,
@@ -325,7 +331,7 @@ func (srv *TCPServer) Start() error {
 				}
 
 				for _, hdl := range srv.handlers {
-					err = hdl.OnClose(client)
+					err = hdl.OnClose(sess)
 					if err != nil {
 						srv.options.Logger.ErrorContext(
 							srv.ctx,
@@ -405,10 +411,10 @@ func (srv *TCPServer) Stop() error {
 type Handler interface {
 	Name() string
 	Type() string
-	OnConnect(net.Conn) error
-	OnClose(net.Conn) error
-	OnError(net.Conn, error) error
-	OnData(net.Conn, []byte) error
+	OnConnect(*Session) error
+	OnClose(*Session) error
+	OnError(*Session, error) error
+	OnData(*Session, []byte) error
 }
 
 /* }}} */

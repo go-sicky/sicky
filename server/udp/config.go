@@ -31,9 +31,10 @@
 package udp
 
 const (
-	DefaultNetwork   = "udp"
-	DefaultAddress   = ":9980"
-	DefaulBufferSize = 4096
+	DefaultNetwork         = "udp"
+	DefaultAddress         = ":9980"
+	DefaulBufferSize       = 4096
+	DefaultMaxIdleDuration = 60
 )
 
 type Config struct {
@@ -41,13 +42,15 @@ type Config struct {
 	Address          string `json:"address" yaml:"address" mapstructure:"address"`
 	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
 	BufferSize       int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
+	MaxIdleDuration  int    `json:"max_idle_duration" yaml:"max_idle_duration" mapstructure:"max_idle_duration"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Network:    DefaultNetwork,
-		Address:    DefaultAddress,
-		BufferSize: DefaulBufferSize,
+		Network:         DefaultNetwork,
+		Address:         DefaultAddress,
+		BufferSize:      DefaulBufferSize,
+		MaxIdleDuration: DefaultMaxIdleDuration,
 	}
 }
 
@@ -66,6 +69,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.BufferSize <= 0 {
 		c.BufferSize = DefaulBufferSize
+	}
+
+	if c.MaxIdleDuration == 0 {
+		c.MaxIdleDuration = DefaultMaxIdleDuration
 	}
 
 	return c

@@ -36,11 +36,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/tracer"
 )
@@ -64,6 +66,8 @@ type Service interface {
 	Registries(...registry.Registry) []registry.Registry
 	Tracers(...tracer.Tracer) []tracer.Tracer
 }
+
+type TickerHander func(time.Time, uint64) error
 
 var (
 	Instance Service
@@ -139,6 +143,9 @@ func Run(svc ...Service) error {
 		"branch", me.Options().Branch,
 	)
 
+	// Stop runtime
+	runtime.RuntimeDone <- struct{}{}
+
 	// Stop services
 	errs = me.Stop()
 	if errs != nil {
@@ -162,6 +169,10 @@ func Run(svc ...Service) error {
 		"branch", me.Options().Branch,
 	)
 
+	return nil
+}
+
+func Shutdown() error {
 	return nil
 }
 

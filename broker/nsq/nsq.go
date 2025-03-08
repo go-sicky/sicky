@@ -337,9 +337,32 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 		"channel", h.Channel,
 	)
 
+	hdl := h.Broker.handlers[h.Topic]
 	if h.Broker.handlers[h.Topic] != nil {
 		msg := broker.NewMessage(m.Body)
-		h.Broker.handlers[h.Topic](msg)
+		err := hdl(msg)
+		if err != nil {
+			h.Broker.options.Logger.ErrorContext(
+				h.Broker.ctx,
+				"Nsq broker handler failed",
+				"broker", h.Broker.String(),
+				"id", h.Broker.options.ID,
+				"name", h.Broker.options.Name,
+				"topic", h.Topic,
+				"channel", h.Channel,
+				"error", err.Error(),
+			)
+		} else {
+			h.Broker.options.Logger.DebugContext(
+				h.Broker.ctx,
+				"Nsq broker handler processed",
+				"broker", h.Broker.String(),
+				"id", h.Broker.options.ID,
+				"name", h.Broker.options.Name,
+				"topic", h.Topic,
+				"channel", h.Channel,
+			)
+		}
 	}
 
 	return nil

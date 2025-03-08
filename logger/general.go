@@ -84,11 +84,7 @@ type GeneralLogger interface {
 	FatalfContext(context.Context, string, ...any)
 }
 
-var DefaultGeneralLogger GeneralLogger
-
-func init() {
-	SetDefaultGeneral(NewGeneral(nil))
-}
+var DefaultGeneralLogger = NewGeneral(nil)
 
 func SetDefaultGeneral(logger GeneralLogger) {
 	Logger = logger
@@ -131,13 +127,16 @@ func NewGeneral(l ...*slog.Logger) GeneralLogger {
 				},
 			),
 		)
-
-		slog.SetDefault(ins)
 	}
 
+	slog.SetDefault(ins)
 	gl := &generalLogger{
 		ins:   ins,
 		level: level,
+	}
+
+	if Logger == nil {
+		Logger = gl
 	}
 
 	return gl

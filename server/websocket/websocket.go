@@ -60,6 +60,7 @@ type WebsocketServer struct {
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
 	handlers      []Handler
+	pool          *Pool
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -107,6 +108,8 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
+		pool:          NewPool(cfg.MaxIdleDuration),
+		handlers:      make([]Handler, 0),
 	}
 
 	app := fiber.New(
@@ -381,8 +384,10 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 		"client", c.RemoteAddr().String(),
 	)
 
+	sess := NewSession(c)
+	srv.pool.Put(sess)
 	for _, hdl := range srv.handlers {
-		err = hdl.OnConnect(c)
+		err = hdl.OnConnect(sess)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -402,16 +407,17 @@ read:
 		if err != nil {
 			// Read error
 			for _, hdl := range srv.handlers {
-				hdl.OnError(c, err)
+				hdl.OnError(sess, err)
 			}
 
 			break read
 		} else {
 			switch mt {
 			case websocket.TextMessage, websocket.BinaryMessage:
+				sess.LastActive = time.Now()
 				// OnData
 				for _, hdl := range srv.handlers {
-					err = hdl.OnData(c, mt, body)
+					err = hdl.OnData(sess, mt, body)
 					if err != nil {
 						srv.options.Logger.ErrorContext(
 							srv.ctx,
@@ -439,9 +445,10 @@ read:
 		}
 	}
 
-	// OnClose
+	// Close
+	sess.Close()
 	for _, hdl := range srv.handlers {
-		err = hdl.OnClose(c)
+		err = hdl.OnClose(sess)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -460,10 +467,10 @@ read:
 type Handler interface {
 	Name() string
 	Type() string
-	OnConnect(*websocket.Conn) error
-	OnClose(*websocket.Conn) error
-	OnError(*websocket.Conn, error) error
-	OnData(*websocket.Conn, int, []byte) error
+	OnConnect(*Session) error
+	OnClose(*Session) error
+	OnError(*Session, error) error
+	OnData(*Session, int, []byte) error
 }
 
 /* }}} */

@@ -32,6 +32,7 @@ package runtime
 
 import (
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-sicky/sicky/driver"
@@ -52,6 +53,8 @@ type FlagSwitch struct {
 	Callback FlagSwitchCallback
 }
 
+type TickerHander func(time.Time, uint64) error
+
 var (
 	configLoc           = "config"
 	configType          = "json"
@@ -62,6 +65,12 @@ var (
 
 	AppName = "sicky"
 	silence = false
+
+	BaseTicker         *time.Ticker
+	BaseTickerCounter  atomic.Uint64
+	BaseTickerHandlers = make([]TickerHander, 0)
+
+	RuntimeDone = make(chan struct{})
 )
 
 func Init(name string, switches ...*FlagSwitch) {
@@ -135,6 +144,26 @@ func Start(cfg *Config) {
 		}
 	}
 
+	if cfg.Driver.Cache != nil {
+		_, err := driver.InitCache(cfg.Driver.Cache)
+		if err != nil {
+			logger.Logger.Fatal(
+				"Initialize cache failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
+	if cfg.Driver.KV != nil {
+		_, err := driver.InitKV(cfg.Driver.KV)
+		if err != nil {
+			logger.Logger.Fatal(
+				"Initialize kv failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
 	// Tracer
 	switch strings.ToLower(cfg.Tracer.Type) {
 	case "grpc":
@@ -171,17 +200,65 @@ func Start(cfg *Config) {
 		}
 	}
 
-	if cfg.RegistryPoolPurgeInterval > 0 {
-		// Start pool looper
-		go func() {
-			ticker := time.NewTicker(time.Second * time.Duration(cfg.RegistryPoolPurgeInterval))
-			defer ticker.Stop()
+	// Ticker
+	BaseTicker = time.NewTicker(1 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-RuntimeDone:
+				BaseTicker.Stop()
+				if driver.KV != nil {
+					driver.KV.Close()
+				}
 
-			for range ticker.C {
+				if driver.Cache != nil {
+					driver.Cache.Close()
+				}
+
+				if driver.Nats != nil {
+					driver.Nats.Close()
+				}
+
+				if driver.Redis != nil {
+					driver.Redis.Close()
+				}
+
+				if driver.DB != nil {
+					driver.DB.Close()
+				}
+
+				return
+			case t := <-BaseTicker.C:
+				for _, hdl := range BaseTickerHandlers {
+					err := hdl(t, BaseTickerCounter.Load())
+					if err != nil {
+						logger.Logger.Error(
+							"Ticker handler failed",
+							"error", err.Error(),
+						)
+					}
+				}
+
+				// Increase counter
+				BaseTickerCounter.Add(1)
+			}
+		}
+	}()
+
+	// Registry purger
+	if cfg.RegistryPoolPurgeInterval > 0 {
+		HandleTicker(func(t time.Time, c uint64) error {
+			if c&uint64(cfg.RegistryPoolPurgeInterval) == 0 {
 				registry.PurgeInstances()
 			}
-		}()
+
+			return nil
+		})
 	}
+}
+
+func HandleTicker(handler TickerHander) {
+	BaseTickerHandlers = append(BaseTickerHandlers, handler)
 }
 
 /*

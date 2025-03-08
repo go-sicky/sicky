@@ -64,6 +64,8 @@ type Config struct {
 		DB    *driver.DBConfig    `json:"db" yaml:"db" mapstructure:"db"`
 		Redis *driver.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
 		Nats  *driver.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
+		Cache *driver.CacheConfig `json:"cache" yaml:"cache" mapstructure:"cache"`
+		KV    *driver.KVConfig    `json:"kv" yaml:"kv" mapstructure:"kv"`
 	} `json:"driver" yaml:"driver" mapstructure:"driver"`
 }
 

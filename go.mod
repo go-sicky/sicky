@@ -6,6 +6,8 @@ replace github.com/armon/go-metrics v0.5.4 => github.com/hashicorp/go-metrics v0
 
 require (
 	github.com/denisenkom/go-mssqldb v0.12.3
+	github.com/dgraph-io/badger/v4 v4.6.0
+	github.com/dgraph-io/ristretto/v2 v2.1.0
 	github.com/fatih/color v1.18.0
 	github.com/go-sql-driver/mysql v1.9.0
 	github.com/godoes/gorm-dameng v0.5.0
@@ -63,6 +65,7 @@ require (
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fasthttp/websocket v1.5.12 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
@@ -78,6 +81,7 @@ require (
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
+	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.5 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect

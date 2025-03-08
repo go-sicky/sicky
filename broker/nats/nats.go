@@ -229,6 +229,15 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 					"topic", topic,
 					"error", err.Error(),
 				)
+			} else {
+				brk.options.Logger.DebugContext(
+					brk.ctx,
+					"Nats broker handler processed",
+					"broker", brk.String(),
+					"id", brk.options.ID,
+					"name", brk.options.Name,
+					"topic", topic,
+				)
 			}
 		}
 	})

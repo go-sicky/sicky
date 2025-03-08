@@ -23,14 +23,15 @@
 
 /**
  * @file session.go
- * @package websocket
+ * @package tcp
  * @author Dr.NP <np@herewe.tech>
- * @since 02/11/2023
+ * @since 03/08/2025
  */
 
-package websocket
+package tcp
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -38,7 +39,6 @@ import (
 	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/gofiber/contrib/websocket"
 	"github.com/google/uuid"
 )
 
@@ -46,27 +46,28 @@ import (
 type Session struct {
 	server.SessionBase
 
-	conn *websocket.Conn
+	conn net.Conn
 	pool *Pool
 }
 
-func NewSession(conn *websocket.Conn) *Session {
+func NewSession(conn net.Conn) *Session {
 	return &Session{
 		SessionBase: server.SessionBase{
 			ID:         uuid.New(),
 			LastActive: time.Now(),
 			Meta:       utils.NewMetadata(),
-			Type:       server.SessionWebsocket,
+			Type:       server.SessionTCP,
 			Valid:      true,
 		},
 		conn: conn,
 	}
 }
 
-func (s *Session) Send(mt int, data []byte) error {
+func (s *Session) Send(data []byte) error {
 	s.LastActive = time.Now()
+	_, err := s.conn.Write(data)
 
-	return s.conn.WriteMessage(mt, data)
+	return err
 }
 
 func (s *Session) Close() error {
@@ -77,7 +78,7 @@ func (s *Session) Close() error {
 	return s.conn.Close()
 }
 
-func (s *Session) Conn() *websocket.Conn {
+func (s *Session) Conn() net.Conn {
 	return s.conn
 }
 
@@ -89,7 +90,7 @@ type Pool struct {
 
 	id              uuid.UUID
 	sessions        map[uuid.UUID]*Session
-	conns           map[*websocket.Conn]*Session
+	conns           map[net.Conn]*Session
 	keys            map[string]*Session
 	maxIdleDuration time.Duration
 }
@@ -98,7 +99,7 @@ func NewPool(idle int) *Pool {
 	p := &Pool{
 		id:              uuid.New(),
 		sessions:        make(map[uuid.UUID]*Session),
-		conns:           make(map[*websocket.Conn]*Session),
+		conns:           make(map[net.Conn]*Session),
 		keys:            make(map[string]*Session),
 		maxIdleDuration: time.Duration(idle) * time.Second,
 	}
@@ -138,7 +139,7 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 	return sess
 }
 
-func (p *Pool) GetByConn(conn *websocket.Conn) *Session {
+func (p *Pool) GetByConn(conn *net.TCPConn) *Session {
 	sess, ok := p.conns[conn]
 	if !ok {
 		return nil
@@ -192,7 +193,7 @@ func (p *Pool) Purge() {
 	for _, sess := range p.sessions {
 		if now.Sub(sess.LastActive) > p.maxIdleDuration {
 			logger.Logger.Debug(
-				"Websocket connection idle for a long time",
+				"TCP connection idle for a long time",
 				"session", sess.ID,
 				"remote_address", sess.conn.RemoteAddr().String(),
 			)

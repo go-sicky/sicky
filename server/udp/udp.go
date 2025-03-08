@@ -35,6 +35,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
@@ -54,6 +55,7 @@ type UDPServer struct {
 	conn          *net.UDPConn
 	metadata      utils.Metadata
 	handlers      []Handler
+	pool          *Pool
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -100,6 +102,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
+		pool:          NewPool(cfg.MaxIdleDuration),
 		handlers:      make([]Handler, 0),
 	}
 
@@ -223,10 +226,21 @@ func (srv *UDPServer) Start() error {
 				// TODO : Exit read ???
 				break
 			} else if n >= 0 {
+				sess := srv.pool.GetByAddr(addr)
+				if sess == nil {
+					sess = NewSession(srv.conn, addr)
+					srv.pool.Put(sess)
+					for _, hdl := range srv.handlers {
+						hdl.OnConnect(sess)
+					}
+				}
+
+				sess.LastActive = time.Now()
+
 				dst := make([]byte, n)
 				copy(dst, buff)
 				for _, hdl := range srv.handlers {
-					hdl.OnData(srv.conn, addr, dst)
+					hdl.OnData(sess, dst)
 				}
 			}
 		}
@@ -360,7 +374,8 @@ func (srv *UDPServer) Send(c *net.UDPAddr, data []byte) error {
 type Handler interface {
 	Name() string
 	Type() string
-	OnData(*net.UDPConn, *net.UDPAddr, []byte) error
+	OnConnect(*Session) error
+	OnData(*Session, []byte) error
 }
 
 /* }}} */

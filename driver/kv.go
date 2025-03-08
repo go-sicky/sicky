@@ -22,60 +22,48 @@
  */
 
 /**
- * @file config.go
- * @package tcp
+ * @file kv.go
+ * @package driver
  * @author Dr.NP <np@herewe.tech>
- * @since 01/17/2025
+ * @since 03/08/2025
  */
 
-package tcp
+package driver
 
-const (
-	DefaultNetwork         = "tcp"
-	DefaultAddress         = ":9981"
-	DefaultBufferSize      = 4096
-	DefaultMaxIdleDuration = 60
+import (
+	"github.com/dgraph-io/badger/v4"
+	"github.com/go-sicky/sicky/logger"
 )
 
-type Config struct {
-	Network          string `json:"network" yaml:"network" mapstructure:"network"`
-	Address          string `json:"address" yaml:"address" mapstructure:"address"`
-	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
-	BufferSize       int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
-	MaxIdleDuration  int    `json:"max_idle_duration" yaml:"max_idle_duration" mapstructure:"max_idle_duration"`
+type KVConfig struct {
+	Path string `json:"path" yaml:"path" mapstructure:"path"`
 }
 
-func DefaultConfig() *Config {
-	return &Config{
-		Network:         DefaultNetwork,
-		Address:         DefaultAddress,
-		BufferSize:      DefaultBufferSize,
-		MaxIdleDuration: DefaultMaxIdleDuration,
-	}
-}
+var KV *badger.DB
 
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
+func InitKV(cfg *KVConfig) (any, error) {
+	if cfg == nil {
+		return nil, nil
 	}
 
-	if c.Network == "" {
-		c.Network = DefaultNetwork
+	kv, err := badger.Open(badger.DefaultOptions(cfg.Path))
+	if err != nil {
+		logger.Logger.Error(
+			"Badger storage initialize failed",
+			"error", err.Error(),
+		)
+
+		return nil, err
 	}
 
-	if c.Address == "" {
-		c.Address = DefaultAddress
-	}
+	logger.Logger.Info(
+		"Badger storage initialized",
+		"path", cfg.Path,
+	)
 
-	if c.BufferSize <= 0 {
-		c.BufferSize = DefaultBufferSize
-	}
+	KV = kv
 
-	if c.MaxIdleDuration == 0 {
-		c.MaxIdleDuration = DefaultMaxIdleDuration
-	}
-
-	return c
+	return kv, nil
 }
 
 /*
