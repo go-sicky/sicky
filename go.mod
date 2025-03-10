@@ -10,7 +10,7 @@ require (
 	github.com/dgraph-io/ristretto/v2 v2.1.0
 	github.com/fatih/color v1.18.0
 	github.com/go-sql-driver/mysql v1.9.0
-	github.com/godoes/gorm-dameng v0.5.0
+	github.com/godoes/gorm-dameng v0.6.0
 	github.com/gofiber/contrib/websocket v1.3.3
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/gofiber/swagger v1.1.1
