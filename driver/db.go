@@ -120,7 +120,10 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 
 	// Debug logger
 	if cfg.Debug {
-		db.AddQueryHook(bundebug.NewQueryHook())
+		db.AddQueryHook(bundebug.NewQueryHook(
+			bundebug.WithEnabled(true),
+			bundebug.WithVerbose(true),
+		))
 	} else if cfg.SlowDuration > 0 {
 		db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithEnabled(true)))
 	}
