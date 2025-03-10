@@ -95,10 +95,12 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	var tr trace.Tracer
 	if tracer.DefaultTracer != nil {
 		tr = tracer.DefaultTracer.Tracer(clt.Name())
+		gopts = append(gopts, grpc.WithChainUnaryInterceptor(
+			NewClientTracingInterceptor(tr),
+		))
 	}
 
 	gopts = append(gopts, grpc.WithChainUnaryInterceptor(
-		NewClientTracingInterceptor(tr),
 		NewClientLoggerInterceptor(clt.options.Logger),
 	))
 
@@ -109,23 +111,13 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	r.BuildCallback = sickyBuild
 	r.CloseCallback = sickyClose
 	r.InitialState(resolver.State{})
-	gopts = append(gopts, grpc.WithResolvers(r))
 
 	sc := &grpcServiceConfig{}
-
-	// Balancer
-	balancer := make(map[string]map[string]any)
-	balancer[cfg.Balancer] = make(map[string]any)
-	sc.LoadBalancingConfig = append(sc.LoadBalancingConfig, balancer)
 
 	// Timeout
 	if cfg.ConnectionTimeout > 0 {
 		sc.Timeout = cfg.ConnectionTimeout.String()
 	}
-
-	// Override default service config
-	b, _ := json.Marshal(sc)
-	gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
 
 	// Client connection
 	var (
@@ -134,8 +126,22 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	)
 
 	if cfg.Addr != "" {
+		// Override default service config
+		b, _ := json.Marshal(sc)
+		gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
+
 		conn, err = grpc.NewClient(cfg.Addr, gopts...)
 	} else {
+		// Balancer
+		balancer := make(map[string]map[string]any)
+		balancer[cfg.Balancer] = make(map[string]any)
+		sc.LoadBalancingConfig = append(sc.LoadBalancingConfig, balancer)
+
+		// Override default service config
+		b, _ := json.Marshal(sc)
+		gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
+		gopts = append(gopts, grpc.WithResolvers(r))
+
 		conn, err = grpc.NewClient("sicky:///"+cfg.Service, gopts...)
 	}
 

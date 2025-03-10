@@ -51,7 +51,9 @@ func NewClientTracingInterceptor(tracer trace.Tracer) grpc.UnaryClientIntercepto
 			return err
 		}
 	} else {
-		return nil
+		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			return nil
+		}
 	}
 }
 
