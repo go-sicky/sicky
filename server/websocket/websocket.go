@@ -60,7 +60,7 @@ type WebsocketServer struct {
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
 	handlers      []Handler
-	pool          *Pool
+	//pool          *Pool
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -108,8 +108,8 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
-		pool:          NewPool(cfg.PingDuration, cfg.MaxIdleDuration),
-		handlers:      make([]Handler, 0),
+		//pool:          NewPool(cfg.PingDuration, cfg.MaxIdleDuration),
+		handlers: make([]Handler, 0),
 	}
 
 	app := fiber.New(
@@ -144,6 +144,11 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	})
 	app.Get(cfg.Path, websocket.New(srv.operator))
 	server.Instance(opts.ID, srv)
+
+	// Generate pool
+	if SessionPool == nil {
+		SessionPool = NewPool(cfg.PingDuration, cfg.MaxIdleDuration)
+	}
 
 	return srv
 }
@@ -355,10 +360,6 @@ func (srv *WebsocketServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *WebsocketServer) Pool() *Pool {
-	return srv.pool
-}
-
 func (srv *WebsocketServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
@@ -391,7 +392,10 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 	)
 
 	sess := NewSession(c)
-	srv.pool.Put(sess)
+	if SessionPool != nil {
+		SessionPool.Put(sess)
+	}
+
 	for _, hdl := range srv.handlers {
 		err = hdl.OnConnect(sess)
 		if err != nil {

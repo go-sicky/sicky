@@ -65,6 +65,9 @@ func NewSession(conn *websocket.Conn) *Session {
 
 func (s *Session) Send(mt int, data []byte) error {
 	s.LastActive = time.Now()
+	if mt <= 0 {
+		mt = websocket.TextMessage
+	}
 
 	return s.conn.WriteMessage(mt, data)
 }
@@ -91,9 +94,26 @@ func (s *Session) Conn() *websocket.Conn {
 	return s.conn
 }
 
+func (s *Session) SetKey(key string) {
+	if s.pool != nil {
+		// Refresh pool
+		if s.Key != "" {
+			s.pool.Lock()
+			delete(s.pool.keys, s.Key)
+			s.pool.Unlock()
+		}
+
+		s.pool.keys[key] = s
+	}
+
+	s.Key = key
+}
+
 /* }}} */
 
 /* {{{ [Pool] */
+var SessionPool *Pool
+
 type Pool struct {
 	sync.RWMutex
 
@@ -120,6 +140,10 @@ func NewPool(ping, idle int) *Pool {
 
 		return nil
 	})
+
+	if SessionPool == nil {
+		SessionPool = p
+	}
 
 	return p
 }
@@ -179,6 +203,38 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	if sess.Key != "" {
 		delete(p.keys, sess.Key)
 	}
+
+	sess.pool = nil
+
+	return true
+}
+
+func (p *Pool) RemoveByConn(conn *websocket.Conn) bool {
+	sess, ok := p.conns[conn]
+	if !ok {
+		return false
+	}
+
+	delete(p.sessions, sess.ID)
+	delete(p.conns, conn)
+	if sess.Key != "" {
+		delete(p.keys, sess.Key)
+	}
+
+	sess.pool = nil
+
+	return true
+}
+
+func (p *Pool) RemoveByKey(key string) bool {
+	sess, ok := p.keys[key]
+	if !ok {
+		return false
+	}
+
+	delete(p.sessions, sess.ID)
+	delete(p.conns, sess.conn)
+	delete(p.keys, key)
 
 	sess.pool = nil
 
