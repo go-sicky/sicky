@@ -74,6 +74,16 @@ func (s *Session) Close() error {
 		s.pool.RemoveByID(s.ID)
 	}
 
+	// Send close frame
+	err := s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "timeout"))
+	if err != nil {
+		// Close force
+		nc := s.conn.NetConn()
+		if nc != nil {
+			nc.Close()
+		}
+	}
+
 	return s.conn.Close()
 }
 
@@ -91,15 +101,17 @@ type Pool struct {
 	sessions        map[uuid.UUID]*Session
 	conns           map[*websocket.Conn]*Session
 	keys            map[string]*Session
+	pingDuration    time.Duration
 	maxIdleDuration time.Duration
 }
 
-func NewPool(idle int) *Pool {
+func NewPool(ping, idle int) *Pool {
 	p := &Pool{
 		id:              uuid.New(),
 		sessions:        make(map[uuid.UUID]*Session),
 		conns:           make(map[*websocket.Conn]*Session),
 		keys:            make(map[string]*Session),
+		pingDuration:    time.Duration(ping) * time.Second,
 		maxIdleDuration: time.Duration(idle) * time.Second,
 	}
 
@@ -190,6 +202,18 @@ func (p *Pool) Purge() {
 
 	now := time.Now()
 	for _, sess := range p.sessions {
+		if now.Sub(sess.LastActive) > p.pingDuration {
+			// Write ping
+			err := sess.conn.WriteMessage(websocket.PingMessage, nil)
+			if err != nil {
+				logger.Logger.Error(
+					"Websocket write ping message failed",
+					"session", sess.ID,
+					"error", err.Error(),
+				)
+			}
+		}
+
 		if now.Sub(sess.LastActive) > p.maxIdleDuration {
 			logger.Logger.Debug(
 				"Websocket connection idle for a long time",
@@ -197,7 +221,14 @@ func (p *Pool) Purge() {
 				"remote_address", sess.conn.RemoteAddr().String(),
 			)
 
-			sess.Close()
+			err := sess.Close()
+			if err != nil {
+				logger.Logger.Error(
+					"Websocket connection close failed",
+					"session", sess.ID,
+					"error", err.Error(),
+				)
+			}
 		}
 	}
 }

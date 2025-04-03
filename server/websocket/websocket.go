@@ -108,7 +108,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
-		pool:          NewPool(cfg.MaxIdleDuration),
+		pool:          NewPool(cfg.PingDuration, cfg.MaxIdleDuration),
 		handlers:      make([]Handler, 0),
 	}
 
@@ -130,6 +130,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		"id", srv.options.ID,
 		"name", srv.options.Name,
 		"addr", addr.String(),
+		"path", cfg.Path,
 	)
 
 	app.Use(cfg.Path, func(c *fiber.Ctx) error {
@@ -277,6 +278,7 @@ func (srv *WebsocketServer) Start() error {
 		"id", srv.options.ID,
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
+		"path", srv.config.Path,
 	)
 	srv.running = true
 
@@ -353,6 +355,10 @@ func (srv *WebsocketServer) App() *fiber.App {
 	return srv.app
 }
 
+func (srv *WebsocketServer) Pool() *Pool {
+	return srv.pool
+}
+
 func (srv *WebsocketServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
@@ -415,6 +421,17 @@ read:
 			switch mt {
 			case websocket.TextMessage, websocket.BinaryMessage:
 				sess.LastActive = time.Now()
+				srv.options.Logger.DebugContext(
+					srv.ctx,
+					"Websocket data received",
+					"server", srv.String(),
+					"id", srv.options.ID,
+					"name", srv.options.Name,
+					"client", c.RemoteAddr().String(),
+					"message_type", mt,
+					"message_length", len(body),
+				)
+
 				// OnData
 				for _, hdl := range srv.handlers {
 					err = hdl.OnData(sess, mt, body)
@@ -430,12 +447,9 @@ read:
 						)
 					}
 				}
-			case websocket.PingMessage:
-				// Auto pong
-				break
 			case websocket.PongMessage:
 				// Ignore typo
-				break
+				sess.LastActive = time.Now()
 			case websocket.CloseMessage:
 				// Close
 				break read
@@ -446,7 +460,30 @@ read:
 	}
 
 	// Close
-	sess.Close()
+	err = sess.Close()
+	if err != nil {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Websocket connection close failed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"client", c.RemoteAddr().String(),
+			"session", sess.ID,
+			"error", err.Error(),
+		)
+	} else {
+		srv.options.Logger.DebugContext(
+			srv.ctx,
+			"Websocket connection closed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"client", c.RemoteAddr().String(),
+			"session", sess.ID,
+		)
+	}
+
 	for _, hdl := range srv.handlers {
 		err = hdl.OnClose(sess)
 		if err != nil {
@@ -457,6 +494,7 @@ read:
 				"id", srv.options.ID,
 				"name", srv.options.Name,
 				"client", c.RemoteAddr().String(),
+				"session", sess.ID,
 				"error", err.Error(),
 			)
 		}

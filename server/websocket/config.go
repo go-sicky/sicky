@@ -34,6 +34,7 @@ const (
 	DefaultNetwork         = "tcp"
 	DefaultAddress         = ":9991"
 	DefaultPath            = "/conn"
+	DefaultPingDuration    = 5
 	DefaultMaxIdleDuration = 60
 )
 
@@ -44,6 +45,7 @@ type Config struct {
 	TLSCertPEM       string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
 	TLSKeyPEM        string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
 	Path             string `json:"path" yaml:"path" mapstructure:"path"`
+	PingDuration     int    `json:"ping_duration" yaml:"ping_duration" mapstructure:"ping_duration"`
 	MaxIdleDuration  int    `json:"max_idle_duration" yaml:"max_idle_duration" mapstructure:"max_idle_duration"`
 }
 
@@ -52,6 +54,7 @@ func DefaultConfig() *Config {
 		Network:         DefaultNetwork,
 		Address:         DefaultAddress,
 		Path:            DefaultPath,
+		PingDuration:    DefaultPingDuration,
 		MaxIdleDuration: DefaultMaxIdleDuration,
 	}
 }
@@ -71,6 +74,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.Path == "" {
 		c.Path = DefaultPath
+	}
+
+	if c.PingDuration == 0 {
+		c.PingDuration = DefaultPingDuration
 	}
 
 	if c.MaxIdleDuration == 0 {
