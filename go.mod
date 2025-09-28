@@ -47,6 +47,8 @@ require (
 	google.golang.org/protobuf v1.36.9
 )
 
+require github.com/mitchellh/mapstructure v1.5.0 // indirect
+
 require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.16.5 // indirect
