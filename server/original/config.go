@@ -31,6 +31,7 @@
 package original
 
 const (
+	DefaultNetwork = "tcp"
 	DefaultAddress = ":9980"
 
 	// AccessLogger
@@ -56,6 +57,7 @@ type AccessLoggerConfig struct {
 }
 
 type Config struct {
+	Network          string              `json:"network" yaml:"network" mapstructure:"network"`
 	Address          string              `json:"address" yaml:"address" mapstructure:"address"`
 	AdvertiseAddress string              `json:"advertise_address" yaml:"advertise_address"`
 	TLSCertPEM       string              `json:"tls_cert_pem" yaml:"tls_cert_pem"`
@@ -77,6 +79,10 @@ func DefaultConfig() *Config {
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Network == "" {
+		c.Network = DefaultNetwork
 	}
 
 	if c.Address == "" {
