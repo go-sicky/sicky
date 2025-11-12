@@ -179,25 +179,23 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		for ev := range registry.PoolChan {
 			if cfg.Service != "" && ev.Changed {
 				ins := registry.GetInstances(cfg.Service)
-				if r.CC != nil {
-					addrs := make([]resolver.Address, 0)
-					for _, in := range ins {
-						addr := resolver.Address{
-							Addr: fmt.Sprintf("%s:%d", in.AdvertiseAddress, in.AdvertisePort),
-						}
-
-						addrs = append(addrs, addr)
-						clt.options.Logger.TraceContext(
-							clt.ctx,
-							"Append address to GRPC client resolver state",
-							"id", clt.options.ID,
-							"service", cfg.Service,
-							"address", in.Address,
-						)
+				addrs := make([]resolver.Address, 0)
+				for _, in := range ins {
+					addr := resolver.Address{
+						Addr: fmt.Sprintf("%s:%d", in.AdvertiseAddress, in.AdvertisePort),
 					}
 
-					r.UpdateState(resolver.State{Addresses: addrs})
+					addrs = append(addrs, addr)
+					clt.options.Logger.TraceContext(
+						clt.ctx,
+						"Append address to GRPC client resolver state",
+						"id", clt.options.ID,
+						"service", cfg.Service,
+						"address", in.Address,
+					)
 				}
+
+				r.UpdateState(resolver.State{Addresses: addrs})
 			}
 		}
 	}()
