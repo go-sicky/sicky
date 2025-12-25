@@ -116,7 +116,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		"address", addr.String(),
 	)
 
-	server.Instance(opts.ID, srv)
+	server.Set(srv)
 
 	return srv
 }
@@ -142,9 +142,7 @@ func (srv *UDPServer) Name() string {
 }
 
 func (srv *UDPServer) Start() error {
-	var (
-		err error
-	)
+	var err error
 	srv.Lock()
 	defer srv.Unlock()
 

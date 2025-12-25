@@ -22,60 +22,46 @@
  */
 
 /**
- * @file redis.go
- * @package driver
+ * @file nats.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 12/21/2025
  */
 
-package driver
+package infra
 
 import (
-	"context"
-
-	"github.com/go-sicky/sicky/logger"
-	"github.com/redis/go-redis/v9"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/google/uuid"
 )
 
-type RedisConfig struct {
-	Addr     string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	Password string `json:"password" yaml:"password" mapstructure:"password"`
-	DB       int    `json:"db" yaml:"db" mapstructure:"db"`
+var MQTT mqtt.Client
+
+type MQTTConfig struct {
+	Broker   string `json:"broker" yaml:"broker" mapstructure:"broker"`
+	ClientID string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
 }
 
-var Redis *redis.Client
-
-func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
+func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
-	})
-	err := rdb.Ping(context.TODO()).Err()
-	if err != nil {
-		logger.Logger.Error(
-			"Redis initialize failed",
-			"error", err.Error(),
-		)
-
-		return nil, err
+	if cfg.ClientID == "" {
+		cfg.ClientID = "sicky::" + uuid.NewString()
 	}
 
-	logger.Logger.Info(
-		"Redis initialized",
-		"addr", cfg.Addr,
-		"db", cfg.DB,
-	)
+	opts := mqtt.NewClientOptions().AddBroker(cfg.Broker)
+	opts.SetClientID(cfg.ClientID)
+	client := mqtt.NewClient(opts)
 
-	if Redis == nil {
-		Redis = rdb
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		return nil, token.Error()
 	}
 
-	return rdb, nil
+	MQTT = client
+
+	return client, nil
 }
 
 /*

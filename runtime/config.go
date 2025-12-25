@@ -31,114 +31,107 @@
 package runtime
 
 import (
-	"net/url"
-	"strings"
-
-	"github.com/go-sicky/sicky/driver"
-	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/metrics"
-	"github.com/spf13/viper"
 	_ "github.com/spf13/viper/remote"
 )
 
-const (
-	DefaultLogLevel                  = "info"
-	DefaultRegistryPoolPurgeInterval = 0
-	DefaultTracerType                = "none"
-)
+// const (
+// 	DefaultLogLevel                  = "info"
+// 	DefaultRegistryPoolPurgeInterval = 0
+// 	DefaultTracerType                = "none"
+// )
 
-type Config struct {
-	LogLevel                  string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
-	RegistryPoolPurgeInterval int    `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
-	Tracer                    struct {
-		Type        string  `json:"type" yaml:"type" mapstructure:"type"`
-		Endpoint    string  `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
-		Compress    bool    `json:"compress" yaml:"compress" mapstructure:"compress"`
-		Timeout     int     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
-		PrettyPrint bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
-		Timestamps  bool    `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
-		SampleRate  float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
-	} `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
-	Metrics *metrics.Config `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
-	Driver  struct {
-		DB    *driver.DBConfig    `json:"db" yaml:"db" mapstructure:"db"`
-		Redis *driver.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
-		Nats  *driver.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
-		Cache *driver.CacheConfig `json:"cache" yaml:"cache" mapstructure:"cache"`
-		KV    *driver.KVConfig    `json:"kv" yaml:"kv" mapstructure:"kv"`
-	} `json:"driver" yaml:"driver" mapstructure:"driver"`
-}
+// type Config struct {
+// 	LogLevel                  string `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
+// 	RegistryPoolPurgeInterval int    `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
+// 	Tracer                    struct {
+// 		Type        string  `json:"type" yaml:"type" mapstructure:"type"`
+// 		Endpoint    string  `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+// 		Compress    bool    `json:"compress" yaml:"compress" mapstructure:"compress"`
+// 		Timeout     int     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+// 		PrettyPrint bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
+// 		Timestamps  bool    `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
+// 		SampleRate  float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+// 	} `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
+// 	// Metrics *metrics.Config `json:"metrics" yaml:"metrics" mapstructure:"metrics"`
+// 	Infra struct {
+// 		DB    *infra.DBConfig    `json:"db" yaml:"db" mapstructure:"db"`
+// 		Redis *infra.RedisConfig `json:"redis" yaml:"redis" mapstructure:"redis"`
+// 		Nats  *infra.NatsConfig  `json:"nats" yaml:"nats" mapstructure:"nats"`
+// 		Cache *infra.CacheConfig `json:"cache" yaml:"cache" mapstructure:"cache"`
+// 		KV    *infra.KVConfig    `json:"kv" yaml:"kv" mapstructure:"kv"`
+// 	} `json:"infra" yaml:"infra" mapstructure:"infra"`
+// }
 
-func DefaultConfig() *Config {
-	c := &Config{
-		LogLevel:                  DefaultLogLevel,
-		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
-	}
-	c.Tracer.Type = DefaultTracerType
+// func DefaultConfig() *Config {
+// 	c := &Config{
+// 		LogLevel:                  DefaultLogLevel,
+// 		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
+// 	}
+// 	c.Tracer.Type = DefaultTracerType
 
-	return c
-}
+// 	return c
+// }
 
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
-	}
+// func (c *Config) Ensure() *Config {
+// 	if c == nil {
+// 		c = DefaultConfig()
+// 	}
 
-	if c.LogLevel == "" {
-		c.LogLevel = DefaultLogLevel
-	}
+// 	if c.LogLevel == "" {
+// 		c.LogLevel = DefaultLogLevel
+// 	}
 
-	return c
-}
+// 	return c
+// }
 
-func LoadConfig(raw any) error {
-	cfg := viper.New()
-	cfg.SetConfigType(configType)
+// func LoadConfig(raw any) error {
+// 	cfg := viper.New()
+// 	cfg.SetConfigType(configType)
 
-	// Try config source
-	u, err := url.Parse(configLoc)
-	if err == nil && u != nil && u.Scheme != "" && u.Path != "" {
-		// Remote config source
-		remote := strings.ToLower(u.Scheme)
-		err = cfg.AddRemoteProvider(remote, u.Host, u.Path)
-		if err != nil {
-			logger.Logger.Fatal("Add remote config source failed", "error", err.Error())
-		}
+// 	// Try config source
+// 	u, err := url.Parse(configLoc)
+// 	if err == nil && u != nil && u.Scheme != "" && u.Path != "" {
+// 		// Remote config source
+// 		remote := strings.ToLower(u.Scheme)
+// 		err = cfg.AddRemoteProvider(remote, u.Host, u.Path)
+// 		if err != nil {
+// 			logger.Logger.Fatal("Add remote config source failed", "error", err.Error())
+// 		}
 
-		err = cfg.ReadRemoteConfig()
-	} else {
-		// Local file
-		cfg.SetConfigName(configLoc)
-		cfg.AddConfigPath("/etc")
-		cfg.AddConfigPath("/etc/" + AppName)
-		cfg.AddConfigPath("$HOME/." + AppName)
-		cfg.AddConfigPath(".")
+// 		err = cfg.ReadRemoteConfig()
+// 	} else {
+// 		// Local file
+// 		cfg.SetConfigName(configLoc)
+// 		cfg.AddConfigPath("/etc")
+// 		cfg.AddConfigPath("/etc/" + AppName)
+// 		cfg.AddConfigPath("$HOME/." + AppName)
+// 		cfg.AddConfigPath(".")
 
-		err = cfg.ReadInConfig()
-	}
+// 		err = cfg.ReadInConfig()
+// 	}
 
-	if err != nil {
-		logger.Logger.Fatal("Read config failed", "error", err.Error())
-	}
+// 	if err != nil {
+// 		logger.Logger.Fatal("Read config failed", "error", err.Error())
+// 	}
 
-	logger.Logger.Info("Config read", "location", configLoc)
+// 	logger.Logger.Info("Config read", "location", configLoc)
 
-	// Read config from environment variables
-	cfg.SetEnvPrefix(strings.ToUpper(AppName))
-	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	cfg.AutomaticEnv()
+// 	// Read config from environment variables
+// 	cfg.SetEnvPrefix(strings.ToUpper(AppName))
+// 	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+// 	cfg.AutomaticEnv()
 
-	// Marshal
-	if raw != nil {
-		err = cfg.Unmarshal(raw)
-	}
+// 	// Marshal
+// 	if raw != nil {
+// 		err = cfg.Unmarshal(raw)
+// 	}
 
-	return err
-}
+// 	return err
+// }
 
-func WatchConfig() error {
-	return nil
-}
+// func WatchConfig() error {
+// 	return nil
+// }
 
 /*
  * Local variables:

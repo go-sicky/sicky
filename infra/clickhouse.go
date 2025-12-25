@@ -22,47 +22,39 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file clickhouse.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 12/20/2025
  */
 
-package job
+package infra
 
 import (
-	"context"
-
-	"github.com/google/uuid"
+	"github.com/go-sicky/sicky/logger"
+	"github.com/uptrace/go-clickhouse/ch"
 )
 
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+type ClickhouseConfig struct {
+	DSN string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
 }
 
-var jobs = make(map[uuid.UUID]Job)
+var Clickhouse *ch.DB
 
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
+	if cfg == nil {
+		return nil, nil
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	db := ch.Connect(ch.WithDSN(cfg.DSN))
+	logger.Logger.Info(
+		"Clickhouse initialized",
+		"dsn", cfg.DSN,
+	)
+
+	Clickhouse = db
+
+	return db, nil
 }
 
 /*

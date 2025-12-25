@@ -60,7 +60,7 @@ type WebsocketServer struct {
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
 	handlers      []Handler
-	//pool          *Pool
+	// pool          *Pool
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -108,7 +108,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
-		//pool:          NewPool(cfg.PingDuration, cfg.MaxIdleDuration),
+		// pool:          NewPool(cfg.PingDuration, cfg.MaxIdleDuration),
 		handlers: make([]Handler, 0),
 	}
 
@@ -143,7 +143,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		return fiber.ErrUpgradeRequired
 	})
 	app.Get(cfg.Path, websocket.New(srv.operator))
-	server.Instance(opts.ID, srv)
+	server.Set(srv)
 
 	// Generate pool
 	if SessionPool == nil {

@@ -23,12 +23,12 @@
 
 /**
  * @file metadata.go
- * @package http
+ * @package fiber
  * @author Dr.NP <np@herewe.tech>
  * @since 11/29/2023
  */
 
-package http
+package fiber
 
 import (
 	"github.com/gofiber/fiber/v2"

@@ -59,18 +59,29 @@ type Registry interface {
 }
 
 var (
-	registries = make(map[uuid.UUID]Registry)
+	registries      = make(map[uuid.UUID]Registry)
+	defaultRegistry Registry
 )
 
-func Instance(id uuid.UUID, rg ...Registry) Registry {
-	if len(rg) > 0 {
-		registries[id] = rg[0]
-
-		return rg[0]
+func Set(rgs ...Registry) {
+	for _, rg := range rgs {
+		registries[rg.ID()] = rg
+		if defaultRegistry == nil {
+			defaultRegistry = rg
+		}
 	}
+}
 
+func Get(id uuid.UUID) Registry {
 	return registries[id]
 }
+
+func Default() Registry {
+	return defaultRegistry
+}
+
+/* {{{ [Helpers] */
+/* }}} */
 
 /*
  * Local variables:

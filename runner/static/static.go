@@ -68,7 +68,7 @@ func New(opts *runner.Options, cfg *Config) *Static {
 		"name", r.options.Name,
 	)
 
-	runner.Instance(opts.ID, r)
+	runner.Set(r)
 
 	return r
 }

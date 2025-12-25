@@ -162,7 +162,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 		"version", cfg.ServiceVersion,
 		"sample_rate", cfg.SampleRate,
 	)
-	tracer.Instance(opts.ID, tc)
+	tracer.Set(tc)
 
 	return tc
 }

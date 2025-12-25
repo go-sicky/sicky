@@ -69,7 +69,7 @@ func New(opts *client.Options, cfg *Config) *UDPClient {
 		"addr", cfg.Addr,
 	)
 
-	client.Instance(opts.ID, clt)
+	client.Set(clt)
 
 	return clt
 }

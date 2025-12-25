@@ -23,12 +23,12 @@
 
 /**
  * @file logger.go
- * @package http
+ * @package fiber
  * @author Dr.NP <np@herewe.tech>
  * @since 09/06/2024
  */
 
-package http
+package fiber
 
 import (
 	"os"

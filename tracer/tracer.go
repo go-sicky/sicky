@@ -62,19 +62,28 @@ type Tracer interface {
 
 var (
 	tracers       = make(map[uuid.UUID]Tracer)
-	DefaultTracer Tracer
+	defaultTracer Tracer
 )
 
-func Instance(id uuid.UUID, tracer ...Tracer) Tracer {
-	if len(tracer) > 0 {
-		tracers[id] = tracer[0]
-		DefaultTracer = tracer[0]
-
-		return tracer[0]
+func Set(trs ...Tracer) {
+	for _, trc := range trs {
+		tracers[trc.ID()] = trc
+		if defaultTracer == nil {
+			defaultTracer = trc
+		}
 	}
+}
 
+func Get(id uuid.UUID) Tracer {
 	return tracers[id]
 }
+
+func Default() Tracer {
+	return defaultTracer
+}
+
+/* {{{ [Helpers] */
+/* }}} */
 
 /*
  * Local variables:

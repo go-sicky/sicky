@@ -30,10 +30,19 @@
 
 package service
 
-type Config struct{}
+const (
+	// Default configuration values
+	DefaultEnableManager = true
+)
+
+type Config struct {
+	EnableManager bool `json:"enable_manager" yaml:"enable_manager" mapstructure:"enable_manager" default:"true"` // Enable or disable the manager service
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		EnableManager: DefaultEnableManager,
+	}
 }
 
 func (c *Config) Ensure() *Config {

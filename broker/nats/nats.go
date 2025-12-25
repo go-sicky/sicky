@@ -33,7 +33,6 @@ package nats
 import (
 	"context"
 	"errors"
-
 	"maps"
 
 	"github.com/go-sicky/sicky/broker"
@@ -71,7 +70,7 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 		"name", brk.options.Name,
 	)
 
-	broker.Instance(opts.ID, brk)
+	broker.Set(brk)
 
 	return brk
 }
@@ -241,7 +240,6 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 			}
 		}
 	})
-
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,

@@ -42,12 +42,13 @@ const (
 )
 
 type Envelope struct {
-	Code      int         `json:"code" yaml:"code" xml:"code"`
-	Status    int         `json:"status" yaml:"status" xml:"status"`
-	Timestamp time.Time   `json:"timestamp" yaml:"timestamp" xml:"timestamp"`
-	Message   string      `json:"message" yaml:"message" xml:"message"`
-	RequestID string      `json:"request_id,omitempty" yaml:"request_id,omitempty" xml:"request_id,omitempty"`
-	Data      interface{} `json:"data,omitempty" yaml:"data,omitempty" xml:"data,omitempty"`
+	Code       int         `json:"code" yaml:"code" xml:"code"`
+	Status     int         `json:"status" yaml:"status" xml:"status"`
+	Timestamp  time.Time   `json:"timestamp" yaml:"timestamp" xml:"timestamp"`
+	Message    string      `json:"message" yaml:"message" xml:"message"`
+	RequestID  string      `json:"request_id,omitempty" yaml:"request_id,omitempty" xml:"request_id,omitempty"`
+	Pagination *Pagination `json:"pagination,omitempty" yaml:"pagination,omitempty" xml:"pagination,omitempty"`
+	Data       any         `json:"data,omitempty" yaml:"data,omitempty" xml:"data,omitempty"`
 }
 
 func WrapHTTPResponse(data interface{}) *Envelope {
@@ -90,6 +91,14 @@ func (e *Envelope) SetData(data interface{}) *Envelope {
 	e.Data = data
 
 	return e
+}
+
+type Pagination struct {
+	Total   int64 `json:"total" yaml:"total" xml:"total"`
+	Limit   int64 `json:"limit" yaml:"limit" xml:"limit"`
+	Offset  int64 `json:"offset" yaml:"offset" xml:"offset"`
+	Current int64 `json:"current" yaml:"current" xml:"current"`
+	Pages   int64 `json:"pages" yaml:"pages" xml:"pages"`
 }
 
 /*

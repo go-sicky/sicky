@@ -72,17 +72,15 @@ type Server interface {
 	Metadata() utils.Metadata
 }
 
-var (
-	servers = make(map[uuid.UUID]Server)
-)
+var servers = make(map[uuid.UUID]Server)
 
-func Instance(id uuid.UUID, srv ...Server) Server {
-	if len(srv) > 0 {
-		servers[id] = srv[0]
-
-		return srv[0]
+func Set(srvs ...Server) {
+	for _, srv := range srvs {
+		servers[srv.ID()] = srv
 	}
+}
 
+func Get(id uuid.UUID) Server {
 	return servers[id]
 }
 

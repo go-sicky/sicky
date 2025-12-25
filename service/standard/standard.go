@@ -22,13 +22,13 @@
  */
 
 /**
- * @file sicky.go
- * @package sicky
+ * @file standard.go
+ * @package standard
  * @author Dr.NP <np@herewe.tech>
  * @since 08/01/2024
  */
 
-package sicky
+package standard
 
 import (
 	"context"
@@ -41,7 +41,7 @@ import (
 	"github.com/go-sicky/sicky/tracer"
 )
 
-type Sicky struct {
+type Standard struct {
 	config  *Config
 	ctx     context.Context
 	options *service.Options
@@ -53,11 +53,11 @@ type Sicky struct {
 	tracers    []tracer.Tracer
 }
 
-func New(opts *service.Options, cfg *Config) *Sicky {
+func New(opts *service.Options, cfg *Config) *Standard {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	svc := &Sicky{
+	svc := &Standard{
 		config:  cfg,
 		ctx:     context.Background(),
 		options: opts,
@@ -66,10 +66,6 @@ func New(opts *service.Options, cfg *Config) *Sicky {
 		brokers:    make([]broker.Broker, 0),
 		jobs:       make([]job.Job, 0),
 		registries: make([]registry.Registry, 0),
-	}
-
-	if service.Instance == nil {
-		service.Instance = svc
 	}
 
 	svc.options.Logger.InfoContext(
@@ -82,35 +78,28 @@ func New(opts *service.Options, cfg *Config) *Sicky {
 		"branch", svc.options.Branch,
 	)
 
+	service.Set(svc)
+
 	return svc
 }
 
-func (s *Sicky) Context() context.Context {
+func (s *Standard) Context() context.Context {
 	return s.ctx
 }
 
-func (s *Sicky) Options() *service.Options {
+func (s *Standard) Options() *service.Options {
 	return s.options
 }
 
-func (s *Sicky) String() string {
-	return "sicky"
+func (s *Standard) String() string {
+	return "standard"
 }
 
-func (s *Sicky) Start() []error {
+func (s *Standard) Start() []error {
 	var (
 		err  error
 		errs []error
 	)
-
-	// Wrapper
-	if !s.config.DisableWrappers {
-		for _, fn := range s.options.BeforeStart() {
-			if err = fn(s); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
 
 	// Start servers
 	for _, srv := range s.servers {
@@ -140,32 +129,14 @@ func (s *Sicky) Start() []error {
 		}
 	}
 
-	// Wrapper
-	if !s.config.DisableWrappers {
-		for _, fn := range s.options.AfterStart() {
-			if err = fn(s); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-
 	return errs
 }
 
-func (s *Sicky) Stop() []error {
+func (s *Standard) Stop() []error {
 	var (
 		err  error
 		errs []error
 	)
-
-	// Wrapper
-	if !s.config.DisableWrappers {
-		for _, fn := range s.options.BeforeStop() {
-			if err = fn(s); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
 
 	// Deregister
 	if !s.config.DisableServerRegister {
@@ -198,20 +169,11 @@ func (s *Sicky) Stop() []error {
 		srv.Context().Done()
 	}
 
-	// Wrapper
-	if !s.config.DisableWrappers {
-		for _, fn := range s.options.AfterStop() {
-			if err = fn(s); err != nil {
-				errs = append(errs, err)
-			}
-		}
-	}
-
 	return errs
 }
 
-/* {{{ [Sicky] */
-func (s *Sicky) Servers(srvs ...server.Server) []server.Server {
+/* {{{ [Standard] */
+func (s *Standard) Servers(srvs ...server.Server) []server.Server {
 	if len(srvs) > 0 {
 		s.servers = append(s.servers, srvs...)
 	}
@@ -219,7 +181,7 @@ func (s *Sicky) Servers(srvs ...server.Server) []server.Server {
 	return s.servers
 }
 
-func (s *Sicky) Brokers(brks ...broker.Broker) []broker.Broker {
+func (s *Standard) Brokers(brks ...broker.Broker) []broker.Broker {
 	if len(brks) > 0 {
 		s.brokers = append(s.brokers, brks...)
 	}
@@ -227,7 +189,7 @@ func (s *Sicky) Brokers(brks ...broker.Broker) []broker.Broker {
 	return s.brokers
 }
 
-func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {
+func (s *Standard) Jobs(jobs ...job.Job) []job.Job {
 	if !s.config.DisableJobs && len(jobs) > 0 {
 		s.jobs = append(s.jobs, jobs...)
 	}
@@ -235,7 +197,7 @@ func (s *Sicky) Jobs(jobs ...job.Job) []job.Job {
 	return s.jobs
 }
 
-func (s *Sicky) Registries(rgs ...registry.Registry) []registry.Registry {
+func (s *Standard) Registries(rgs ...registry.Registry) []registry.Registry {
 	if !s.config.DisableServerRegister && len(rgs) > 0 {
 		s.registries = append(s.registries, rgs...)
 	}
@@ -243,7 +205,7 @@ func (s *Sicky) Registries(rgs ...registry.Registry) []registry.Registry {
 	return s.registries
 }
 
-func (s *Sicky) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
+func (s *Standard) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)
 	}

@@ -78,7 +78,7 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 			for n, v := range list {
 				if n != "consul" {
 					// Sicky service
-					ins := &registry.Ins{
+					ins := &registry.Instance{
 						ID:               v.ID,
 						Service:          v.Service,
 						Metadata:         v.Meta,

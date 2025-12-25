@@ -25,16 +25,15 @@
  * @file config.go
  * @package sicky
  * @author Dr.NP <np@herewe.tech>
- * @since 08/13/2024
+ * @since 12/15/2024
  */
 
-package sicky
+package mcp
 
 type Config struct {
-	DisableTrace          bool `json:"disable_trace" yaml:"disable_trace" mapstructure:"disable_trace"`
-	DisableServerRegister bool `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
 	DisableWrappers       bool `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
 	DisableJobs           bool `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
+	DisableServerRegister bool `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
 	DisableTracing        bool `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
 }
 
@@ -47,7 +46,7 @@ func (c *Config) Ensure() *Config {
 		c = DefaultConfig()
 	}
 
-	return c
+	return nil
 }
 
 /*

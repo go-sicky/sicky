@@ -60,17 +60,15 @@ type Task struct {
 	Data any
 }
 
-var (
-	runners = make(map[uuid.UUID]Runner)
-)
+var runners = make(map[uuid.UUID]Runner)
 
-func Instance(id uuid.UUID, runner ...Runner) Runner {
-	if len(runner) > 0 {
-		runners[id] = runner[0]
-
-		return runner[0]
+func Set(rs ...Runner) {
+	for _, r := range rs {
+		runners[r.ID()] = r
 	}
+}
 
+func Get(id uuid.UUID) Runner {
 	return runners[id]
 }
 

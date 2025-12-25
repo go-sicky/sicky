@@ -22,47 +22,43 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file clickhouse.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 12/25/2025
  */
 
-package job
+package infra
 
 import (
-	"context"
-
-	"github.com/google/uuid"
+	"github.com/elastic/go-elasticsearch/v9"
 )
 
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+type ElasticConfig struct {
+	Addresses []string `json:"addresses" yaml:"addresses" mapstructure:"addresses"`
+	Username  string   `json:"username" yaml:"username" mapstructure:"username"`
+	Password  string   `json:"password" yaml:"password" mapstructure:"password"`
 }
 
-var jobs = make(map[uuid.UUID]Job)
+var Elastic *elasticsearch.Client
 
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
+	if cfg == nil {
+		return nil, nil
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: cfg.Addresses,
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	Elastic = client
+
+	return client, err
 }
 
 /*

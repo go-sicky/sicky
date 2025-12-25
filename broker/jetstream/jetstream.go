@@ -72,7 +72,7 @@ func New(opts *broker.Options, cfg *Config) *Jetstream {
 		"name", brk.options.Name,
 	)
 
-	broker.Instance(opts.ID, brk)
+	broker.Set(brk)
 
 	return brk
 }
@@ -277,7 +277,6 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 			}
 		}
 	})
-
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,

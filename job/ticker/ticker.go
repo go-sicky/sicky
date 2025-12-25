@@ -22,108 +22,93 @@
  */
 
 /**
- * @file tcp.go
- * @package tcp
+ * @file ticker.go
+ * @package ticker
  * @author Dr.NP <np@herewe.tech>
- * @since 03/02/2025
+ * @since 12/25/2025
  */
 
-package tcp
+package ticker
 
 import (
 	"context"
-	"net"
 
-	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
 )
 
-type TCPClient struct {
-	config    *Config
-	options   *client.Options
-	ctx       context.Context
-	conn      net.TCPConn
-	connected bool
-	addr      *net.TCPAddr
+type Ticker struct {
+	config  *Config
+	ctx     context.Context
+	options *job.Options
+
+	tasks []*Task
 }
 
-func New(opts *client.Options, cfg *Config) *TCPClient {
+// New ticker job schedular
+func New(opts *job.Options, cfg *Config) *Ticker {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveTCPAddr("tcp", cfg.Addr)
-	clt := &TCPClient{
-		config:    cfg,
-		options:   opts,
-		ctx:       context.Background(),
-		addr:      addr,
-		connected: false,
+	j := &Ticker{
+		config:  cfg,
+		ctx:     context.Background(),
+		options: opts,
+		tasks:   make([]*Task, 0),
 	}
 
-	clt.options.Logger.InfoContext(
-		clt.ctx,
-		"TCP client created",
-		"client", clt.String(),
-		"id", clt.options.ID,
-		"name", clt.options.Name,
-		"addr", cfg.Addr,
+	j.options.Logger.InfoContext(
+		j.ctx,
+		"Job created",
+		"job", j.String(),
+		"id", j.options.ID,
+		"name", j.options.Name,
 	)
 
-	client.Set(clt)
+	job.Set(j)
 
-	return clt
+	return j
 }
 
-func (clt *TCPClient) Options() *client.Options {
-	return clt.options
+func (job *Ticker) Context() context.Context {
+	return job.ctx
 }
 
-func (clt *TCPClient) Context() context.Context {
-	return clt.ctx
+func (job *Ticker) Options() *job.Options {
+	return job.options
 }
 
-func (clt *TCPClient) String() string {
-	return "tcp"
+func (job *Ticker) String() string {
+	return "ticker"
 }
 
-func (clt *TCPClient) ID() uuid.UUID {
-	return clt.options.ID
+func (job *Ticker) ID() uuid.UUID {
+	return job.options.ID
 }
 
-func (clt *TCPClient) Name() string {
-	return clt.options.Name
+func (job *Ticker) Name() string {
+	return job.options.Name
 }
 
-func (clt *TCPClient) Connect() error {
-	if clt.connected {
-		return nil
-	}
-
-	conn, err := net.DialTCP("tcp", nil, clt.addr)
-	if err != nil {
-		return err
-	}
-
-	clt.conn = *conn
-	clt.connected = true
-
+func (job *Ticker) Start() error {
 	return nil
 }
 
-func (clt *TCPClient) Disconnect() error {
-	if !clt.connected {
-		return nil
-	}
-
-	clt.conn.Close()
-	clt.connected = false
-
+func (job *Ticker) Stop() error {
 	return nil
 }
 
-func (clt *TCPClient) Call() error {
-	return nil
+/* {{{ [Task] */
+
+type TickerHandler func(uint64) error
+
+type Task struct {
+	ID      uuid.UUID
+	Inteval int64
+	Handler TickerHandler
 }
+
+/* }}} */
 
 /*
  * Local variables:

@@ -33,10 +33,8 @@ package grpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
@@ -93,8 +91,8 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 
 	// Set tracer
 	var tr trace.Tracer
-	if tracer.DefaultTracer != nil {
-		tr = tracer.DefaultTracer.Tracer(clt.Name())
+	if tracer.Default() != nil {
+		tr = tracer.Default().Tracer(clt.Name())
 		gopts = append(gopts, grpc.WithChainUnaryInterceptor(
 			NewClientTracingInterceptor(tr),
 		))
@@ -172,33 +170,33 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		"address", cfg.Addr,
 	)
 
-	client.Instance(opts.ID, clt)
+	client.Set(clt)
 
 	// Pool notifier
-	go func() {
-		for ev := range registry.PoolChan {
-			if cfg.Service != "" && ev.Changed {
-				ins := registry.GetInstances(cfg.Service)
-				addrs := make([]resolver.Address, 0)
-				for _, in := range ins {
-					addr := resolver.Address{
-						Addr: fmt.Sprintf("%s:%d", in.AdvertiseAddress, in.AdvertisePort),
-					}
+	// go func() {
+	// 	for ev := range registry.PoolChan {
+	// 		if cfg.Service != "" && ev.Changed {
+	// 			ins := registry.GetInstances(cfg.Service)
+	// 			addrs := make([]resolver.Address, 0)
+	// 			for _, in := range ins {
+	// 				addr := resolver.Address{
+	// 					Addr: fmt.Sprintf("%s:%d", in.AdvertiseAddress, in.AdvertisePort),
+	// 				}
 
-					addrs = append(addrs, addr)
-					clt.options.Logger.TraceContext(
-						clt.ctx,
-						"Append address to GRPC client resolver state",
-						"id", clt.options.ID,
-						"service", cfg.Service,
-						"address", in.Address,
-					)
-				}
+	// 				addrs = append(addrs, addr)
+	// 				clt.options.Logger.TraceContext(
+	// 					clt.ctx,
+	// 					"Append address to GRPC client resolver state",
+	// 					"id", clt.options.ID,
+	// 					"service", cfg.Service,
+	// 					"address", in.Address,
+	// 				)
+	// 			}
 
-				r.UpdateState(resolver.State{Addresses: addrs})
-			}
-		}
-	}()
+	// 			r.UpdateState(resolver.State{Addresses: addrs})
+	// 		}
+	// 	}
+	// }()
 
 	return clt
 }

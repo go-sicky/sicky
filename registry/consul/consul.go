@@ -96,7 +96,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 		"name", rg.options.Name,
 	)
 
-	registry.Instance(opts.ID, rg)
+	registry.Set(rg)
 
 	return rg
 }

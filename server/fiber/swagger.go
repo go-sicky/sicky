@@ -22,33 +22,56 @@
  */
 
 /**
- * @file nats.go
- * @package driver
+ * @file swagger.go
+ * @package fiber
  * @author Dr.NP <np@herewe.tech>
- * @since 11/29/2023
+ * @since 12/07/2023
  */
 
-package driver
+package fiber
 
-import "github.com/nats-io/nats.go"
+import (
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/swagger"
+)
 
-type NatsConfig struct {
-	URL string `json:"url" yaml:"url" mapstructure:"url"`
+type Swagger struct {
+	pageTitle    string
+	validatorURL string
 }
 
-var Nats *nats.Conn
-
-func InitNats(cfg *NatsConfig) (*nats.Conn, error) {
-	nc, err := nats.Connect(cfg.URL)
-	if err != nil {
-		return nil, err
+func NewSwagger(title, url string) *Swagger {
+	h := &Swagger{
+		pageTitle:    title,
+		validatorURL: url,
 	}
 
-	if Nats == nil {
-		Nats = nc
+	return h
+}
+
+func (h *Swagger) Register(app *fiber.App) {
+	cfg := swagger.ConfigDefault
+	if h.validatorURL != "" {
+		cfg.ValidatorUrl = h.validatorURL
+	} else {
+		cfg.ValidatorUrl = "localhost"
 	}
 
-	return nc, nil
+	if h.pageTitle != "" {
+		cfg.Title = h.pageTitle
+	} else {
+		cfg.Title = "Sicky.Swagger.UI"
+	}
+
+	app.All("/docs/*", swagger.New(cfg))
+}
+
+func (h *Swagger) Name() string {
+	return "sicky.swagger"
+}
+
+func (h *Swagger) Type() string {
+	return "http"
 }
 
 /*

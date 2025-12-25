@@ -23,12 +23,12 @@
 
 /**
  * @file tracer.go
- * @package http
+ * @package fiber
  * @author Dr.NP <np@herewe.tech>
  * @since 12/29/2024
  */
 
-package http
+package fiber
 
 import (
 	"context"

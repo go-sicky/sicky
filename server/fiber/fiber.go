@@ -22,32 +22,38 @@
  */
 
 /**
- * @file http.go
- * @package original
+ * @file fiber.go
+ * @package fiber
  * @author Dr.NP <np@herewe.tech>
- * @since 08/27/2025
+ * @since 11/20/2023
  */
 
-package original
+package fiber
 
 import (
 	"context"
 	"crypto/tls"
 	"net"
-	"net/http"
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 )
 
 /* {{{ [Server] */
-type HTTPServer struct {
+
+// FiberServer : Server definition
+type FiberServer struct {
 	config        *Config
 	ctx           context.Context
 	options       *server.Options
-	app           *http.Server
+	app           *fiber.App
 	running       bool
 	addr          net.Addr
 	advertiseAddr net.Addr
@@ -57,8 +63,8 @@ type HTTPServer struct {
 	wg sync.WaitGroup
 }
 
-// New HTTP server (net/http)
-func New(opts *server.Options, cfg *Config) *HTTPServer {
+// New HTTP server (go-fiber)
+func New(opts *server.Options, cfg *Config) *FiberServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
@@ -91,7 +97,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		advertiseAddr = addr
 	}
 
-	srv := &HTTPServer{
+	srv := &FiberServer{
 		config:        cfg,
 		ctx:           context.Background(),
 		addr:          addr,
@@ -101,11 +107,70 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		metadata:      utils.NewMetadata(),
 	}
 
-	app := &http.Server{
-		Addr: addr.String(),
+	// Set tracer
+	var tr trace.Tracer
+	if tracer.Default() != nil {
+		tr = tracer.Default().Tracer(srv.Name())
 	}
 
+	app := fiber.New(
+		fiber.Config{
+			Prefork:               false,
+			DisableStartupMessage: true,
+			ServerHeader:          opts.Name,
+			AppName:               opts.Name,
+			Network:               cfg.Network,
+			DisableKeepalive:      cfg.DisableKeepAlive,
+			StrictRouting:         cfg.StrictRouting,
+			CaseSensitive:         cfg.CaseSensitive,
+			ETag:                  cfg.Etag,
+			BodyLimit:             cfg.BodyLimit,
+			Concurrency:           cfg.Concurrency,
+			ReadBufferSize:        cfg.ReadBufferSize,
+			WriteBufferSize:       cfg.WriteBufferSize,
+		},
+	)
+
+	if cfg.EnableStackTrace {
+		app.Use(recover.New(
+			recover.Config{
+				EnableStackTrace: true,
+			},
+		))
+	} else {
+		app.Use(recover.New(
+			recover.ConfigDefault,
+		))
+	}
+
+	// The order of middlewares is important
+	// Issue was resolved at dawn on the first day of 2025, thanks to the remote class reunion >_<!
+	app.Use(
+		cors.New(),
+		NewPropagationMiddleware(),
+		NewTracerMiddleware(
+			TracerConfig{
+				Tracer: tr,
+			},
+		),
+		NewMetadataMiddleware(),
+		NewAccessLoggerMiddleware(
+			AccessLoggerMiddlewareConfig{
+				Logger:             opts.Logger,
+				AccessLoggerConfig: cfg.AccessLogger,
+			},
+		),
+	)
+
 	srv.app = app
+
+	// Register swagger
+	if cfg.EnableSwagger {
+		srv.Handle(NewSwagger(
+			cfg.SwaggerPageTitle,
+			cfg.SwaggerValidatorURL,
+		))
+	}
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -116,32 +181,32 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		"addr", addr.String(),
 	)
 
-	server.Instance(opts.ID, srv)
+	server.Set(srv)
 
 	return srv
 }
 
-func (srv *HTTPServer) Context() context.Context {
+func (srv *FiberServer) Context() context.Context {
 	return srv.ctx
 }
 
-func (srv *HTTPServer) Options() *server.Options {
+func (srv *FiberServer) Options() *server.Options {
 	return srv.options
 }
 
-func (srv *HTTPServer) String() string {
+func (srv *FiberServer) String() string {
 	return "http"
 }
 
-func (srv *HTTPServer) ID() uuid.UUID {
+func (srv *FiberServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
-func (srv *HTTPServer) Name() string {
+func (srv *FiberServer) Name() string {
 	return srv.options.Name
 }
 
-func (srv *HTTPServer) Start() error {
+func (srv *FiberServer) Start() error {
 	var (
 		listener net.Listener
 		cert     tls.Certificate
@@ -156,9 +221,9 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
-	// Try TLS
-	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPem != "" {
-		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPem))
+	// Try TLS first
+	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
+		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -178,7 +243,6 @@ func (srv *HTTPServer) Start() error {
 				Certificates: []tls.Certificate{cert},
 			},
 		)
-
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -220,7 +284,7 @@ func (srv *HTTPServer) Start() error {
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 	go func() error {
-		err := srv.app.Serve(listener)
+		err := srv.app.Listener(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -242,7 +306,6 @@ func (srv *HTTPServer) Start() error {
 			"name", srv.options.Name,
 			"addr", srv.addr.String(),
 		)
-
 		srv.wg.Done()
 
 		return nil
@@ -250,7 +313,7 @@ func (srv *HTTPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listening",
+		"HTTP server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -261,7 +324,7 @@ func (srv *HTTPServer) Start() error {
 	return nil
 }
 
-func (srv *HTTPServer) Stop() error {
+func (srv *FiberServer) Stop() error {
 	srv.Lock()
 	defer srv.Unlock()
 
@@ -270,7 +333,7 @@ func (srv *HTTPServer) Stop() error {
 		return nil
 	}
 
-	srv.app.Shutdown(srv.ctx)
+	srv.app.Server().Shutdown()
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -285,15 +348,15 @@ func (srv *HTTPServer) Stop() error {
 	return nil
 }
 
-func (srv *HTTPServer) Running() bool {
+func (srv *FiberServer) Running() bool {
 	return srv.running
 }
 
-func (srv *HTTPServer) Addr() net.Addr {
+func (srv *FiberServer) Addr() net.Addr {
 	return srv.addr
 }
 
-func (srv *HTTPServer) IP() net.IP {
+func (srv *FiberServer) IP() net.IP {
 	try := utils.AddrToIP(srv.addr)
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
@@ -302,15 +365,15 @@ func (srv *HTTPServer) IP() net.IP {
 	return try
 }
 
-func (srv *HTTPServer) Port() int {
+func (srv *FiberServer) Port() int {
 	return utils.AddrToPort(srv.addr)
 }
 
-func (srv *HTTPServer) AdvertiseAddr() net.Addr {
+func (srv *FiberServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
-func (srv *HTTPServer) AdvertiseIP() net.IP {
+func (srv *FiberServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.advertiseAddr)
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
@@ -319,20 +382,21 @@ func (srv *HTTPServer) AdvertiseIP() net.IP {
 	return try
 }
 
-func (srv *HTTPServer) AdvertisePort() int {
+func (srv *FiberServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.advertiseAddr)
 }
 
-func (srv *HTTPServer) Metadata() utils.Metadata {
+func (srv *FiberServer) Metadata() utils.Metadata {
 	return srv.metadata
 }
 
-func (srv *HTTPServer) App() *http.Server {
+func (srv *FiberServer) App() *fiber.App {
 	return srv.app
 }
 
-func (srv *HTTPServer) Handle(hdls ...Handler) {
+func (srv *FiberServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
+		hdl.Register(srv.app)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"HTTP handler registered",
@@ -350,7 +414,7 @@ func (srv *HTTPServer) Handle(hdls ...Handler) {
 type Handler interface {
 	Name() string
 	Type() string
-	Register(*http.Server)
+	Register(*fiber.App)
 }
 
 /* }}} */

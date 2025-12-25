@@ -25,7 +25,7 @@
  * @file http.go
  * @package http
  * @author Dr.NP <np@herewe.tech>
- * @since 11/20/2023
+ * @since 08/27/2025
  */
 
 package http
@@ -34,26 +34,20 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"net/http"
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/trace"
 )
 
 /* {{{ [Server] */
-
-// HTTPServer : Server definition
 type HTTPServer struct {
 	config        *Config
 	ctx           context.Context
 	options       *server.Options
-	app           *fiber.App
+	app           *http.Server
 	running       bool
 	addr          net.Addr
 	advertiseAddr net.Addr
@@ -63,7 +57,7 @@ type HTTPServer struct {
 	wg sync.WaitGroup
 }
 
-// New HTTP server (go-fiber)
+// New HTTP server (net/http)
 func New(opts *server.Options, cfg *Config) *HTTPServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -107,70 +101,11 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		metadata:      utils.NewMetadata(),
 	}
 
-	// Set tracer
-	var tr trace.Tracer
-	if tracer.DefaultTracer != nil {
-		tr = tracer.DefaultTracer.Tracer(srv.Name())
+	app := &http.Server{
+		Addr: addr.String(),
 	}
-
-	app := fiber.New(
-		fiber.Config{
-			Prefork:               false,
-			DisableStartupMessage: true,
-			ServerHeader:          opts.Name,
-			AppName:               opts.Name,
-			Network:               cfg.Network,
-			DisableKeepalive:      cfg.DisableKeepAlive,
-			StrictRouting:         cfg.StrictRouting,
-			CaseSensitive:         cfg.CaseSensitive,
-			ETag:                  cfg.Etag,
-			BodyLimit:             cfg.BodyLimit,
-			Concurrency:           cfg.Concurrency,
-			ReadBufferSize:        cfg.ReadBufferSize,
-			WriteBufferSize:       cfg.WriteBufferSize,
-		},
-	)
-
-	if cfg.EnableStackTrace {
-		app.Use(recover.New(
-			recover.Config{
-				EnableStackTrace: true,
-			},
-		))
-	} else {
-		app.Use(recover.New(
-			recover.ConfigDefault,
-		))
-	}
-
-	// The order of middlewares is important
-	// Issue was resolved at dawn on the first day of 2025, thanks to the remote class reunion >_<!
-	app.Use(
-		cors.New(),
-		NewPropagationMiddleware(),
-		NewTracerMiddleware(
-			TracerConfig{
-				Tracer: tr,
-			},
-		),
-		NewMetadataMiddleware(),
-		NewAccessLoggerMiddleware(
-			AccessLoggerMiddlewareConfig{
-				Logger:             opts.Logger,
-				AccessLoggerConfig: cfg.AccessLogger,
-			},
-		),
-	)
 
 	srv.app = app
-
-	// Register swagger
-	if cfg.EnableSwagger {
-		srv.Handle(NewSwagger(
-			cfg.SwaggerPageTitle,
-			cfg.SwaggerValidatorURL,
-		))
-	}
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -181,7 +116,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		"addr", addr.String(),
 	)
 
-	server.Instance(opts.ID, srv)
+	server.Set(srv)
 
 	return srv
 }
@@ -221,9 +156,9 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
-	// Try TLS first
-	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
-		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
+	// Try TLS
+	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPem != "" {
+		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPem))
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -243,6 +178,7 @@ func (srv *HTTPServer) Start() error {
 				Certificates: []tls.Certificate{cert},
 			},
 		)
+
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -284,7 +220,7 @@ func (srv *HTTPServer) Start() error {
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 	go func() error {
-		err := srv.app.Listener(listener)
+		err := srv.app.Serve(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -306,6 +242,7 @@ func (srv *HTTPServer) Start() error {
 			"name", srv.options.Name,
 			"addr", srv.addr.String(),
 		)
+
 		srv.wg.Done()
 
 		return nil
@@ -313,7 +250,7 @@ func (srv *HTTPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listened",
+		"HTTP server listening",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -333,7 +270,7 @@ func (srv *HTTPServer) Stop() error {
 		return nil
 	}
 
-	srv.app.Server().Shutdown()
+	srv.app.Shutdown(srv.ctx)
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -390,13 +327,12 @@ func (srv *HTTPServer) Metadata() utils.Metadata {
 	return srv.metadata
 }
 
-func (srv *HTTPServer) App() *fiber.App {
+func (srv *HTTPServer) App() *http.Server {
 	return srv.app
 }
 
 func (srv *HTTPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
-		hdl.Register(srv.app)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"HTTP handler registered",
@@ -414,7 +350,7 @@ func (srv *HTTPServer) Handle(hdls ...Handler) {
 type Handler interface {
 	Name() string
 	Type() string
-	Register(*fiber.App)
+	Register(*http.Server)
 }
 
 /* }}} */

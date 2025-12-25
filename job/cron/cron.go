@@ -62,7 +62,7 @@ func New(opts *job.Options, cfg *Config) *Cron {
 		"name", j.options.Name,
 	)
 
-	job.Instance(opts.ID, j)
+	job.Set(j)
 
 	return j
 }
@@ -94,6 +94,17 @@ func (job *Cron) Start() error {
 func (job *Cron) Stop() error {
 	return nil
 }
+
+/* {{{ [Task] */
+type CronHandler func() error
+
+type Task struct {
+	ID      uuid.UUID
+	Cron    string
+	Handler CronHandler
+}
+
+/* }}} */
 
 /*
  * Local variables:

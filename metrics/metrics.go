@@ -31,15 +31,19 @@
 package metrics
 
 import (
-	"errors"
-	"net/http"
+	"sync"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 var (
+	pool = make(map[string]prometheus.Collector)
+	lock sync.RWMutex
+)
+
+var (
+	// Server Metrics
 	NumGRPCServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_grpc_server_access",
@@ -50,6 +54,12 @@ var (
 		prometheus.CounterOpts{
 			Name: "num_http_server_access",
 			Help: "Number of http access",
+		},
+	)
+	NumTCPServerAccessCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_tcp_server_access",
+			Help: "Number of tcp access",
 		},
 	)
 	NumUDPServerAccessCounter = prometheus.NewCounter(
@@ -65,6 +75,7 @@ var (
 		},
 	)
 
+	// Client Metrics
 	NumGRPCClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_grpc_client_call",
@@ -75,6 +86,12 @@ var (
 		prometheus.CounterOpts{
 			Name: "num_http_client_call",
 			Help: "Number of http call",
+		},
+	)
+	NumTCPClientCallCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_tcp_client_call",
+			Help: "Number of tcp call",
 		},
 	)
 	NumUDPClientCallCounter = prometheus.NewCounter(
@@ -91,54 +108,108 @@ var (
 	)
 )
 
-func StartMetrics(cfg *Config) error {
-	cfg = cfg.Ensure()
+func Register(name string, c prometheus.Collector) {
+	lock.Lock()
+	defer lock.Unlock()
 
-	metricsRegistry := prometheus.NewRegistry()
-	metricsRegistry.MustRegister(
-		NumGRPCServerAccessCounter,
-		NumHTTPServerAccessCounter,
-		NumUDPServerAccessCounter,
-		NumWebsocketServerAccessCounter,
-		NumGRPCClientCallCounter,
-		NumHTTPClientCallCounter,
-		NumUDPClientCallCounter,
-		NumWebsocketClientCallCounter,
-	)
-
-	http.Handle(
-		cfg.ExporterPath,
-		promhttp.HandlerFor(
-			metricsRegistry,
-			promhttp.HandlerOpts{
-				Registry: metricsRegistry,
-			},
-		),
-	)
-
-	metricsServer := &http.Server{
-		Addr: cfg.ExporterAddr,
-	}
-
-	go func() {
-		logger.Logger.Info(
-			"Prometheus exporter listening",
-			"addr", cfg.ExporterAddr,
-			"path", cfg.ExporterPath,
-		)
-
-		err := metricsServer.ListenAndServe()
-		if err != nil {
-			if errors.Is(err, http.ErrServerClosed) {
-				logger.Logger.Warn("Prometheus exporter closed", "error", err.Error())
-			} else {
-				logger.Logger.Error("Prometheus exporter listen failed", "error", err.Error())
-			}
-		}
-	}()
-
-	return nil
+	pool[name] = c
 }
+
+func Unregister(name string) {
+	lock.Lock()
+	defer lock.Unlock()
+
+	delete(pool, name)
+}
+
+func UnregisterAll() {
+	lock.Lock()
+	defer lock.Unlock()
+
+	for k := range pool {
+		delete(pool, k)
+	}
+}
+
+func Get(name string) prometheus.Collector {
+	return pool[name]
+}
+
+func GetAll() map[string]prometheus.Collector {
+	return pool
+}
+
+func init() {
+	UnregisterAll()
+
+	Register("num_grpc_server_access", NumGRPCServerAccessCounter)
+	Register("num_http_server_access", NumHTTPServerAccessCounter)
+	Register("num_tcp_server_access", NumTCPServerAccessCounter)
+	Register("num_udp_server_access", NumUDPServerAccessCounter)
+	Register("num_websocket_server_access", NumWebsocketServerAccessCounter)
+
+	Register("num_grpc_client_call", NumGRPCClientCallCounter)
+	Register("num_http_client_call", NumHTTPClientCallCounter)
+	Register("num_tcp_client_call", NumTCPClientCallCounter)
+	Register("num_udp_client_call", NumUDPClientCallCounter)
+	Register("num_websocket_client_call", NumWebsocketClientCallCounter)
+
+	Register("build_info", collectors.NewBuildInfoCollector())
+	Register("go_collector", collectors.NewGoCollector())
+	Register("process_collector", collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+}
+
+// func StartMetrics(cfg *Config) error {
+// 	cfg = cfg.Ensure()
+
+// 	metricsRegistry := prometheus.NewRegistry()
+// 	metricsRegistry.MustRegister(
+// 		NumGRPCServerAccessCounter,
+// 		NumHTTPServerAccessCounter,
+// 		NumUDPServerAccessCounter,
+// 		NumWebsocketServerAccessCounter,
+// 		NumGRPCClientCallCounter,
+// 		NumHTTPClientCallCounter,
+// 		NumUDPClientCallCounter,
+// 		NumWebsocketClientCallCounter,
+// 		collectors.NewBuildInfoCollector(),
+// 		collectors.NewGoCollector(),
+// 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+// 	)
+
+// 	http.Handle(
+// 		cfg.ExporterPath,
+// 		promhttp.HandlerFor(
+// 			metricsRegistry,
+// 			promhttp.HandlerOpts{
+// 				Registry: metricsRegistry,
+// 			},
+// 		),
+// 	)
+
+// 	metricsServer := &http.Server{
+// 		Addr: cfg.ExporterAddr,
+// 	}
+
+// 	go func() {
+// 		logger.Logger.Info(
+// 			"Prometheus exporter listening",
+// 			"addr", cfg.ExporterAddr,
+// 			"path", cfg.ExporterPath,
+// 		)
+
+// 		err := metricsServer.ListenAndServe()
+// 		if err != nil {
+// 			if errors.Is(err, http.ErrServerClosed) {
+// 				logger.Logger.Warn("Prometheus exporter closed", "error", err.Error())
+// 			} else {
+// 				logger.Logger.Error("Prometheus exporter listen failed", "error", err.Error())
+// 			}
+// 		}
+// 	}()
+
+// 	return nil
+// }
 
 /*
  * Local variables:

@@ -40,18 +40,12 @@ const (
 	DefaultServiceBranch  = "main"
 )
 
-type ServiceWrapper func(Service) error
-
 type Options struct {
-	Name        string
-	Version     string
-	Branch      string
-	ID          uuid.UUID
-	Logger      logger.GeneralLogger
-	beforeStart []ServiceWrapper
-	afterStart  []ServiceWrapper
-	beforeStop  []ServiceWrapper
-	afterStop   []ServiceWrapper
+	Name    string
+	Version string
+	Branch  string
+	ID      uuid.UUID
+	Logger  logger.GeneralLogger
 }
 
 func (o *Options) Ensure() *Options {
@@ -79,59 +73,8 @@ func (o *Options) Ensure() *Options {
 		o.Logger = logger.DefaultGeneralLogger
 	}
 
-	if o.beforeStart == nil {
-		o.beforeStart = make([]ServiceWrapper, 0)
-	}
-
-	if o.afterStart == nil {
-		o.afterStart = make([]ServiceWrapper, 0)
-	}
-
-	if o.beforeStart == nil {
-		o.beforeStop = make([]ServiceWrapper, 0)
-	}
-
-	if o.afterStop == nil {
-		o.afterStop = make([]ServiceWrapper, 0)
-	}
-
 	return o
 }
-
-/* {{{ [Wrappers] */
-func (o *Options) BeforeStart(wrappers ...ServiceWrapper) []ServiceWrapper {
-	if o != nil {
-		o.beforeStart = append(o.beforeStart, wrappers...)
-	}
-
-	return o.beforeStart
-}
-
-func (o *Options) AfterStart(wrappers ...ServiceWrapper) []ServiceWrapper {
-	if o != nil {
-		o.afterStart = append(o.afterStart, wrappers...)
-	}
-
-	return o.afterStart
-}
-
-func (o *Options) BeforeStop(wrappers ...ServiceWrapper) []ServiceWrapper {
-	if o != nil {
-		o.beforeStop = append(o.beforeStop, wrappers...)
-	}
-
-	return o.beforeStop
-}
-
-func (o *Options) AfterStop(wrappers ...ServiceWrapper) []ServiceWrapper {
-	if o != nil {
-		o.afterStop = append(o.afterStop, wrappers...)
-	}
-
-	return o.afterStop
-}
-
-/* }}} */
 
 /*
  * Local variables:

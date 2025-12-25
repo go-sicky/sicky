@@ -22,47 +22,39 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file s3.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 12/20/2025
  */
 
-package job
+package infra
 
 import (
-	"context"
-
-	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+type MongoConfig struct {
+	URI string `json:"uri" yaml:"uri" mapstructure:"uri"`
+	DB  string `json:"db" yaml:"db" mapstructure:"db"`
 }
 
-var jobs = make(map[uuid.UUID]Job)
+var Mongo *mongo.Client
 
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
+	if cfg == nil {
+		return nil, nil
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	client, err := mongo.Connect(options.Client().ApplyURI(cfg.URI))
+	if err != nil {
+		return nil, err
+	}
+
+	Mongo = client
+
+	return client, nil
 }
 
 /*

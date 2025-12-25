@@ -109,8 +109,8 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 
 	// Set tracer
 	var tr trace.Tracer
-	if tracer.DefaultTracer != nil {
-		tr = tracer.DefaultTracer.Tracer(srv.Name())
+	if tracer.Default() != nil {
+		tr = tracer.Default().Tracer(srv.Name())
 	}
 
 	gopts := make([]grpc.ServerOption, 0)
@@ -168,7 +168,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 		"addr", addr.String(),
 	)
 
-	server.Instance(opts.ID, srv)
+	server.Set(srv)
 
 	return srv
 }

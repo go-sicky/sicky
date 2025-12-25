@@ -43,7 +43,7 @@ type HTTPClient struct {
 	options *client.Options
 	ctx     context.Context
 
-	//tracer trace.Tracer
+	// tracer trace.Tracer
 }
 
 // var (
@@ -104,7 +104,7 @@ func New(opts *client.Options, cfg *Config) *HTTPClient {
 		"name", clt.options.Name,
 	)
 
-	client.Instance(opts.ID, clt)
+	client.Set(clt)
 
 	return clt
 }

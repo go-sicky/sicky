@@ -22,47 +22,33 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file nats.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 11/29/2023
  */
 
-package job
+package infra
 
-import (
-	"context"
+import "github.com/nats-io/nats.go"
 
-	"github.com/google/uuid"
-)
-
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+type NatsConfig struct {
+	URL string `json:"url" yaml:"url" mapstructure:"url"`
 }
 
-var jobs = make(map[uuid.UUID]Job)
+var Nats *nats.Conn
 
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func InitNats(cfg *NatsConfig) (*nats.Conn, error) {
+	nc, err := nats.Connect(cfg.URL)
+	if err != nil {
+		return nil, err
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	if Nats == nil {
+		Nats = nc
+	}
+
+	return nc, nil
 }
 
 /*

@@ -22,47 +22,60 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file redis.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 11/29/2023
  */
 
-package job
+package infra
 
 import (
 	"context"
 
-	"github.com/google/uuid"
+	"github.com/go-sicky/sicky/logger"
+	"github.com/redis/go-redis/v9"
 )
 
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+type RedisConfig struct {
+	Addr     string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Password string `json:"password" yaml:"password" mapstructure:"password"`
+	DB       int    `json:"db" yaml:"db" mapstructure:"db"`
 }
 
-var jobs = make(map[uuid.UUID]Job)
+var Redis *redis.Client
 
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
+	if cfg == nil {
+		return nil, nil
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Addr,
+		Password: cfg.Password,
+		DB:       cfg.DB,
+	})
+	err := rdb.Ping(context.TODO()).Err()
+	if err != nil {
+		logger.Logger.Error(
+			"Redis initialize failed",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	logger.Logger.Info(
+		"Redis initialized",
+		"addr", cfg.Addr,
+		"db", cfg.DB,
+	)
+
+	if Redis == nil {
+		Redis = rdb
+	}
+
+	return rdb, nil
 }
 
 /*

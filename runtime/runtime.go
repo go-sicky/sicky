@@ -30,236 +30,217 @@
 
 package runtime
 
-import (
-	"strings"
-	"sync/atomic"
-	"time"
+// type FlagSwitchCallback func() error
 
-	"github.com/go-sicky/sicky/driver"
-	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/tracer/grpc"
-	"github.com/go-sicky/sicky/tracer/http"
-	"github.com/go-sicky/sicky/tracer/stdout"
-	"github.com/spf13/pflag"
-)
+// type FlagSwitch struct {
+// 	Flag     string
+// 	On       bool
+// 	Usage    string
+// 	Callback FlagSwitchCallback
+// }
 
-type FlagSwitchCallback func() error
+// type TickerHander func(time.Time, uint64) error
 
-type FlagSwitch struct {
-	Flag     string
-	On       bool
-	Usage    string
-	Callback FlagSwitchCallback
-}
+// var (
+// 	configLoc           = "config"
+// 	configType          = "json"
+// 	metricsExporterAddr = ":9870"
+// 	metricsExporterPath = "/metrics"
 
-type TickerHander func(time.Time, uint64) error
+// 	switchesVars = make(map[string]*FlagSwitch)
 
-var (
-	configLoc           = "config"
-	configType          = "json"
-	metricsExporterAddr = ":9870"
-	metricsExporterPath = "/metrics"
+// 	AppName = "sicky"
+// 	silence = false
 
-	switchesVars = make(map[string]*FlagSwitch)
+// 	BaseTicker         *time.Ticker
+// 	BaseTickerCounter  atomic.Uint64
+// 	BaseTickerHandlers = make([]TickerHander, 0)
 
-	AppName = "sicky"
-	silence = false
+// 	RuntimeDone = make(chan struct{})
+// )
 
-	BaseTicker         *time.Ticker
-	BaseTickerCounter  atomic.Uint64
-	BaseTickerHandlers = make([]TickerHander, 0)
+// func Init(name string, switches ...*FlagSwitch) {
+// 	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
+// 	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
+// 	pflag.StringVar(&metricsExporterAddr, "metrics-addr", metricsExporterAddr, "Address of prometheus exporter.")
+// 	pflag.StringVar(&metricsExporterPath, "metrics-path", metricsExporterPath, "Path of prometheus exporter.")
+// 	if len(switches) > 0 {
+// 		for _, sw := range switches {
+// 			// sw.On = false
+// 			switchesVars[sw.Flag] = sw
+// 			pflag.BoolVar(&sw.On, sw.Flag, sw.On, sw.Usage)
+// 		}
+// 	}
 
-	RuntimeDone = make(chan struct{})
-)
+// 	pflag.Parse()
 
-func Init(name string, switches ...*FlagSwitch) {
-	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
-	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
-	pflag.StringVar(&metricsExporterAddr, "metrics-addr", metricsExporterAddr, "Address of prometheus exporter.")
-	pflag.StringVar(&metricsExporterPath, "metrics-path", metricsExporterPath, "Path of prometheus exporter.")
-	if len(switches) > 0 {
-		for _, sw := range switches {
-			//sw.On = false
-			switchesVars[sw.Flag] = sw
-			pflag.BoolVar(&sw.On, sw.Flag, sw.On, sw.Usage)
-		}
-	}
+// 	if name != "" {
+// 		AppName = name
+// 	}
+// }
 
-	pflag.Parse()
+// func Silence() {
+// 	silence = true
+// }
 
-	if name != "" {
-		AppName = name
-	}
-}
+// func Start(cfg *Config) {
+// 	cfg = cfg.Ensure()
 
-func Silence() {
-	silence = true
-}
+// 	// Logger level
+// 	if silence {
+// 		logger.Logger.Level(logger.SilenceLevel)
+// 	} else {
+// 		lvl := logger.LogLevel(cfg.LogLevel)
+// 		logger.Logger.Level(lvl)
+// 	}
 
-func Start(cfg *Config) {
-	cfg = cfg.Ensure()
+// 	// Driver
+// 	if cfg.Infra.DB != nil {
+// 		_, err := infra.InitDB(cfg.Infra.DB)
+// 		if err != nil {
+// 			logger.Logger.Fatal(
+// 				"Initialize database failed",
+// 				"error", err.Error(),
+// 			)
+// 		}
+// 	}
 
-	// Logger level
-	if silence {
-		logger.Logger.Level(logger.SilenceLevel)
-	} else {
-		lvl := logger.LogLevel(cfg.LogLevel)
-		logger.Logger.Level(lvl)
-	}
+// 	if cfg.Infra.Redis != nil {
+// 		_, err := infra.InitRedis(cfg.Infra.Redis)
+// 		if err != nil {
+// 			logger.Logger.Fatal(
+// 				"Initialize redis failed",
+// 				"error", err.Error(),
+// 			)
+// 		}
+// 	}
 
-	// Metrics
-	if cfg.Metrics != nil {
-		// <TODO>
-	}
+// 	if cfg.Infra.Nats != nil {
+// 		_, err := infra.InitNats(cfg.Infra.Nats)
+// 		if err != nil {
+// 			logger.Logger.Fatal(
+// 				"Initialize nats failed",
+// 				"error", err.Error(),
+// 			)
+// 		}
+// 	}
 
-	// Driver
-	if cfg.Driver.DB != nil {
-		_, err := driver.InitDB(cfg.Driver.DB)
-		if err != nil {
-			logger.Logger.Fatal(
-				"Initialize database failed",
-				"error", err.Error(),
-			)
-		}
-	}
+// 	if cfg.Infra.Cache != nil {
+// 		_, err := infra.InitCache(cfg.Infra.Cache)
+// 		if err != nil {
+// 			logger.Logger.Fatal(
+// 				"Initialize cache failed",
+// 				"error", err.Error(),
+// 			)
+// 		}
+// 	}
 
-	if cfg.Driver.Redis != nil {
-		_, err := driver.InitRedis(cfg.Driver.Redis)
-		if err != nil {
-			logger.Logger.Fatal(
-				"Initialize redis failed",
-				"error", err.Error(),
-			)
-		}
-	}
+// 	if cfg.Infra.KV != nil {
+// 		_, err := infra.InitKV(cfg.Infra.KV)
+// 		if err != nil {
+// 			logger.Logger.Fatal(
+// 				"Initialize kv failed",
+// 				"error", err.Error(),
+// 			)
+// 		}
+// 	}
 
-	if cfg.Driver.Nats != nil {
-		_, err := driver.InitNats(cfg.Driver.Nats)
-		if err != nil {
-			logger.Logger.Fatal(
-				"Initialize nats failed",
-				"error", err.Error(),
-			)
-		}
-	}
+// 	// Tracer
+// 	switch strings.ToLower(cfg.Tracer.Type) {
+// 	case "grpc":
+// 		grpc.New(nil, &grpc.Config{
+// 			Endpoint:   cfg.Tracer.Endpoint,
+// 			Compress:   cfg.Tracer.Compress,
+// 			Timeout:    cfg.Tracer.Timeout,
+// 			SampleRate: cfg.Tracer.SampleRate,
+// 		})
+// 	case "http":
+// 		http.New(nil, &http.Config{
+// 			Endpoint:   cfg.Tracer.Endpoint,
+// 			SampleRate: cfg.Tracer.SampleRate,
+// 		})
+// 	case "stdout":
+// 		stdout.New(nil, &stdout.Config{
+// 			PrettyPrint: cfg.Tracer.PrettyPrint,
+// 			Timestamps:  cfg.Tracer.Timestamps,
+// 			SampleRate:  cfg.Tracer.SampleRate,
+// 		})
+// 	}
 
-	if cfg.Driver.Cache != nil {
-		_, err := driver.InitCache(cfg.Driver.Cache)
-		if err != nil {
-			logger.Logger.Fatal(
-				"Initialize cache failed",
-				"error", err.Error(),
-			)
-		}
-	}
+// 	// Command flags
+// 	for flag, sw := range switchesVars {
+// 		if sw.Flag == flag && sw.On && sw.Callback != nil {
+// 			err := sw.Callback()
+// 			if err != nil {
+// 				logger.Logger.Fatal(
+// 					"Call flag command failed",
+// 					"flag", flag,
+// 					"error", err.Error(),
+// 				)
+// 			}
+// 		}
+// 	}
 
-	if cfg.Driver.KV != nil {
-		_, err := driver.InitKV(cfg.Driver.KV)
-		if err != nil {
-			logger.Logger.Fatal(
-				"Initialize kv failed",
-				"error", err.Error(),
-			)
-		}
-	}
+// 	// Ticker
+// 	BaseTicker = time.NewTicker(1 * time.Second)
+// 	go func() {
+// 		for {
+// 			select {
+// 			case <-RuntimeDone:
+// 				BaseTicker.Stop()
+// 				if infra.KV != nil {
+// 					infra.KV.Close()
+// 				}
 
-	// Tracer
-	switch strings.ToLower(cfg.Tracer.Type) {
-	case "grpc":
-		grpc.New(nil, &grpc.Config{
-			Endpoint:   cfg.Tracer.Endpoint,
-			Compress:   cfg.Tracer.Compress,
-			Timeout:    cfg.Tracer.Timeout,
-			SampleRate: cfg.Tracer.SampleRate,
-		})
-	case "http":
-		http.New(nil, &http.Config{
-			Endpoint:   cfg.Tracer.Endpoint,
-			SampleRate: cfg.Tracer.SampleRate,
-		})
-	case "stdout":
-		stdout.New(nil, &stdout.Config{
-			PrettyPrint: cfg.Tracer.PrettyPrint,
-			Timestamps:  cfg.Tracer.Timestamps,
-			SampleRate:  cfg.Tracer.SampleRate,
-		})
-	}
+// 				if infra.Cache != nil {
+// 					infra.Cache.Close()
+// 				}
 
-	// Command flags
-	for flag, sw := range switchesVars {
-		if sw.Flag == flag && sw.On && sw.Callback != nil {
-			err := sw.Callback()
-			if err != nil {
-				logger.Logger.Fatal(
-					"Call flag command failed",
-					"flag", flag,
-					"error", err.Error(),
-				)
-			}
-		}
-	}
+// 				if infra.Nats != nil {
+// 					infra.Nats.Close()
+// 				}
 
-	// Ticker
-	BaseTicker = time.NewTicker(1 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-RuntimeDone:
-				BaseTicker.Stop()
-				if driver.KV != nil {
-					driver.KV.Close()
-				}
+// 				if infra.Redis != nil {
+// 					infra.Redis.Close()
+// 				}
 
-				if driver.Cache != nil {
-					driver.Cache.Close()
-				}
+// 				if infra.DB != nil {
+// 					infra.DB.Close()
+// 				}
 
-				if driver.Nats != nil {
-					driver.Nats.Close()
-				}
+// 				return
+// 			case t := <-BaseTicker.C:
+// 				for _, hdl := range BaseTickerHandlers {
+// 					err := hdl(t, BaseTickerCounter.Load())
+// 					if err != nil {
+// 						logger.Logger.Error(
+// 							"Ticker handler failed",
+// 							"error", err.Error(),
+// 						)
+// 					}
+// 				}
 
-				if driver.Redis != nil {
-					driver.Redis.Close()
-				}
+// 				// Increase counter
+// 				BaseTickerCounter.Add(1)
+// 			}
+// 		}
+// 	}()
 
-				if driver.DB != nil {
-					driver.DB.Close()
-				}
+// 	// Registry purger
+// 	if cfg.RegistryPoolPurgeInterval > 0 {
+// 		HandleTicker(func(t time.Time, c uint64) error {
+// 			if c&uint64(cfg.RegistryPoolPurgeInterval) == 0 {
+// 				// registry.PurgeInstances()
+// 			}
 
-				return
-			case t := <-BaseTicker.C:
-				for _, hdl := range BaseTickerHandlers {
-					err := hdl(t, BaseTickerCounter.Load())
-					if err != nil {
-						logger.Logger.Error(
-							"Ticker handler failed",
-							"error", err.Error(),
-						)
-					}
-				}
+// 			return nil
+// 		})
+// 	}
+// }
 
-				// Increase counter
-				BaseTickerCounter.Add(1)
-			}
-		}
-	}()
-
-	// Registry purger
-	if cfg.RegistryPoolPurgeInterval > 0 {
-		HandleTicker(func(t time.Time, c uint64) error {
-			if c&uint64(cfg.RegistryPoolPurgeInterval) == 0 {
-				registry.PurgeInstances()
-			}
-
-			return nil
-		})
-	}
-}
-
-func HandleTicker(handler TickerHander) {
-	BaseTickerHandlers = append(BaseTickerHandlers, handler)
-}
+// func HandleTicker(handler TickerHander) {
+// 	BaseTickerHandlers = append(BaseTickerHandlers, handler)
+// }
 
 /*
  * Local variables:

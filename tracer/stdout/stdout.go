@@ -153,7 +153,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 		"sample_rate", cfg.SampleRate,
 		"pretty_print", cfg.PrettyPrint,
 	)
-	tracer.Instance(opts.ID, tc)
+	tracer.Set(tc)
 
 	return tc
 }

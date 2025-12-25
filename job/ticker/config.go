@@ -22,47 +22,26 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file config.go
+ * @package ticker
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 12/25/2025
  */
 
-package job
+package ticker
 
-import (
-	"context"
+type Config struct{}
 
-	"github.com/google/uuid"
-)
-
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+func DefaultConfig() *Config {
+	return &Config{}
 }
 
-var jobs = make(map[uuid.UUID]Job)
-
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	return c
 }
 
 /*

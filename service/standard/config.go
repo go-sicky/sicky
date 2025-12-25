@@ -22,47 +22,32 @@
  */
 
 /**
- * @file job.go
- * @package job
+ * @file config.go
+ * @package standard
  * @author Dr.NP <np@herewe.tech>
- * @since 08/18/2024
+ * @since 08/13/2024
  */
 
-package job
+package standard
 
-import (
-	"context"
-
-	"github.com/google/uuid"
-)
-
-type Job interface {
-	// Get context
-	Context() context.Context
-	// Job options
-	Options() *Options
-	// Stringify
-	String() string
-	// Job ID
-	ID() uuid.UUID
-	// Job name
-	Name() string
-	// Start job
-	Start() error
-	// Stop job
-	Stop() error
+type Config struct {
+	DisableTrace          bool `json:"disable_trace" yaml:"disable_trace" mapstructure:"disable_trace"`
+	DisableServerRegister bool `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
+	DisableWrappers       bool `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
+	DisableJobs           bool `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
+	DisableTracing        bool `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
 }
 
-var jobs = make(map[uuid.UUID]Job)
+func DefaultConfig() *Config {
+	return &Config{}
+}
 
-func Set(js ...Job) {
-	for _, job := range js {
-		jobs[job.ID()] = job
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
 	}
-}
 
-func Get(id uuid.UUID) Job {
-	return jobs[id]
+	return c
 }
 
 /*

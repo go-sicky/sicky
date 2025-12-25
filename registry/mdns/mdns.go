@@ -36,7 +36,6 @@ import (
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/grandcat/zeroconf"
 )
@@ -45,9 +44,7 @@ const (
 	serviceWildcard = "_services._dns-sd._udp"
 )
 
-var (
-	MdnsRegisters = make(map[uuid.UUID]*zeroconf.Server)
-)
+var MdnsRegisters = make(map[uuid.UUID]*zeroconf.Server)
 
 type MDNS struct {
 	config   *Config
@@ -84,7 +81,7 @@ func New(opts *registry.Options, cfg *Config) *MDNS {
 		"name", rg.options.Name,
 	)
 
-	registry.Instance(opts.ID, rg)
+	registry.Set(rg)
 
 	return rg
 }
@@ -205,32 +202,32 @@ func (rg *MDNS) Watch() error {
 				}
 			} else {
 				// Instance
-				meta := utils.MetadataFromStrings(entry.Text)
-				ins := &registry.Ins{
-					ID:       entry.Instance,
-					Metadata: meta,
-				}
-				ins.Service = meta.Value("name", "")
-				ins.Address = strings.ToLower(meta.Value("address", ":0"))
-				// network := strings.ToLower(meta.Value("network", "tcp"))
-				// switch network {
-				// case "tcp", "tcp4", "tcp6":
-				// 	ins.Addr, _ = net.ResolveTCPAddr(network, address)
-				// case "udp", "udp4", "udp6":
-				// 	ins.Addr, _ = net.ResolveUDPAddr(network, address)
-				// case "unix", "unixpacket":
-				// 	ins.Addr, _ = net.ResolveUnixAddr(network, address)
+				// meta := utils.MetadataFromStrings(entry.Text)
+				// ins := &registry.Instance{
+				// 	ID:       entry.Instance,
+				// 	Metadata: meta,
 				// }
+				// ins.Service = meta.Value("name", "")
+				// ins.Address = strings.ToLower(meta.Value("address", ":0"))
+				// // network := strings.ToLower(meta.Value("network", "tcp"))
+				// // switch network {
+				// // case "tcp", "tcp4", "tcp6":
+				// // 	ins.Addr, _ = net.ResolveTCPAddr(network, address)
+				// // case "udp", "udp4", "udp6":
+				// // 	ins.Addr, _ = net.ResolveUDPAddr(network, address)
+				// // case "unix", "unixpacket":
+				// // 	ins.Addr, _ = net.ResolveUnixAddr(network, address)
+				// // }
 
-				registry.RegisterInstance(ins)
-				rg.options.Logger.DebugContext(
-					rg.ctx,
-					"registry watch event",
-					"registry", rg.String(),
-					"id", rg.options.ID,
-					"name", rg.options.Name,
-					"service", ins.Service,
-				)
+				// registry.RegisterInstance(ins)
+				// rg.options.Logger.DebugContext(
+				// 	rg.ctx,
+				// 	"registry watch event",
+				// 	"registry", rg.String(),
+				// 	"id", rg.options.ID,
+				// 	"name", rg.options.Name,
+				// 	"service", ins.Service,
+				// )
 			}
 		}
 	}(entries)

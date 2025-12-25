@@ -30,38 +30,38 @@
 
 package metrics
 
-const (
-	DefaultExporterAddr = ":9870"
-	DefaultExporterPath = "/metrics"
-)
+// const (
+// 	DefaultExporterAddr = ":9870"
+// 	DefaultExporterPath = "/metrics"
+// )
 
-type Config struct {
-	ExporterAddr string `json:"exporter_addr" yaml:"exporter_addr" mapstructure:"exporter_addr"`
-	ExporterPath string `json:"exporter_path" yaml:"exporter_path" mapstructure:"exporter_path"`
-}
+// type Config struct {
+// 	ExporterAddr string `json:"exporter_addr" yaml:"exporter_addr" mapstructure:"exporter_addr"`
+// 	ExporterPath string `json:"exporter_path" yaml:"exporter_path" mapstructure:"exporter_path"`
+// }
 
-func DefaultConfig() *Config {
-	return &Config{
-		ExporterAddr: DefaultExporterAddr,
-		ExporterPath: DefaultExporterPath,
-	}
-}
+// func DefaultConfig() *Config {
+// 	return &Config{
+// 		ExporterAddr: DefaultExporterAddr,
+// 		ExporterPath: DefaultExporterPath,
+// 	}
+// }
 
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
-	}
+// func (c *Config) Ensure() *Config {
+// 	if c == nil {
+// 		c = DefaultConfig()
+// 	}
 
-	if c.ExporterAddr == "" {
-		c.ExporterAddr = DefaultExporterAddr
-	}
+// 	if c.ExporterAddr == "" {
+// 		c.ExporterAddr = DefaultExporterAddr
+// 	}
 
-	if c.ExporterPath == "" {
-		c.ExporterPath = DefaultExporterPath
-	}
+// 	if c.ExporterPath == "" {
+// 		c.ExporterPath = DefaultExporterPath
+// 	}
 
-	return c
-}
+// 	return c
+// }
 
 /*
  * Local variables:

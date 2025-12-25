@@ -114,7 +114,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		"address", addr.String(),
 	)
 
-	server.Instance(opts.ID, srv)
+	server.Set(srv)
 
 	return srv
 }
@@ -206,9 +206,7 @@ func (srv *TCPServer) Send(c net.Conn, data []byte) error {
 }
 
 func (srv *TCPServer) Start() error {
-	var (
-		err error
-	)
+	var err error
 
 	srv.Lock()
 	defer srv.Unlock()

@@ -32,19 +32,14 @@ package service
 
 import (
 	"context"
-	"errors"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
-	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/tracer"
+	"github.com/google/uuid"
 )
 
 type Service interface {
@@ -70,111 +65,143 @@ type Service interface {
 type TickerHander func(time.Time, uint64) error
 
 var (
-	Instance Service
+	services       = make(map[uuid.UUID]Service)
+	defaultService Service
+	managerEnabled bool
+	managerAddr    string
 )
 
-func Run(svc ...Service) error {
-	var (
-		err  error
-		errs []error
-		me   Service
-	)
-
-	if len(svc) > 0 {
-		me = svc[0]
-	} else {
-		me = Instance
+func Set(svcs ...Service) {
+	for _, svc := range svcs {
+		services[svc.Options().ID] = svc
+		if defaultService == nil {
+			defaultService = svc
+		}
 	}
-
-	if me == nil {
-		logger.Fatal("No service initialized")
-	}
-
-	logger.InfoContext(
-		me.Context(),
-		"Startring service",
-		"service", me.String(),
-		"id", me.Options().ID,
-		"name", me.Options().Name,
-		"version", me.Options().Version,
-		"branch", me.Options().Branch,
-	)
-
-	// Start service
-	errs = me.Start()
-	if errs != nil {
-		err = errors.Join(errs...)
-		logger.ErrorContext(
-			me.Context(),
-			"Service start failed",
-			"errors", err.Error(),
-		)
-
-		// Stop and exit?
-		me.Stop()
-
-		return err
-	}
-
-	logger.InfoContext(
-		me.Context(),
-		"Service started",
-		"service", me.String(),
-		"id", me.Options().ID,
-		"name", me.Options().Name,
-		"version", me.Options().Version,
-		"branch", me.Options().Branch,
-	)
-
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT, os.Interrupt)
-	select {
-	case <-ch:
-	case <-me.Context().Done():
-	}
-
-	logger.InfoContext(
-		me.Context(),
-		"Stopping service",
-		"service", me.String(),
-		"id", me.Options().ID,
-		"name", me.Options().Name,
-		"version", me.Options().Version,
-		"branch", me.Options().Branch,
-	)
-
-	// Stop runtime
-	runtime.RuntimeDone <- struct{}{}
-
-	// Stop services
-	errs = me.Stop()
-	if errs != nil {
-		err = errors.Join(errs...)
-		logger.ErrorContext(
-			me.Context(),
-			"Service stop failed",
-			"errors", err.Error(),
-		)
-
-		return err
-	}
-
-	logger.InfoContext(
-		me.Context(),
-		"Service stopped",
-		"service", me.String(),
-		"id", me.Options().ID,
-		"name", me.Options().Name,
-		"version", me.Options().Version,
-		"branch", me.Options().Branch,
-	)
-
-	return nil
 }
 
-func Shutdown() error {
-	return nil
+func Get(id uuid.UUID) Service {
+	return services[id]
 }
+
+func Default() Service {
+	return defaultService
+}
+
+func EnableManager(addr string) {
+	managerEnabled = true
+	managerAddr = addr
+}
+
+func Services() map[uuid.UUID]Service {
+	return services
+}
+
+// func Run() error {
+// 	var (
+// 		err     error
+// 		errs    []error
+// 		manager *Manager
+// 	)
+
+// 	if defaultService == nil {
+// 		logger.Fatal("null service implementation")
+// 	}
+
+// 	logger.InfoContext(
+// 		defaultService.Context(),
+// 		"Startring service",
+// 		"service", defaultService.String(),
+// 		"id", defaultService.Options().ID,
+// 		"name", defaultService.Options().Name,
+// 		"version", defaultService.Options().Version,
+// 		"branch", defaultService.Options().Branch,
+// 	)
+
+// 	// Start service
+// 	errs = defaultService.Start()
+// 	if errs != nil {
+// 		err = errors.Join(errs...)
+// 		logger.ErrorContext(
+// 			defaultService.Context(),
+// 			"Service start failed",
+// 			"errors", err.Error(),
+// 		)
+
+// 		// Stop and exit?
+// 		defaultService.Stop()
+
+// 		return err
+// 	}
+
+// 	logger.InfoContext(
+// 		defaultService.Context(),
+// 		"Service started",
+// 		"service", defaultService.String(),
+// 		"id", defaultService.Options().ID,
+// 		"name", defaultService.Options().Name,
+// 		"version", defaultService.Options().Version,
+// 		"branch", defaultService.Options().Branch,
+// 	)
+
+// 	if managerEnabled {
+// 		manager = NewManager(managerAddr)
+// 		manager.Start()
+// 	}
+
+// 	ch := make(chan os.Signal, 1)
+// 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT, os.Interrupt)
+// 	select {
+// 	case <-ch:
+// 	case <-defaultService.Context().Done():
+// 	}
+
+// 	if managerEnabled && manager != nil {
+// 		manager.Stop()
+// 	}
+
+// 	logger.InfoContext(
+// 		defaultService.Context(),
+// 		"Stopping service",
+// 		"service", defaultService.String(),
+// 		"id", defaultService.Options().ID,
+// 		"name", defaultService.Options().Name,
+// 		"version", defaultService.Options().Version,
+// 		"branch", defaultService.Options().Branch,
+// 	)
+
+// 	// Stop runtime
+// 	runtime.RuntimeDone <- struct{}{}
+
+// 	// Stop services
+// 	errs = defaultService.Stop()
+// 	if errs != nil {
+// 		err = errors.Join(errs...)
+// 		logger.ErrorContext(
+// 			defaultService.Context(),
+// 			"Service stop failed",
+// 			"errors", err.Error(),
+// 		)
+
+// 		return err
+// 	}
+
+// 	logger.InfoContext(
+// 		defaultService.Context(),
+// 		"Service stopped",
+// 		"service", defaultService.String(),
+// 		"id", defaultService.Options().ID,
+// 		"name", defaultService.Options().Name,
+// 		"version", defaultService.Options().Version,
+// 		"branch", defaultService.Options().Branch,
+// 	)
+
+// 	return nil
+// }
+
+// func Shutdown() error {
+// 	return nil
+// }
 
 /*
  * Local variables:

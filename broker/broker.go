@@ -66,17 +66,24 @@ var (
 	defaultBroker Broker
 )
 
-func Instance(id uuid.UUID, brk ...Broker) Broker {
-	if len(brk) > 0 {
-		brokers[id] = brk[0]
-		defaultBroker = brk[0]
-
-		return brk[0]
+func Set(brks ...Broker) {
+	for _, brk := range brks {
+		brokers[brk.ID()] = brk
+		if defaultBroker == nil {
+			defaultBroker = brk
+		}
 	}
+}
 
+func Get(id uuid.UUID) Broker {
 	return brokers[id]
 }
 
+func Default() Broker {
+	return defaultBroker
+}
+
+/* {{{ [Helpers] */
 func Publish(topic string, m *Message) error {
 	if defaultBroker == nil {
 		return nil
@@ -100,6 +107,8 @@ func Unsubscribe(topic string) error {
 
 	return defaultBroker.Unsubscribe(topic)
 }
+
+/* }}} */
 
 /*
  * Local variables:

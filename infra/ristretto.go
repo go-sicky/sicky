@@ -22,56 +22,58 @@
  */
 
 /**
- * @file swagger.go
- * @package http
+ * @file ristretto.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 12/07/2023
+ * @since 03/08/2025
  */
 
-package http
+package infra
 
 import (
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
+	"github.com/dgraph-io/ristretto/v2"
+	"github.com/go-sicky/sicky/logger"
 )
 
-type Swagger struct {
-	pageTitle    string
-	validatorURL string
+type RistrettoConfig struct {
+	NumCounters int64 `json:"num_counters" yaml:"num_counters" mapstructure:"num_counters"`
+	MaxCost     int64 `json:"max_cost" yaml:"max_cost" mapstructure:"max_cost"`
+	BufferItems int64 `json:"buffer_items" yaml:"buffer_items" mapstructure:"buffer_items"`
 }
 
-func NewSwagger(title, url string) *Swagger {
-	h := &Swagger{
-		pageTitle:    title,
-		validatorURL: url,
+var Ristretto *ristretto.Cache[string, any]
+
+func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) {
+	if cfg == nil {
+		return nil, nil
 	}
 
-	return h
-}
+	cache, err := ristretto.NewCache(
+		&ristretto.Config[string, any]{
+			NumCounters: cfg.NumCounters,
+			MaxCost:     cfg.MaxCost,
+			BufferItems: cfg.BufferItems,
+		},
+	)
+	if err != nil {
+		logger.Logger.Error(
+			"Ristretto cache initialize failed",
+			"error", err.Error(),
+		)
 
-func (h *Swagger) Register(app *fiber.App) {
-	cfg := swagger.ConfigDefault
-	if h.validatorURL != "" {
-		cfg.ValidatorUrl = h.validatorURL
-	} else {
-		cfg.ValidatorUrl = "localhost"
+		return nil, err
 	}
 
-	if h.pageTitle != "" {
-		cfg.Title = h.pageTitle
-	} else {
-		cfg.Title = "Sicky.Swagger.UI"
-	}
+	logger.Logger.Info(
+		"Ristretto cache initialized",
+		"num_counters", cfg.NumCounters,
+		"max_cost", cfg.MaxCost,
+		"buffer_items", cfg.BufferItems,
+	)
 
-	app.All("/docs/*", swagger.New(cfg))
-}
+	Ristretto = cache
 
-func (h *Swagger) Name() string {
-	return "sicky.swagger"
-}
-
-func (h *Swagger) Type() string {
-	return "http"
+	return cache, nil
 }
 
 /*

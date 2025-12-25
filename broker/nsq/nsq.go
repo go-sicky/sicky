@@ -87,7 +87,7 @@ func New(opts *broker.Options, cfg *Config) *Nsq {
 	}
 
 	brk.nsqLogger = newNsqLogger(brk.options.Logger)
-	broker.Instance(opts.ID, brk)
+	broker.Set(brk)
 
 	return brk
 }

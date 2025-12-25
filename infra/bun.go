@@ -22,43 +22,44 @@
  */
 
 /**
- * @file db.go
- * @package driver
+ * @file bun.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
  * @since 11/29/2023
  */
 
-package driver
+package infra
 
 import (
 	"database/sql"
 	"strings"
 
-	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/go-sicky/sicky/logger"
+
+	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/godoes/gorm-dameng/dm8"
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/mssqldialect"
 	"github.com/uptrace/bun/dialect/mysqldialect"
-	"github.com/uptrace/bun/dialect/oracledialect"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/extra/bundebug"
+	//_ "github.com/godoes/gorm-dameng/dm8"
 )
 
-type DBConfig struct {
+type BunConfig struct {
 	Driver       string `json:"driver" yaml:"driver" mapstructure:"driver"`
 	DSN          string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
 	Debug        bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
 	SlowDuration int    `json:"slow_duration" yaml:"slow_duration" mapstructure:"time_duration"`
 }
 
-var DB *bun.DB
+var Bun *bun.DB
 
-func InitDB(cfg *DBConfig) (*bun.DB, error) {
+func InitBun(cfg *BunConfig) (*bun.DB, error) {
 	var (
 		sqldb *sql.DB
 		err   error
@@ -94,14 +95,14 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 		}
 
 		db = bun.NewDB(sqldb, sqlitedialect.New())
-	case "dm":
-		// DaMeng
-		sqldb, err = sql.Open("dm", cfg.DSN)
-		if err != nil {
-			return nil, err
-		}
+	// case "dm":
+	// 	// DaMeng
+	// 	sqldb, err = sql.Open("dm", cfg.DSN)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
 
-		db = bun.NewDB(sqldb, oracledialect.New())
+	// 	db = bun.NewDB(sqldb, oracledialect.New())
 	default:
 		// PostgreSQL
 		sqldb = sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(cfg.DSN)))
@@ -134,8 +135,8 @@ func InitDB(cfg *DBConfig) (*bun.DB, error) {
 		"debug", cfg.Debug,
 	)
 
-	if DB == nil {
-		DB = db
+	if Bun == nil {
+		Bun = db
 	}
 
 	return db, nil

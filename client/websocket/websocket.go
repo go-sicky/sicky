@@ -42,7 +42,7 @@ type WebsocketClient struct {
 	options *client.Options
 	ctx     context.Context
 
-	//tracer trace.Tracer
+	// tracer trace.Tracer
 }
 
 // var (
@@ -103,7 +103,7 @@ func New(opts *client.Options, cfg *Config) *WebsocketClient {
 		"name", clt.options.Name,
 	)
 
-	client.Instance(opts.ID, clt)
+	client.Set(clt)
 
 	return clt
 }
@@ -141,7 +141,6 @@ func (clt *WebsocketClient) ID() uuid.UUID {
 }
 
 func (clt *WebsocketClient) Handle(hdl WebsocketHandler) {
-
 }
 
 /* {{{ [Handler] */

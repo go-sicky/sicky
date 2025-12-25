@@ -56,18 +56,15 @@ type Client interface {
 	ID() uuid.UUID
 }
 
-var (
-	clients = make(map[uuid.UUID]Client, 0)
-)
+var clients = make(map[uuid.UUID]Client, 0)
 
-func Instance(id uuid.UUID, clt ...Client) Client {
-	if len(clt) > 0 {
-		// Set value
-		clients[id] = clt[0]
-
-		return clt[0]
+func Set(clts ...Client) {
+	for _, clt := range clts {
+		clients[clt.ID()] = clt
 	}
+}
 
+func Get(id uuid.UUID) Client {
 	return clients[id]
 }
 

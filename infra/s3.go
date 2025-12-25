@@ -22,58 +22,40 @@
  */
 
 /**
- * @file cache.go
- * @package driver
+ * @file s3.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
- * @since 03/08/2025
+ * @since 12/20/2025
  */
 
-package driver
+package infra
 
 import (
-	"github.com/dgraph-io/ristretto/v2"
-	"github.com/go-sicky/sicky/logger"
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-type CacheConfig struct {
-	NumCounters int64 `json:"num_counters" yaml:"num_counters" mapstructure:"num_counters"`
-	MaxCost     int64 `json:"max_cost" yaml:"max_cost" mapstructure:"max_cost"`
-	BufferItems int64 `json:"buffer_items" yaml:"buffer_items" mapstructure:"buffer_items"`
-}
+type S3Config struct{}
 
-var Cache *ristretto.Cache[string, any]
+var S3 *s3.Client
 
-func InitCache(cfg *CacheConfig) (*ristretto.Cache[string, any], error) {
+func InitS3(cfg *S3Config) (*s3.Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}
 
-	cache, err := ristretto.NewCache(
-		&ristretto.Config[string, any]{
-			NumCounters: cfg.NumCounters,
-			MaxCost:     cfg.MaxCost,
-			BufferItems: cfg.BufferItems,
-		},
-	)
+	c, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		logger.Logger.Error(
-			"Ristretto cache initialize failed",
-			"error", err.Error(),
-		)
-
 		return nil, err
 	}
 
-	logger.Logger.Info(
-		"Ristretto cache initialized",
-		"num_counters", cfg.NumCounters,
-		"max_cost", cfg.MaxCost,
-		"buffer_items", cfg.BufferItems,
-	)
+	client := s3.NewFromConfig(c)
 
-	Cache = cache
+	S3 = client
 
-	return cache, nil
+	return client, nil
 }
 
 /*

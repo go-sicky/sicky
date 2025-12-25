@@ -33,111 +33,182 @@ package registry
 import (
 	"sync"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
+	"github.com/google/uuid"
 )
 
 type PoolEvent struct {
 	Changed bool
 }
 
-var (
-	Pool     = make(map[string]*Service)
-	PoolChan = make(chan PoolEvent)
-	poolLock sync.RWMutex
-)
+var currentPool *Pool
+
+type Pool struct {
+	Services map[string]*Service `json:"services" yaml:"services"`
+	Notify   chan PoolEvent
+
+	sync.RWMutex
+}
 
 // Service definition
 type Service struct {
-	Service   string          `json:"service" yaml:"service"`
-	Instances map[string]*Ins `json:"instances" yaml:"instances"`
+	Service   string                  `json:"service" yaml:"service"`
+	Kind      string                  `json:"kind" yaml:"kind"`
+	Self      bool                    `json:"self" yaml:"self"`
+	Tags      []string                `json:"tags" yaml:"tags"`
+	Metadata  utils.Metadata          `json:"metadata" yaml:"metadata"`
+	Instances map[uuid.UUID]*Instance `json:"instances" yaml:"instances"`
 }
 
 // Service instance
-type Ins struct {
-	ID               string         `json:"id" yaml:"id"`
-	Service          string         `json:"service" yaml:"service"`
-	Address          string         `json:"address" yaml:"address"`
-	AdvertiseAddress string         `json:"advertise_address" yaml:"advertise_address"`
-	Port             int            `json:"port" yaml:"port"`
-	AdvertisePort    int            `json:"advertise_port" yaml:"advertise_port"`
-	Metadata         utils.Metadata `json:"metadata" yaml:"metadata"`
+type Instance struct {
+	ID               uuid.UUID          `json:"id" yaml:"id"`
+	ServiceMame      string             `json:"service_name" yaml:"service_name"`
+	AdvertiseAddress string             `json:"advertise_address" yaml:"advertise_address"`
+	ManagerPort      int                `json:"manager_port" yaml:"manager_port"`
+	Address          string             `json:"address" yaml:"address"`
+	Tags             []string           `json:"tags" yaml:"tags"`
+	Metadata         utils.Metadata     `json:"metadata" yaml:"metadata"`
+	Weight           int                `json:"weight" yaml:"weight"`
+	Status           int                `json:"status" yaml:"status"`
+	CheckEntryPoint  string             `json:"check_entry_point" yaml:"check_entry_point"`
+	TTL              int                `json:"ttl" yaml:"ttl"`
+	Servers          map[string]*Server `json:"servers" yaml:"servers"`
+	Topics           map[string]*Topic  `json:"topics" yaml:"topics"`
 }
 
-func RegisterInstance(ins *Ins) {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+type Server struct {
+	ID               string    `json:"id" yaml:"id"`
+	InstanceID       uuid.UUID `json:"instance_id" yaml:"instance_id"`
+	Type             string    `json:"type" yaml:"type"`
+	Name             string    `json:"name" yaml:"name"`
+	AdvertiseAddress string    `json:"advertise_address" yaml:"advertise_address"`
+	Port             int       `json:"port" yaml:"port"`
+}
+
+type Topic struct {
+	Instance *Instance `json:"instance" yaml:"instance"`
+	Name     string    `json:"name" yaml:"name"`
+	Type     string    `json:"type" yaml:"type"`
+	Group    string    `json:"group" yaml:"group"`
+}
+
+// Init pool
+func InitPool() *Pool {
+	currentPool = &Pool{
+		Services: make(map[string]*Service),
+		Notify:   make(chan PoolEvent, 1),
+	}
+
+	return currentPool
+}
+
+func (p *Pool) RegisterService(svc *Service) {
+	if p == nil {
+		return
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	p.Services[svc.Service] = svc
+}
+
+func (p *Pool) GetService(service string) *Service {
+	if p == nil {
+		return nil
+	}
+
+	p.RLock()
+	defer p.RUnlock()
+
+	return p.Services[service]
+}
+
+func (p *Pool) RegisterInstance(ins *Instance) {
+	p.Lock()
+	defer p.Unlock()
 
 	// Check service
-	if Pool[ins.Service] == nil {
-		Pool[ins.Service] = &Service{
-			Service:   ins.Service,
-			Instances: make(map[string]*Ins),
+	if p.Services[ins.ServiceMame] == nil {
+		// Service not exists
+	} else {
+		if p.Services[ins.ServiceMame].Instances == nil {
+			p.Services[ins.ServiceMame].Instances = make(map[uuid.UUID]*Instance)
 		}
-	}
 
-	// Check status
-	if Pool[ins.Service].Instances[ins.ID] == nil {
-		Pool[ins.Service].Instances[ins.ID] = ins
+		// Register
+		p.Services[ins.ServiceMame].Instances[ins.ID] = ins
 	}
 }
 
-func GetInstances(service string) map[string]*Ins {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+func (p *Pool) GetInstance(service string, id uuid.UUID) *Instance {
+	p.RLock()
+	defer p.RUnlock()
 
-	s, ok := Pool[service]
-	if ok && s.Instances != nil {
-		return s.Instances
+	if p.Services[service] == nil {
+		return nil
 	}
 
-	return nil
+	return p.Services[service].Instances[id]
 }
 
-func PurgeInstances() {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+// func GetInstances(service string) map[string]*Instance {
+// 	poolLock.Lock()
+// 	defer poolLock.Unlock()
 
-	for service, svc := range Pool {
-		if service != svc.Service {
-			delete(Pool, service)
-		}
+// 	s, ok := Pool[service]
+// 	if ok && s.Instances != nil {
+// 		return s.Instances
+// 	}
 
-		for id, ins := range svc.Instances {
-			if ins.ID != id {
-				delete(Pool[service].Instances, id)
-			}
+// 	return nil
+// }
 
-			// Check instance
-			exists := false
-			for _, rg := range registries {
-				if rg.CheckInstance(ins.ID) {
-					exists = true
-					break
-				}
-			}
+// func PurgeInstances() {
+// 	poolLock.Lock()
+// 	defer poolLock.Unlock()
 
-			if !exists {
-				// Remove instance
-				delete(Pool[service].Instances, id)
-			}
-		}
+// 	for service, svc := range Pool {
+// 		if service != svc.Service {
+// 			delete(Pool, service)
+// 		}
 
-		if len(svc.Instances) == 0 {
-			delete(Pool, service)
-		}
-	}
+// 		for id, ins := range svc.Instances {
+// 			if ins.ID != id {
+// 				delete(Pool[service].Instances, id)
+// 			}
 
-	select {
-	case PoolChan <- PoolEvent{Changed: true}:
-	default:
-		// Just ignore
-	}
+// 			// Check instance
+// 			exists := false
+// 			for _, rg := range registries {
+// 				if rg.CheckInstance(ins.ID) {
+// 					exists = true
+// 					break
+// 				}
+// 			}
 
-	logger.Logger.Debug(
-		"registry pool purged",
-	)
-}
+// 			if !exists {
+// 				// Remove instance
+// 				delete(Pool[service].Instances, id)
+// 			}
+// 		}
+
+// 		if len(svc.Instances) == 0 {
+// 			delete(Pool, service)
+// 		}
+// 	}
+
+// 	select {
+// 	case PoolChan <- PoolEvent{Changed: true}:
+// 	default:
+// 		// Just ignore
+// 	}
+
+// 	logger.Logger.Debug(
+// 		"registry pool purged",
+// 	)
+// }
 
 /*
  * Local variables:

@@ -22,26 +22,26 @@
  */
 
 /**
- * @file kv.go
- * @package driver
+ * @file badger.go
+ * @package infra
  * @author Dr.NP <np@herewe.tech>
  * @since 03/08/2025
  */
 
-package driver
+package infra
 
 import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/go-sicky/sicky/logger"
 )
 
-type KVConfig struct {
+type BadgerConfig struct {
 	Path string `json:"path" yaml:"path" mapstructure:"path"`
 }
 
-var KV *badger.DB
+var Badger *badger.DB
 
-func InitKV(cfg *KVConfig) (any, error) {
+func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	if cfg == nil {
 		return nil, nil
 	}
@@ -61,7 +61,7 @@ func InitKV(cfg *KVConfig) (any, error) {
 		"path", cfg.Path,
 	)
 
-	KV = kv
+	Badger = kv
 
 	return kv, nil
 }
