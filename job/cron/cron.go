@@ -87,6 +87,10 @@ func (job *Cron) Name() string {
 	return job.options.Name
 }
 
+func (job *Cron) Add(task *Task) error {
+	return nil
+}
+
 func (job *Cron) Start() error {
 	return nil
 }

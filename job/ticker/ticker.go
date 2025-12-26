@@ -90,6 +90,10 @@ func (job *Ticker) Name() string {
 	return job.options.Name
 }
 
+func (job *Ticker) Add(task *Task) error {
+	return nil
+}
+
 func (job *Ticker) Start() error {
 	return nil
 }
