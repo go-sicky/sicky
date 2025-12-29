@@ -68,7 +68,7 @@ func New(opts *client.Options, cfg *Config) *HTTPClient {
 
 	clt := &HTTPClient{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 

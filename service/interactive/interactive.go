@@ -64,7 +64,7 @@ func New(opts *service.Options, cfg *Config) *Interactive {
 
 	svc := &Interactive{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 
@@ -96,7 +96,6 @@ func (s *Interactive) String() string {
 }
 
 func (s *Interactive) Start() []error {
-
 	// err  error
 	var errs []error
 

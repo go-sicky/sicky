@@ -55,7 +55,7 @@ func New(opts *client.Options, cfg *Config) *TCPClient {
 	clt := &TCPClient{
 		config:    cfg,
 		options:   opts,
-		ctx:       context.Background(),
+		ctx:       opts.Context,
 		addr:      addr,
 		connected: false,
 	}

@@ -22,93 +22,66 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file options.go
+ * @package sicky
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 12/29/2025
  */
 
-package registry
+package sicky
 
-import (
-	"context"
+import "context"
 
-	"github.com/google/uuid"
+const (
+	DefaultAppName   = "sicky"
+	DefaultVersion   = "latest"
+	DefaultBranch    = "main"
+	DefaultEnvPrefix = "SICKY"
 )
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Registry ID
-	ID() uuid.UUID
-	// Registry name
-	Name() string
-	// Register service
-	Register(*Instance) error
-	// Deregister service
-	Deregister(uuid.UUID) error
-	// Check service instance
-	CheckInstance(uuid.UUID) bool
-	// Watch services
-	Watch() error
+type Options struct {
+	AppName   string
+	Version   string
+	Branch    string
+	Commit    string
+	BuildTime string
+	EnvPrefix string
+
+	Silence bool
+	Context context.Context
 }
 
-var (
-	registries      = make(map[uuid.UUID]Registry)
-	defaultRegistry Registry
-)
-
-func Set(rgs ...Registry) {
-	for _, rg := range rgs {
-		registries[rg.ID()] = rg
-		if defaultRegistry == nil {
-			defaultRegistry = rg
-		}
-	}
-}
-
-func Get(id uuid.UUID) Registry {
-	return registries[id]
-}
-
-func Default() Registry {
-	return defaultRegistry
-}
-
-func Registries() map[uuid.UUID]Registry {
-	return registries
-}
-
-/* {{{ [Helpers] */
-func Register(ins *Instance) error {
-	if defaultRegistry == nil {
-		return nil
+func (o *Options) Ensure() *Options {
+	if o == nil {
+		o = new(Options)
 	}
 
-	return defaultRegistry.Register(ins)
-}
-
-func Deregister(id uuid.UUID) error {
-	if defaultRegistry == nil {
-		return nil
+	if o.Context == nil {
+		o.Context = context.Background()
 	}
 
-	return defaultRegistry.Deregister(id)
-}
-
-func CheckInstance(id uuid.UUID) bool {
-	if defaultRegistry == nil {
-		return false
+	if o.AppName == "" {
+		o.AppName = DefaultAppName
 	}
 
-	return defaultRegistry.CheckInstance(id)
-}
+	if o.Version == "" {
+		o.Version = DefaultVersion
+	}
 
-/* }}} */
+	if o.Branch == "" {
+		o.Branch = DefaultBranch
+	}
+
+	if o.EnvPrefix == "" {
+		o.EnvPrefix = DefaultEnvPrefix
+	}
+
+	if o.Context == nil {
+		o.Context = context.Background()
+	}
+
+	return o
+}
 
 /*
  * Local variables:

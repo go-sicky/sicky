@@ -31,6 +31,8 @@
 package client
 
 import (
+	"context"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
 )
@@ -42,6 +44,8 @@ type Options struct {
 	Name   string
 	ID     uuid.UUID
 	Logger logger.GeneralLogger
+
+	Context context.Context
 
 	beforeConnect []ClientWrapper
 	afterConnect  []ClientWrapper
@@ -64,6 +68,10 @@ func (o *Options) Ensure() *Options {
 
 	if o.Logger == nil {
 		o.Logger = logger.DefaultGeneralLogger
+	}
+
+	if o.Context == nil {
+		o.Context = context.Background()
 	}
 
 	if o.beforeConnect == nil {

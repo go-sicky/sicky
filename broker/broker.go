@@ -83,6 +83,10 @@ func Default() Broker {
 	return defaultBroker
 }
 
+func Brokers() map[uuid.UUID]Broker {
+	return brokers
+}
+
 /* {{{ [Helpers] */
 func Publish(topic string, m *Message) error {
 	if defaultBroker == nil {

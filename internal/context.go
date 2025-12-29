@@ -22,93 +22,41 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file context.go
+ * @package internal
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 09/18/2024
  */
 
-package registry
+package internal
 
 import (
 	"context"
+	"time"
 
+	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Registry ID
-	ID() uuid.UUID
-	// Registry name
-	Name() string
-	// Register service
-	Register(*Instance) error
-	// Deregister service
-	Deregister(uuid.UUID) error
-	// Check service instance
-	CheckInstance(uuid.UUID) bool
-	// Watch services
-	Watch() error
+type Context struct {
+	Base context.Context
+
+	ID        uuid.UUID
+	AppName   string
+	Version   string
+	Branch    string
+	Metadata  utils.Metadata
+	StartTime time.Time
+
+	DefaultBroker   broker.Broker
+	DefaultRegistry registry.Registry
+	DefaultTracer   tracer.Tracer
+	DefaultLogger   logger.GeneralLogger
 }
-
-var (
-	registries      = make(map[uuid.UUID]Registry)
-	defaultRegistry Registry
-)
-
-func Set(rgs ...Registry) {
-	for _, rg := range rgs {
-		registries[rg.ID()] = rg
-		if defaultRegistry == nil {
-			defaultRegistry = rg
-		}
-	}
-}
-
-func Get(id uuid.UUID) Registry {
-	return registries[id]
-}
-
-func Default() Registry {
-	return defaultRegistry
-}
-
-func Registries() map[uuid.UUID]Registry {
-	return registries
-}
-
-/* {{{ [Helpers] */
-func Register(ins *Instance) error {
-	if defaultRegistry == nil {
-		return nil
-	}
-
-	return defaultRegistry.Register(ins)
-}
-
-func Deregister(id uuid.UUID) error {
-	if defaultRegistry == nil {
-		return nil
-	}
-
-	return defaultRegistry.Deregister(id)
-}
-
-func CheckInstance(id uuid.UUID) bool {
-	if defaultRegistry == nil {
-		return false
-	}
-
-	return defaultRegistry.CheckInstance(id)
-}
-
-/* }}} */
 
 /*
  * Local variables:

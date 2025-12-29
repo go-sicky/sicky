@@ -54,7 +54,7 @@ func New(opts *client.Options, cfg *Config) *UDPClient {
 	addr, _ := net.ResolveUDPAddr("udp", cfg.Addr)
 	clt := &UDPClient{
 		config:    cfg,
-		ctx:       context.Background(),
+		ctx:       opts.Context,
 		addr:      addr,
 		connected: false,
 		options:   opts,

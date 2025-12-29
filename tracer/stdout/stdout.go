@@ -58,7 +58,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 
 	tc := &StdoutTracer{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 

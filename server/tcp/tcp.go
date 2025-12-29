@@ -94,7 +94,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 
 	srv := &TCPServer{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		addr:          addr,
 		advertiseAddr: advertiseAddr,
 		running:       false,

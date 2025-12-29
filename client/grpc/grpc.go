@@ -60,7 +60,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 
 	clt := &GRPCClient{
 		config:    cfg,
-		ctx:       context.Background(),
+		ctx:       opts.Context,
 		connected: false,
 		options:   opts,
 	}

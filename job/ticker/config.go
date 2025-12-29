@@ -30,15 +30,27 @@
 
 package ticker
 
-type Config struct{}
+const (
+	DefaultInterval = 1
+)
+
+type Config struct {
+	Interval int64 `json:"interval" yaml:"interval" mapstructure:"interval"`
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		Interval: DefaultInterval,
+	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.Interval <= 0 {
+		c.Interval = DefaultInterval
 	}
 
 	return c

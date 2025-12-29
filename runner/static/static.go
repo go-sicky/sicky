@@ -55,7 +55,7 @@ func New(opts *runner.Options, cfg *Config) *Static {
 
 	r := &Static{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 		task:    make(chan *runner.Task, opts.BufferSize),
 	}

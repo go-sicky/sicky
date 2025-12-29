@@ -99,7 +99,7 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 
 	srv := &FiberServer{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		addr:          addr,
 		advertiseAddr: advertiseAddr,
 		running:       false,

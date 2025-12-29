@@ -60,7 +60,7 @@ func New(opts *service.Options, cfg *Config) *Mcp {
 
 	svc := &Mcp{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 

@@ -32,6 +32,7 @@ package sicky
 
 import (
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/registry"
 )
 
 const (
@@ -40,15 +41,18 @@ const (
 	DefaultHealthPath  = "/health"
 	DefaultVersionPath = "/version"
 	DefaultInfoPath    = "/info"
+	DefaultSwaggerPath = "/swagger.json"
 )
 
 type ManagerConfig struct {
-	Enable      bool   `json:"enable" yaml:"enable" mapstructure:"enable"`
-	Addr        string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	MetricsPath string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
-	HealthPath  string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
-	VersionPath string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
-	InfoPath    string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
+	Enable        bool   `json:"enable" yaml:"enable" mapstructure:"enable"`
+	Addr          string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	EnableSwagger bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	MetricsPath   string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
+	HealthPath    string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
+	VersionPath   string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
+	InfoPath      string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
+	SwaggerPath   string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
 }
 
 type InfraConfig struct {
@@ -81,11 +85,12 @@ const (
 )
 
 type Config struct {
-	LogLevel                  string         `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
-	RegistryPoolPurgeInterval int            `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
-	Manager                   *ManagerConfig `json:"manager" yaml:"manager" mapstructure:"manager"`
-	Infra                     *InfraConfig   `json:"infra" yaml:"infra" mapstructure:"infra"`
-	Tracer                    *TracerConfig  `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
+	LogLevel                  string           `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
+	RegistryPoolPurgeInterval int              `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
+	Manager                   *ManagerConfig   `json:"manager" yaml:"manager" mapstructure:"manager"`
+	Infra                     *InfraConfig     `json:"infra" yaml:"infra" mapstructure:"infra"`
+	Tracer                    *TracerConfig    `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
+	Registry                  *registry.Config `json:"registry" yaml:"registry" mapstructure:"registry"`
 }
 
 func DefaultConfig() *Config {
@@ -105,28 +110,30 @@ func (c *Config) Ensure() *Config {
 		c = &Config{}
 	}
 
-	if c.Manager == nil {
-		c.Manager = &ManagerConfig{}
-	}
+	if c.Manager != nil {
+		if c.Manager.Addr == "" {
+			c.Manager.Addr = DefaultManagerAddr
+		}
 
-	if c.Manager.Addr == "" {
-		c.Manager.Addr = DefaultManagerAddr
-	}
+		if c.Manager.MetricsPath == "" {
+			c.Manager.MetricsPath = DefaultMetricsPath
+		}
 
-	if c.Manager.MetricsPath == "" {
-		c.Manager.MetricsPath = DefaultMetricsPath
-	}
+		if c.Manager.HealthPath == "" {
+			c.Manager.HealthPath = DefaultHealthPath
+		}
 
-	if c.Manager.HealthPath == "" {
-		c.Manager.HealthPath = DefaultHealthPath
-	}
+		if c.Manager.VersionPath == "" {
+			c.Manager.VersionPath = DefaultVersionPath
+		}
 
-	if c.Manager.VersionPath == "" {
-		c.Manager.VersionPath = DefaultVersionPath
-	}
+		if c.Manager.InfoPath == "" {
+			c.Manager.InfoPath = DefaultInfoPath
+		}
 
-	if c.Manager.InfoPath == "" {
-		c.Manager.InfoPath = DefaultInfoPath
+		if c.Manager.SwaggerPath == "" {
+			c.Manager.SwaggerPath = DefaultSwaggerPath
+		}
 	}
 
 	if c.Infra == nil {

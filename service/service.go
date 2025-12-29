@@ -32,7 +32,6 @@ package service
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
@@ -62,13 +61,9 @@ type Service interface {
 	Tracers(...tracer.Tracer) []tracer.Tracer
 }
 
-type TickerHander func(time.Time, uint64) error
-
 var (
 	services       = make(map[uuid.UUID]Service)
 	defaultService Service
-	managerEnabled bool
-	managerAddr    string
 )
 
 func Set(svcs ...Service) {
@@ -86,11 +81,6 @@ func Get(id uuid.UUID) Service {
 
 func Default() Service {
 	return defaultService
-}
-
-func EnableManager(addr string) {
-	managerEnabled = true
-	managerAddr = addr
 }
 
 func Services() map[uuid.UUID]Service {

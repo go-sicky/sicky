@@ -96,7 +96,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 
 	srv := &UDPServer{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		addr:          addr,
 		advertiseAddr: advertiseAddr,
 		running:       false,

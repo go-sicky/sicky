@@ -59,7 +59,7 @@ func New(opts *broker.Options, cfg *Config) *Nsq {
 
 	brk := &Nsq{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		options:       opts,
 		subscriptions: make(map[string]*nsq.Consumer),
 		handlers:      make(map[string]broker.Handler),

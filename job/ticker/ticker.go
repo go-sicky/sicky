@@ -32,6 +32,9 @@ package ticker
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
@@ -41,8 +44,12 @@ type Ticker struct {
 	config  *Config
 	ctx     context.Context
 	options *job.Options
+	ticker  *time.Ticker
+	counter atomic.Uint64
+	running bool
 
 	tasks []*Task
+	sync.RWMutex
 }
 
 // New ticker job schedular
@@ -52,8 +59,9 @@ func New(opts *job.Options, cfg *Config) *Ticker {
 
 	j := &Ticker{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
+		running: false,
 		tasks:   make([]*Task, 0),
 	}
 
@@ -91,24 +99,83 @@ func (job *Ticker) Name() string {
 }
 
 func (job *Ticker) Add(task *Task) error {
+	if task.ID == uuid.Nil {
+		task.ID = uuid.New()
+	}
+
+	job.Lock()
+	defer job.Unlock()
+
+	job.tasks = append(job.tasks, task)
+
 	return nil
 }
 
 func (job *Ticker) Start() error {
+	job.Lock()
+	defer job.Unlock()
+
+	if job.running {
+		return nil
+	}
+
+	job.ticker = time.NewTicker(time.Duration(job.config.Interval) * time.Second)
+	go func() {
+		for t := range job.ticker.C {
+			for _, hdl := range job.tasks {
+				if job.counter.Load()%hdl.Inteval == 0 {
+					err := hdl.Handler(t, job.counter.Load())
+					if err != nil {
+						job.options.Logger.ErrorContext(
+							job.ctx,
+							"Ticker handler failed",
+							"error", err.Error(),
+						)
+					} else {
+						job.options.Logger.DebugContext(
+							job.ctx,
+							"Ticker handler success",
+							"job", job.String(),
+							"handler", hdl.ID,
+							"id", job.options.ID,
+							"name", job.options.Name,
+							"counter", job.counter.Load(),
+						)
+					}
+				}
+			}
+
+			// Increase counter
+			job.counter.Add(1)
+		}
+	}()
+
+	job.running = true
+
 	return nil
 }
 
 func (job *Ticker) Stop() error {
+	job.Lock()
+	defer job.Unlock()
+
+	if !job.running {
+		return nil
+	}
+
+	job.ticker.Stop()
+	job.running = false
+
 	return nil
 }
 
 /* {{{ [Task] */
 
-type TickerHandler func(uint64) error
+type TickerHandler func(time.Time, uint64) error
 
 type Task struct {
 	ID      uuid.UUID
-	Inteval int64
+	Inteval uint64
 	Handler TickerHandler
 }
 

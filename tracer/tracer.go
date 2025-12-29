@@ -82,7 +82,19 @@ func Default() Tracer {
 	return defaultTracer
 }
 
+func Tracers() map[uuid.UUID]Tracer {
+	return tracers
+}
+
 /* {{{ [Helpers] */
+func Provider() *sdktrace.TracerProvider {
+	if defaultTracer == nil {
+		return nil
+	}
+
+	return defaultTracer.Provider()
+}
+
 /* }}} */
 
 /*

@@ -22,71 +22,13 @@
  */
 
 /**
- * @file options.go
- * @package runner
+ * @file redis.go
+ * @package redis
  * @author Dr.NP <np@herewe.tech>
- * @since 12/18/2024
+ * @since 12/26/2025
  */
 
-package runner
-
-import (
-	"context"
-	"runtime"
-
-	"github.com/go-sicky/sicky/logger"
-	"github.com/google/uuid"
-)
-
-const (
-	DefaultBufferSize = 256
-)
-
-type Options struct {
-	Name       string
-	ID         uuid.UUID
-	Logger     logger.GeneralLogger
-	NThreads   int
-	BufferSize int
-
-	Context context.Context
-
-	Handler func(*Task) error
-}
-
-func (o *Options) Ensure() *Options {
-	if o == nil {
-		o = new(Options)
-	}
-
-	if o.ID == uuid.Nil {
-		o.ID = uuid.New()
-	}
-
-	if o.Name == "" {
-		o.Name = "Runner::" + o.ID.String()
-	}
-
-	if o.Logger == nil {
-		o.Logger = logger.DefaultGeneralLogger
-	}
-
-	if o.NThreads <= 0 {
-		// Default : 4 times of NumCPU()
-		o.NThreads = runtime.NumCPU() * 4
-	}
-
-	if o.BufferSize < 0 {
-		// Default : 256
-		o.BufferSize = DefaultBufferSize
-	}
-
-	if o.Context == nil {
-		o.Context = context.Background()
-	}
-
-	return o
-}
+package redis
 
 /*
  * Local variables:

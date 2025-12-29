@@ -102,7 +102,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 
 	srv := &WebsocketServer{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		addr:          addr,
 		advertiseAddr: advertiseAddr,
 		running:       false,

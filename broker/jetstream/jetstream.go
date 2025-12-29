@@ -58,7 +58,7 @@ func New(opts *broker.Options, cfg *Config) *Jetstream {
 
 	brk := &Jetstream{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		options:       opts,
 		subscriptions: make(map[string]*nats.Subscription),
 		handlers:      make(map[string]broker.Handler),

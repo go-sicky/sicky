@@ -34,7 +34,6 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/server"
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
 )
@@ -53,7 +52,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 
 	rg := &Consul{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 
@@ -121,82 +120,82 @@ func (rg *Consul) Name() string {
 	return rg.options.Name
 }
 
-func (rg *Consul) Register(srv server.Server) error {
-	reg := &api.AgentServiceRegistration{
-		ID:      srv.Options().ID.String(),
-		Name:    srv.Options().Name,
-		Address: srv.AdvertiseIP().String(),
-		Port:    srv.AdvertisePort(),
-		Meta:    srv.Metadata(),
-	}
-	err := rg.client.Agent().ServiceRegister(reg)
-	if err != nil {
-		rg.options.Logger.ErrorContext(
-			rg.ctx,
-			"Server register failed",
-			"registry", rg.String(),
-			"id", rg.options.ID,
-			"name", rg.options.Name,
-			"server", srv.String(),
-			"server_id", srv.Options().ID.String(),
-			"server_name", srv.Options().Name,
-			"server_addr", srv.IP().String(),
-			"server_port", srv.Port(),
-			"error", err.Error(),
-		)
+func (rg *Consul) Register(ins *registry.Instance) error {
+	// reg := &api.AgentServiceRegistration{
+	// 	ID:      srv.Options().ID.String(),
+	// 	Name:    srv.Options().Name,
+	// 	Address: srv.AdvertiseIP().String(),
+	// 	Port:    srv.AdvertisePort(),
+	// 	Meta:    srv.Metadata(),
+	// }
+	// err := rg.client.Agent().ServiceRegister(reg)
+	// if err != nil {
+	// 	rg.options.Logger.ErrorContext(
+	// 		rg.ctx,
+	// 		"Server register failed",
+	// 		"registry", rg.String(),
+	// 		"id", rg.options.ID,
+	// 		"name", rg.options.Name,
+	// 		"server", srv.String(),
+	// 		"server_id", srv.Options().ID.String(),
+	// 		"server_name", srv.Options().Name,
+	// 		"server_addr", srv.IP().String(),
+	// 		"server_port", srv.Port(),
+	// 		"error", err.Error(),
+	// 	)
 
-		return err
-	}
+	// 	return err
+	// }
 
-	rg.options.Logger.InfoContext(
-		rg.ctx,
-		"Server registered",
-		"registry", rg.String(),
-		"id", rg.options.ID,
-		"name", rg.options.Name,
-		"server", srv.String(),
-		"server_id", srv.Options().ID.String(),
-		"server_name", srv.Options().Name,
-		"server_addr", srv.IP().String(),
-		"server_port", srv.Port(),
-	)
-
-	return nil
-}
-
-func (rg *Consul) Deregister(srv server.Server) error {
-	err := rg.client.Agent().ServiceDeregister(srv.Options().ID.String())
-	if err != nil {
-		rg.options.Logger.ErrorContext(
-			rg.ctx,
-			"Server deregister failed",
-			"registry", rg.String(),
-			"id", rg.options.ID,
-			"name", rg.options.Name,
-			"server", srv.String(),
-			"server_id", srv.Options().ID.String(),
-			"server_name", srv.Options().Name,
-			"error", err.Error(),
-		)
-
-		return err
-	}
-
-	rg.options.Logger.InfoContext(
-		rg.ctx,
-		"Server deregistered",
-		"registry", rg.String(),
-		"id", rg.options.ID,
-		"name", rg.options.Name,
-		"server", srv.String(),
-		"server_id", srv.Options().ID,
-		"server_name", srv.Options().Name,
-	)
+	// rg.options.Logger.InfoContext(
+	// 	rg.ctx,
+	// 	"Server registered",
+	// 	"registry", rg.String(),
+	// 	"id", rg.options.ID,
+	// 	"name", rg.options.Name,
+	// 	"server", srv.String(),
+	// 	"server_id", srv.Options().ID.String(),
+	// 	"server_name", srv.Options().Name,
+	// 	"server_addr", srv.IP().String(),
+	// 	"server_port", srv.Port(),
+	// )
 
 	return nil
 }
 
-func (rg *Consul) CheckInstance(id string) bool {
+func (rg *Consul) Deregister(id uuid.UUID) error {
+	// err := rg.client.Agent().ServiceDeregister(srv.Options().ID.String())
+	// if err != nil {
+	// 	rg.options.Logger.ErrorContext(
+	// 		rg.ctx,
+	// 		"Server deregister failed",
+	// 		"registry", rg.String(),
+	// 		"id", rg.options.ID,
+	// 		"name", rg.options.Name,
+	// 		"server", srv.String(),
+	// 		"server_id", srv.Options().ID.String(),
+	// 		"server_name", srv.Options().Name,
+	// 		"error", err.Error(),
+	// 	)
+
+	// 	return err
+	// }
+
+	// rg.options.Logger.InfoContext(
+	// 	rg.ctx,
+	// 	"Server deregistered",
+	// 	"registry", rg.String(),
+	// 	"id", rg.options.ID,
+	// 	"name", rg.options.Name,
+	// 	"server", srv.String(),
+	// 	"server_id", srv.Options().ID,
+	// 	"server_name", srv.Options().Name,
+	// )
+
+	return nil
+}
+
+func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	svcs, err := rg.client.Agent().Services()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
@@ -211,7 +210,7 @@ func (rg *Consul) CheckInstance(id string) bool {
 		return false
 	}
 
-	_, ok := svcs[id]
+	_, ok := svcs[id.String()]
 
 	return ok
 }

@@ -59,7 +59,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 
 	tc := &HTTPTracer{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 

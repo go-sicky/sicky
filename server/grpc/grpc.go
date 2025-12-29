@@ -99,7 +99,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	opts.Addr = addr
 	srv := &GRPCServer{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		addr:          addr,
 		advertiseAddr: advertiseAddr,
 		running:       false,

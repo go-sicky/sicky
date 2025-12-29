@@ -22,93 +22,56 @@
  */
 
 /**
- * @file registry.go
- * @package registry
+ * @file config.go
+ * @package redis
  * @author Dr.NP <np@herewe.tech>
- * @since 08/04/2024
+ * @since 12/26/2025
  */
 
-package registry
+package redis
 
-import (
-	"context"
-
-	"github.com/google/uuid"
+const (
+	DefaultAddr     = "localhost:6379"
+	DefaultDB       = 0
+	DefaultPoolSize = 10
+	DefaultPassword = ""
 )
 
-type Registry interface {
-	// Get context
-	Context() context.Context
-	// Registry options
-	Options() *Options
-	// Stringify
-	String() string
-	// Registry ID
-	ID() uuid.UUID
-	// Registry name
-	Name() string
-	// Register service
-	Register(*Instance) error
-	// Deregister service
-	Deregister(uuid.UUID) error
-	// Check service instance
-	CheckInstance(uuid.UUID) bool
-	// Watch services
-	Watch() error
+type Config struct {
+	Addr     string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Password string `json:"password" yaml:"password" mapstructure:"password"`
+	DB       int    `json:"db" yaml:"db" mapstructure:"db"`
+	PoolSize int    `json:"pool_size" yaml:"pool_size" mapstructure:"pool_size"`
 }
 
-var (
-	registries      = make(map[uuid.UUID]Registry)
-	defaultRegistry Registry
-)
-
-func Set(rgs ...Registry) {
-	for _, rg := range rgs {
-		registries[rg.ID()] = rg
-		if defaultRegistry == nil {
-			defaultRegistry = rg
-		}
+func DefaultConfig() *Config {
+	return &Config{
+		Addr:     DefaultAddr,
+		Password: DefaultPassword,
+		DB:       DefaultDB,
+		PoolSize: DefaultPoolSize,
 	}
 }
 
-func Get(id uuid.UUID) Registry {
-	return registries[id]
-}
-
-func Default() Registry {
-	return defaultRegistry
-}
-
-func Registries() map[uuid.UUID]Registry {
-	return registries
-}
-
-/* {{{ [Helpers] */
-func Register(ins *Instance) error {
-	if defaultRegistry == nil {
-		return nil
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = &Config{}
 	}
 
-	return defaultRegistry.Register(ins)
-}
-
-func Deregister(id uuid.UUID) error {
-	if defaultRegistry == nil {
-		return nil
+	if c.Addr == "" {
+		c.Addr = DefaultAddr
 	}
 
-	return defaultRegistry.Deregister(id)
-}
-
-func CheckInstance(id uuid.UUID) bool {
-	if defaultRegistry == nil {
-		return false
+	if c.DB == 0 {
+		c.DB = DefaultDB
 	}
 
-	return defaultRegistry.CheckInstance(id)
-}
+	if c.PoolSize == 0 {
+		c.PoolSize = DefaultPoolSize
+	}
 
-/* }}} */
+	return c
+}
 
 /*
  * Local variables:

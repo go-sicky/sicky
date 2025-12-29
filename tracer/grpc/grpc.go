@@ -60,7 +60,7 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 
 	tc := &GRPCTracer{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 

@@ -93,7 +93,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 
 	srv := &HTTPServer{
 		config:        cfg,
-		ctx:           context.Background(),
+		ctx:           opts.Context,
 		addr:          addr,
 		advertiseAddr: advertiseAddr,
 		running:       false,

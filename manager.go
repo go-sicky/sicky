@@ -137,7 +137,7 @@ func (m *Manager) Stop() error {
 
 	m.running = false
 
-	return m.srv.Shutdown(m.ctx)
+	return nil
 }
 
 /* {{{ [Manager] */

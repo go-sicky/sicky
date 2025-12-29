@@ -31,9 +31,9 @@
 package consul
 
 import (
+	"fmt"
 	"sync"
 
-	"github.com/go-sicky/sicky/registry"
 	"github.com/hashicorp/consul/api/watch"
 )
 
@@ -76,49 +76,50 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 			}
 
 			for n, v := range list {
+				fmt.Println(v)
 				if n != "consul" {
-					// Sicky service
-					ins := &registry.Instance{
-						ID:               v.ID,
-						Service:          v.Service,
-						Metadata:         v.Meta,
-						Address:          v.Address,
-						AdvertiseAddress: v.Address,
-						Port:             v.Port,
-						AdvertisePort:    v.Port,
-					}
-					// network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
-					// address := v.Address
-					// if address == "" {
-					// 	address = strings.ToLower(ins.Metadata.Value("address", ":0"))
+					// // Sicky service
+					// ins := &registry.Instance{
+					// 	ID:               v.ID,
+					// 	Service:          v.Service,
+					// 	Metadata:         v.Meta,
+					// 	Address:          v.Address,
+					// 	AdvertiseAddress: v.Address,
+					// 	Port:             v.Port,
+					// 	AdvertisePort:    v.Port,
 					// }
+					// // network := strings.ToLower(ins.Metadata.Value("network", "tcp"))
+					// // address := v.Address
+					// // if address == "" {
+					// // 	address = strings.ToLower(ins.Metadata.Value("address", ":0"))
+					// // }
 
-					// switch network {
-					// case "tcp", "tcp4", "tcp6":
-					// 	ins.Address, _ = net.ResolveTCPAddr(network, address)
-					// case "udp", "udp4", "udp6":
-					// 	ins.Address, _ = net.ResolveUDPAddr(network, address)
-					// case "unix", "unixpacket":
-					// 	ins.Address, _ = net.ResolveUnixAddr(network, address)
-					// }
-					registry.RegisterInstance(ins)
-					rg.options.Logger.DebugContext(
-						rg.ctx,
-						"Consul registry watch event",
-						"registry", rg.String(),
-						"id", rg.options.ID,
-						"name", rg.options.Name,
-						"server_id", ins.ID,
-						"server_name", ins.Service,
-						"server_address", ins.Address,
-						"server_port", ins.Port,
-						"server_advertise_address", ins.AdvertiseAddress,
-						"server_advertise_port", ins.AdvertisePort,
-					)
+					// // switch network {
+					// // case "tcp", "tcp4", "tcp6":
+					// // 	ins.Address, _ = net.ResolveTCPAddr(network, address)
+					// // case "udp", "udp4", "udp6":
+					// // 	ins.Address, _ = net.ResolveUDPAddr(network, address)
+					// // case "unix", "unixpacket":
+					// // 	ins.Address, _ = net.ResolveUnixAddr(network, address)
+					// // }
+					// registry.RegisterInstance(ins)
+					// rg.options.Logger.DebugContext(
+					// 	rg.ctx,
+					// 	"Consul registry watch event",
+					// 	"registry", rg.String(),
+					// 	"id", rg.options.ID,
+					// 	"name", rg.options.Name,
+					// 	"server_id", ins.ID,
+					// 	"server_name", ins.Service,
+					// 	"server_address", ins.Address,
+					// 	"server_port", ins.Port,
+					// 	"server_advertise_address", ins.AdvertiseAddress,
+					// 	"server_advertise_port", ins.AdvertisePort,
+					// )
 				}
 			}
 
-			registry.PurgeInstances()
+			// registry.PurgeInstances()
 		default:
 			// Unsupport
 		}

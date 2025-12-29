@@ -30,23 +30,23 @@
 
 package mdns
 
-type Config struct {
-	Domain string `json:"domain" yaml:"domain" mapstructure:"domain"`
-}
+// type Config struct {
+// 	Domain string `json:"domain" yaml:"domain" mapstructure:"domain"`
+// }
 
-func DefaultConfig() *Config {
-	return &Config{
-		Domain: "local.",
-	}
-}
+// func DefaultConfig() *Config {
+// 	return &Config{
+// 		Domain: "local.",
+// 	}
+// }
 
-func (c *Config) Ensure() *Config {
-	if c == nil {
-		c = DefaultConfig()
-	}
+// func (c *Config) Ensure() *Config {
+// 	if c == nil {
+// 		c = DefaultConfig()
+// 	}
 
-	return c
-}
+// 	return c
+// }
 
 /*
  * Local variables:

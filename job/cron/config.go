@@ -30,10 +30,18 @@
 
 package cron
 
-type Config struct{}
+const (
+	DefaultWithSecond = false
+)
+
+type Config struct {
+	WithSecond bool `json:"with_second" yaml:"with_second" mapstructure:"with_second"`
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		WithSecond: DefaultWithSecond,
+	}
 }
 
 func (c *Config) Ensure() *Config {

@@ -30,7 +30,27 @@
 
 package registry
 
-type Config struct{}
+const (
+	DefaultPoolPurgeInterval = 0
+)
+
+type Config struct {
+	PoolPurgeInterval int64 `json:"pool_purge_interval" yaml:"pool_purge_interval" mapstructure:"pool_purge_interval"`
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		PoolPurgeInterval: DefaultPoolPurgeInterval,
+	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = &Config{}
+	}
+
+	return c
+}
 
 /*
  * Local variables:

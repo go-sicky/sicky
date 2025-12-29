@@ -31,6 +31,8 @@
 package service
 
 import (
+	"context"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
 )
@@ -46,6 +48,8 @@ type Options struct {
 	Branch  string
 	ID      uuid.UUID
 	Logger  logger.GeneralLogger
+
+	Context context.Context
 }
 
 func (o *Options) Ensure() *Options {
@@ -71,6 +75,10 @@ func (o *Options) Ensure() *Options {
 
 	if o.Logger == nil {
 		o.Logger = logger.DefaultGeneralLogger
+	}
+
+	if o.Context == nil {
+		o.Context = context.Background()
 	}
 
 	return o

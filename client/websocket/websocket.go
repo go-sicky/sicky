@@ -67,7 +67,7 @@ func New(opts *client.Options, cfg *Config) *WebsocketClient {
 
 	clt := &WebsocketClient{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
 	}
 

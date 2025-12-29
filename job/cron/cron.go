@@ -32,15 +32,22 @@ package cron
 
 import (
 	"context"
+	"sync"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
 )
 
 type Cron struct {
-	config  *Config
-	ctx     context.Context
-	options *job.Options
+	config    *Config
+	ctx       context.Context
+	options   *job.Options
+	running   bool
+	tasks     []gocron.Job
+	scheduler gocron.Scheduler
+
+	sync.RWMutex
 }
 
 // New cron job schedular
@@ -50,8 +57,10 @@ func New(opts *job.Options, cfg *Config) *Cron {
 
 	j := &Cron{
 		config:  cfg,
-		ctx:     context.Background(),
+		ctx:     opts.Context,
 		options: opts,
+		running: false,
+		tasks:   make([]gocron.Job, 0),
 	}
 
 	j.options.Logger.InfoContext(
@@ -88,14 +97,59 @@ func (job *Cron) Name() string {
 }
 
 func (job *Cron) Add(task *Task) error {
+	if task.ID == uuid.Nil {
+		task.ID = uuid.New()
+	}
+
+	j, err := job.scheduler.NewJob(
+		gocron.CronJob(task.Expression, true),
+		gocron.NewTask(
+			task.Handler,
+		),
+	)
+	if err != nil {
+		return err
+	}
+
+	job.tasks = append(job.tasks, j)
+
 	return nil
 }
 
 func (job *Cron) Start() error {
+	job.Lock()
+	defer job.Unlock()
+
+	if job.running {
+		return nil
+	}
+
+	sch, err := gocron.NewScheduler()
+	if err != nil {
+		return err
+	}
+
+	job.scheduler = sch
+	job.running = true
+
 	return nil
 }
 
 func (job *Cron) Stop() error {
+	job.Lock()
+	defer job.Unlock()
+
+	if !job.running {
+		return nil
+	}
+
+	err := job.scheduler.Shutdown()
+	if err != nil {
+		return err
+	}
+
+	job.running = false
+
 	return nil
 }
 
@@ -103,9 +157,9 @@ func (job *Cron) Stop() error {
 type CronHandler func() error
 
 type Task struct {
-	ID      uuid.UUID
-	Cron    string
-	Handler CronHandler
+	ID         uuid.UUID
+	Expression string
+	Handler    CronHandler
 }
 
 /* }}} */

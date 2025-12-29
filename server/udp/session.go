@@ -36,7 +36,6 @@ import (
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
@@ -112,11 +111,11 @@ func NewPool(idle int) *Pool {
 		maxIdleDuration: time.Duration(idle) * time.Second,
 	}
 
-	runtime.HandleTicker(func(t time.Time, ct uint64) error {
-		p.Purge()
+	// runtime.HandleTicker(func(t time.Time, ct uint64) error {
+	// 	p.Purge()
 
-		return nil
-	})
+	// 	return nil
+	// })
 
 	return p
 }
@@ -130,7 +129,7 @@ func (p *Pool) Put(sess *Session) {
 	}
 
 	p.sessions[sess.ID] = sess
-	//p.conns[sess.conn] = sess
+	// p.conns[sess.conn] = sess
 	p.addrs[sess.addr] = sess
 	if sess.Key != "" {
 		p.keys[sess.Key] = sess
@@ -182,7 +181,7 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	}
 
 	delete(p.sessions, id)
-	//delete(p.conns, sess.conn)
+	// delete(p.conns, sess.conn)
 	delete(p.addrs, sess.addr)
 	if sess.Key != "" {
 		delete(p.keys, sess.Key)

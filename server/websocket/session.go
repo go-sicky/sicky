@@ -35,7 +35,6 @@ import (
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/runtime"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/contrib/websocket"
@@ -135,11 +134,11 @@ func NewPool(ping, idle int) *Pool {
 		maxIdleDuration: time.Duration(idle) * time.Second,
 	}
 
-	runtime.HandleTicker(func(t time.Time, ct uint64) error {
-		p.Purge()
+	// runtime.HandleTicker(func(t time.Time, ct uint64) error {
+	// 	p.Purge()
 
-		return nil
-	})
+	// 	return nil
+	// })
 
 	if SessionPool == nil {
 		SessionPool = p

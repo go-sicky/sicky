@@ -31,6 +31,7 @@
 package server
 
 import (
+	"context"
 	"net"
 
 	"github.com/go-sicky/sicky/logger"
@@ -44,6 +45,8 @@ type Options struct {
 	ID     uuid.UUID
 	Logger logger.GeneralLogger
 	Addr   net.Addr
+
+	Context context.Context
 
 	beforeStart []ServerWrapper
 	afterStart  []ServerWrapper
@@ -66,6 +69,10 @@ func (o *Options) Ensure() *Options {
 
 	if o.Logger == nil {
 		o.Logger = logger.DefaultGeneralLogger
+	}
+
+	if o.Context == nil {
+		o.Context = context.Background()
 	}
 
 	if o.beforeStart == nil {

@@ -33,17 +33,19 @@ package sicky
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/service"
+	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -62,11 +64,11 @@ type TickerHander func(time.Time, uint64) error
 type SickyWrapper func() error
 
 var (
-	appName = "sicky"
+	options *Options
 
 	configLoc  = "config"
 	configType = "json"
-	silence    = false
+	verSw      = false
 
 	switchesVars = make(map[string]*FlagSwitch)
 
@@ -75,18 +77,31 @@ var (
 	beforeStopWrappers  []SickyWrapper
 	afterStopWrappers   []SickyWrapper
 
-	BaseTicker         *time.Ticker
-	BaseTickerCounter  atomic.Uint64
-	BaseTickerHandlers = make([]TickerHander, 0)
+	// BaseTicker         *time.Ticker
+	// BaseTickerCounter  atomic.Uint64
+	// BaseTickerHandlers = make([]TickerHander, 0)
 )
 
-func HandleTicker(handler TickerHander) {
-	BaseTickerHandlers = append(BaseTickerHandlers, handler)
-}
+// func HandleTicker(handler TickerHander) {
+// 	BaseTickerHandlers = append(BaseTickerHandlers, handler)
+// }
 
-func Init(name string, raw any, switches ...*FlagSwitch) {
+func Init(opts *Options, raw any, switches ...*FlagSwitch) {
 	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
 	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
+	pflag.BoolVarP(&verSw, "version", "V", true, "Show version.")
+
+	options = opts.Ensure()
+	if verSw {
+		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
+
+		os.Exit(0)
+	}
+
+	if options.Silence {
+		logger.Logger.Level(logger.SilenceLevel)
+	}
+
 	if len(switches) > 0 {
 		for _, sw := range switches {
 			// sw.On = false
@@ -94,8 +109,6 @@ func Init(name string, raw any, switches ...*FlagSwitch) {
 			pflag.BoolVar(&sw.On, sw.Flag, sw.On, sw.Usage)
 		}
 	}
-
-	appName = name
 
 	pflag.Parse()
 
@@ -118,8 +131,8 @@ func Init(name string, raw any, switches ...*FlagSwitch) {
 		// Local file
 		cfg.SetConfigName(configLoc)
 		cfg.AddConfigPath("/etc")
-		cfg.AddConfigPath("/etc/" + appName)
-		cfg.AddConfigPath("$HOME/." + appName)
+		cfg.AddConfigPath("/etc/" + options.AppName)
+		cfg.AddConfigPath("$HOME/." + options.AppName)
 		cfg.AddConfigPath(".")
 
 		err = cfg.ReadInConfig()
@@ -132,7 +145,7 @@ func Init(name string, raw any, switches ...*FlagSwitch) {
 	logger.Logger.Info("Config read", "location", configLoc)
 
 	// Read config from environment variables
-	cfg.SetEnvPrefix(strings.ToUpper(appName))
+	cfg.SetEnvPrefix(strings.ToUpper(options.EnvPrefix))
 	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	cfg.AutomaticEnv()
 
@@ -142,20 +155,24 @@ func Init(name string, raw any, switches ...*FlagSwitch) {
 	}
 }
 
-func Silence() {
-	silence = true
-	logger.Logger.Level(logger.SilenceLevel)
+func serviceToRegistryInstance(svc service.Service) *registry.Instance {
+	return nil
 }
 
-func Run(ctx context.Context, cfg *Config) error {
+func Run(cfg *Config) error {
 	var (
 		err     error
 		errs    []error
 		manager *Manager
 	)
 
-	if ctx == nil {
-		ctx = context.Background()
+	if options == nil {
+		options = &Options{}
+		options = options.Ensure()
+	}
+
+	if options.Context == nil {
+		options.Context = context.Background()
 	}
 
 	cfg = cfg.Ensure()
@@ -292,29 +309,10 @@ func Run(ctx context.Context, cfg *Config) error {
 		}
 	}
 
-	// Ticker
-	BaseTicker = time.NewTicker(1 * time.Second)
-	go func() {
-		for t := range BaseTicker.C {
-			for _, hdl := range BaseTickerHandlers {
-				err := hdl(t, BaseTickerCounter.Load())
-				if err != nil {
-					logger.Logger.Error(
-						"Ticker handler failed",
-						"error", err.Error(),
-					)
-				}
-			}
-
-			// Increase counter
-			BaseTickerCounter.Add(1)
-		}
-	}()
-
 	// Services
 	for id, svc := range service.Services() {
 		logger.InfoContext(
-			ctx,
+			options.Context,
 			"Starting service",
 			"service", svc.String(),
 			"id", id,
@@ -328,7 +326,7 @@ func Run(ctx context.Context, cfg *Config) error {
 		if errs != nil {
 			err = errors.Join(errs...)
 			logger.ErrorContext(
-				ctx,
+				options.Context,
 				"Service start failed",
 				"service", svc.String(),
 				"id", id,
@@ -344,7 +342,7 @@ func Run(ctx context.Context, cfg *Config) error {
 		}
 
 		logger.InfoContext(
-			ctx,
+			options.Context,
 			"Service started",
 			"service", svc.String(),
 			"id", id,
@@ -352,14 +350,33 @@ func Run(ctx context.Context, cfg *Config) error {
 			"version", svc.Options().Version,
 			"branch", svc.Options().Branch,
 		)
+
+		// Registry instance
+		if registry.Default() != nil {
+			err = registry.Default().Register(nil)
+			if err != nil {
+				logger.ErrorContext(
+					options.Context,
+					"Registry instance failed",
+					"service", svc.String(),
+					"id", id,
+					"name", svc.Options().Name,
+					"version", svc.Options().Version,
+					"branch", svc.Options().Branch,
+					"registry", registry.Default().String(),
+					"error", err.Error(),
+				)
+			}
+		}
 	}
 
-	if cfg.Manager.Enable {
+	// Start manager
+	if cfg.Manager != nil {
 		manager = NewManager(cfg.Manager)
 		err = manager.Start()
 		if err != nil {
 			logger.ErrorContext(
-				ctx,
+				options.Context,
 				"Manager start failed",
 				"error", err.Error(),
 			)
@@ -382,7 +399,7 @@ func Run(ctx context.Context, cfg *Config) error {
 	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT)
 	select {
 	case <-ch:
-	case <-ctx.Done():
+	case <-options.Context.Done():
 	}
 
 	// Wrappers
@@ -402,8 +419,26 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 
 	for id, svc := range service.Services() {
+		// Deregistry instance
+		if registry.Default() != nil {
+			err = registry.Default().Deregister(uuid.Nil)
+			if err != nil {
+				logger.ErrorContext(
+					options.Context,
+					"Deregistry instance failed",
+					"service", svc.String(),
+					"id", id,
+					"name", svc.Options().Name,
+					"version", svc.Options().Version,
+					"branch", svc.Options().Branch,
+					"registry", registry.Default().String(),
+					"error", err.Error(),
+				)
+			}
+		}
+
 		logger.InfoContext(
-			ctx,
+			options.Context,
 			"Stopping service",
 			"service", svc.String(),
 			"id", id,
@@ -417,7 +452,7 @@ func Run(ctx context.Context, cfg *Config) error {
 		if errs != nil {
 			err = errors.Join(errs...)
 			logger.ErrorContext(
-				ctx,
+				options.Context,
 				"Service stop failed",
 				"service", svc.String(),
 				"id", id,
@@ -431,7 +466,7 @@ func Run(ctx context.Context, cfg *Config) error {
 		}
 
 		logger.InfoContext(
-			ctx,
+			options.Context,
 			"Service stopped",
 			"service", svc.String(),
 			"id", id,
@@ -441,7 +476,7 @@ func Run(ctx context.Context, cfg *Config) error {
 		)
 	}
 
-	BaseTicker.Stop()
+	// BaseTicker.Stop()
 
 	if infra.Ristretto != nil {
 		infra.Ristretto.Close()
@@ -452,7 +487,7 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 
 	if infra.Elastic != nil {
-		infra.Elastic.Close(ctx)
+		infra.Elastic.Close(options.Context)
 	}
 
 	if infra.Nats != nil {
