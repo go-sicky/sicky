@@ -64,9 +64,10 @@ type Service struct {
 type Instance struct {
 	ID               uuid.UUID          `json:"id" yaml:"id"`
 	ServiceMame      string             `json:"service_name" yaml:"service_name"`
+	Type             string             `json:"type" yaml:"type"`
 	AdvertiseAddress string             `json:"advertise_address" yaml:"advertise_address"`
 	ManagerPort      int                `json:"manager_port" yaml:"manager_port"`
-	Address          string             `json:"address" yaml:"address"`
+	ManagerAddress   string             `json:"manager_address" yaml:"manager_address"`
 	Tags             []string           `json:"tags" yaml:"tags"`
 	Metadata         utils.Metadata     `json:"metadata" yaml:"metadata"`
 	Weight           int                `json:"weight" yaml:"weight"`
@@ -78,7 +79,7 @@ type Instance struct {
 }
 
 type Server struct {
-	ID               string    `json:"id" yaml:"id"`
+	ID               uuid.UUID `json:"id" yaml:"id"`
 	InstanceID       uuid.UUID `json:"instance_id" yaml:"instance_id"`
 	Type             string    `json:"type" yaml:"type"`
 	Name             string    `json:"name" yaml:"name"`

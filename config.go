@@ -36,23 +36,24 @@ import (
 )
 
 const (
-	DefaultManagerAddr = ":8888"
-	DefaultMetricsPath = "/metrics"
-	DefaultHealthPath  = "/health"
-	DefaultVersionPath = "/version"
-	DefaultInfoPath    = "/info"
-	DefaultSwaggerPath = "/swagger.json"
+	DefaultManagerAddress = ":8888"
+	DefaultMetricsPath    = "/metrics"
+	DefaultHealthPath     = "/health"
+	DefaultVersionPath    = "/version"
+	DefaultInfoPath       = "/info"
+	DefaultSwaggerPath    = "/swagger.json"
 )
 
 type ManagerConfig struct {
-	Enable        bool   `json:"enable" yaml:"enable" mapstructure:"enable"`
-	Addr          string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	EnableSwagger bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
-	MetricsPath   string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
-	HealthPath    string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
-	VersionPath   string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
-	InfoPath      string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
-	SwaggerPath   string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
+	Enable           bool   `json:"enable" yaml:"enable" mapstructure:"enable"`
+	Address          string `json:"address" yaml:"address" mapstructure:"address"`
+	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
+	EnableSwagger    bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	MetricsPath      string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
+	HealthPath       string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
+	VersionPath      string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
+	InfoPath         string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
+	SwaggerPath      string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
 }
 
 type InfraConfig struct {
@@ -111,8 +112,8 @@ func (c *Config) Ensure() *Config {
 	}
 
 	if c.Manager != nil {
-		if c.Manager.Addr == "" {
-			c.Manager.Addr = DefaultManagerAddr
+		if c.Manager.Address == "" {
+			c.Manager.Address = DefaultManagerAddress
 		}
 
 		if c.Manager.MetricsPath == "" {

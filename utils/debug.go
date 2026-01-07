@@ -31,6 +31,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"unsafe"
@@ -60,6 +61,15 @@ func PrintContextInternals(ctx interface{}, inner bool) {
 	} else {
 		fmt.Printf("context is empty (int)\n")
 	}
+}
+
+func JSONAny(d any) {
+	b, _ := json.MarshalIndent(d, "", "  ")
+	if b == nil {
+		return
+	}
+
+	fmt.Println(string(b))
 }
 
 /*

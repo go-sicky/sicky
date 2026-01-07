@@ -195,7 +195,7 @@ func (srv *FiberServer) Options() *server.Options {
 }
 
 func (srv *FiberServer) String() string {
-	return "http"
+	return "fiber"
 }
 
 func (srv *FiberServer) ID() uuid.UUID {

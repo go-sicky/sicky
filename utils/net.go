@@ -32,6 +32,7 @@ package utils
 
 import (
 	"net"
+	"strings"
 )
 
 func ObtainIPs() ([]net.IP, error) {
@@ -155,6 +156,47 @@ func AddrToPort(addr net.Addr) int {
 	}
 
 	return 0
+}
+
+func Advertise(listen, advertise, network string) net.Addr {
+	host, port, err := net.SplitHostPort(advertise)
+	if err != nil {
+		// Parse listen
+		if strings.HasPrefix(listen, ":") {
+			// Null IPv4 host
+			ip, _ := ObtainPreferIP(true)
+			listen = ip.String() + listen
+		}
+
+		host, port, err = net.SplitHostPort(listen)
+		if err != nil {
+			return nil
+		}
+
+	}
+
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		// TCP
+		addr, err := net.ResolveTCPAddr(network, net.JoinHostPort(host, port))
+		if err != nil {
+			return nil
+		}
+
+		return addr
+	case "udp", "udp4", "udp6":
+		// UDP
+		addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(host, port))
+		if err != nil {
+			return nil
+		}
+
+		return addr
+	default:
+		// Unsupport
+	}
+
+	return nil
 }
 
 /*

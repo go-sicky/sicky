@@ -45,23 +45,26 @@ import (
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
-type FlagSwitchCallback func() error
+type (
+	FlagSwitchCallback func() error
+	FlagSwitch         struct {
+		Flag     string
+		On       bool
+		Usage    string
+		Callback FlagSwitchCallback
+	}
+)
 
-type FlagSwitch struct {
-	Flag     string
-	On       bool
-	Usage    string
-	Callback FlagSwitchCallback
-}
-
-type TickerHander func(time.Time, uint64) error
-
-type SickyWrapper func() error
+type (
+	TickerHander func(time.Time, uint64) error
+	SickyWrapper func(context.Context) error
+)
 
 var (
 	options *Options
@@ -76,32 +79,12 @@ var (
 	afterStartWrappers  []SickyWrapper
 	beforeStopWrappers  []SickyWrapper
 	afterStopWrappers   []SickyWrapper
-
-	// BaseTicker         *time.Ticker
-	// BaseTickerCounter  atomic.Uint64
-	// BaseTickerHandlers = make([]TickerHander, 0)
 )
-
-// func HandleTicker(handler TickerHander) {
-// 	BaseTickerHandlers = append(BaseTickerHandlers, handler)
-// }
 
 func Init(opts *Options, raw any, switches ...*FlagSwitch) {
 	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
 	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
-	pflag.BoolVarP(&verSw, "version", "V", true, "Show version.")
-
-	options = opts.Ensure()
-	if verSw {
-		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
-
-		os.Exit(0)
-	}
-
-	if options.Silence {
-		logger.Logger.Level(logger.SilenceLevel)
-	}
-
+	pflag.BoolVarP(&verSw, "version", "V", false, "Show version.")
 	if len(switches) > 0 {
 		for _, sw := range switches {
 			// sw.On = false
@@ -111,6 +94,17 @@ func Init(opts *Options, raw any, switches ...*FlagSwitch) {
 	}
 
 	pflag.Parse()
+	options = opts.Ensure()
+	if options.Silence {
+		logger.Logger.Level(logger.SilenceLevel)
+	}
+
+	fmt.Println(verSw)
+	if verSw {
+		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
+
+		os.Exit(0)
+	}
 
 	// Load config
 	cfg := viper.New()
@@ -156,14 +150,37 @@ func Init(opts *Options, raw any, switches ...*FlagSwitch) {
 }
 
 func serviceToRegistryInstance(svc service.Service) *registry.Instance {
-	return nil
+	ins := &registry.Instance{
+		ID:          svc.Options().ID,
+		ServiceMame: svc.Options().Name,
+		Type:        svc.String(),
+		Servers:     make(map[string]*registry.Server),
+		Topics:      make(map[string]*registry.Topic),
+	}
+
+	if manager != nil {
+		ins.ManagerAddress = manager.Addr()
+	}
+
+	// Servers
+	for _, srv := range svc.Servers() {
+		ins.Servers[srv.Name()] = &registry.Server{
+			ID:               srv.ID(),
+			InstanceID:       ins.ID,
+			Type:             srv.String(),
+			Name:             srv.Name(),
+			AdvertiseAddress: srv.Addr().String(),
+			Port:             srv.Port(),
+		}
+	}
+
+	return ins
 }
 
 func Run(cfg *Config) error {
 	var (
-		err     error
-		errs    []error
-		manager *Manager
+		err  error
+		errs []error
 	)
 
 	if options == nil {
@@ -179,7 +196,7 @@ func Run(cfg *Config) error {
 
 	// Wrappers
 	for _, fn := range beforeStartWrappers {
-		err = fn()
+		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.Fatal(
 				"Before start wrapper failed",
@@ -309,6 +326,19 @@ func Run(cfg *Config) error {
 		}
 	}
 
+	// Start manager
+	if cfg.Manager != nil {
+		manager = NewManager(cfg.Manager)
+		err = manager.Start()
+		if err != nil {
+			logger.ErrorContext(
+				options.Context,
+				"Manager start failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
 	// Services
 	for id, svc := range service.Services() {
 		logger.InfoContext(
@@ -352,32 +382,19 @@ func Run(cfg *Config) error {
 		)
 
 		// Registry instance
-		if registry.Default() != nil {
-			err = registry.Default().Register(nil)
-			if err != nil {
-				logger.ErrorContext(
-					options.Context,
-					"Registry instance failed",
-					"service", svc.String(),
-					"id", id,
-					"name", svc.Options().Name,
-					"version", svc.Options().Version,
-					"branch", svc.Options().Branch,
-					"registry", registry.Default().String(),
-					"error", err.Error(),
-				)
-			}
-		}
-	}
-
-	// Start manager
-	if cfg.Manager != nil {
-		manager = NewManager(cfg.Manager)
-		err = manager.Start()
+		ins := serviceToRegistryInstance(svc)
+		utils.JSONAny(ins)
+		err = registry.Register(ins)
 		if err != nil {
 			logger.ErrorContext(
 				options.Context,
-				"Manager start failed",
+				"Registry instance failed",
+				"service", svc.String(),
+				"id", id,
+				"name", svc.Options().Name,
+				"version", svc.Options().Version,
+				"branch", svc.Options().Branch,
+				"registry", registry.Default().String(),
 				"error", err.Error(),
 			)
 		}
@@ -385,7 +402,7 @@ func Run(cfg *Config) error {
 
 	// Wrappers
 	for _, fn := range afterStartWrappers {
-		err = fn()
+		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.Fatal(
 				"After start wrapper failed",
@@ -404,18 +421,13 @@ func Run(cfg *Config) error {
 
 	// Wrappers
 	for _, fn := range beforeStopWrappers {
-		err = fn()
+		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.Fatal(
 				"Before stop wrapper failed",
 				"error", err.Error(),
 			)
 		}
-	}
-
-	// Stop manager
-	if manager != nil {
-		manager.Stop()
 	}
 
 	for id, svc := range service.Services() {
@@ -476,6 +488,11 @@ func Run(cfg *Config) error {
 		)
 	}
 
+	// Stop manager
+	if manager != nil {
+		manager.Stop()
+	}
+
 	// BaseTicker.Stop()
 
 	if infra.Ristretto != nil {
@@ -516,7 +533,7 @@ func Run(cfg *Config) error {
 
 	// Wrappers
 	for _, fn := range afterStopWrappers {
-		err = fn()
+		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.Fatal(
 				"After stop wrapper failed",

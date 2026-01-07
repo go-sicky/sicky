@@ -41,6 +41,7 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -70,6 +71,10 @@ func (m *Manager) Server() *http.Server {
 	return m.srv
 }
 
+func (m *Manager) Addr() string {
+	return utils.Advertise(m.srv.Addr, m.config.AdvertiseAddress, "tcp").String()
+}
+
 func (m *Manager) Start() error {
 	m.Lock()
 	defer m.Unlock()
@@ -78,7 +83,7 @@ func (m *Manager) Start() error {
 		return nil
 	}
 
-	m.srv = &http.Server{Addr: m.config.Addr}
+	m.srv = &http.Server{Addr: m.config.Address}
 	mux := http.NewServeMux()
 	mux.Handle(m.config.MetricsPath, m.metrics())
 	mux.Handle(m.config.HealthPath, m.health())
@@ -204,6 +209,8 @@ func (m *Manager) info() http.Handler {
 }
 
 /* }}} */
+
+var manager *Manager
 
 /*
  * Local variables:
