@@ -32,6 +32,7 @@ package utils
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"reflect"
 	"unsafe"
@@ -70,6 +71,33 @@ func JSONAny(d any) {
 	}
 
 	fmt.Println(string(b))
+}
+
+func JSONAnyString(d any) string {
+	b, _ := json.MarshalIndent(d, "", "  ")
+	if b == nil {
+		return ""
+	}
+
+	return string(b)
+}
+
+func XMLAny(d any) {
+	b, _ := xml.MarshalIndent(d, "", "  ")
+	if b == nil {
+		return
+	}
+
+	fmt.Println(string(b))
+}
+
+func XMLAnyString(d any) string {
+	b, _ := xml.MarshalIndent(d, "", "  ")
+	if b == nil {
+		return ""
+	}
+
+	return string(b)
 }
 
 /*

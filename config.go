@@ -31,8 +31,14 @@
 package sicky
 
 import (
+	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/broker/jetstream"
+	"github.com/go-sicky/sicky/broker/nats"
+	"github.com/go-sicky/sicky/broker/nsq"
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/registry/consul"
+	"github.com/go-sicky/sicky/registry/redis"
 )
 
 const (
@@ -54,6 +60,18 @@ type ManagerConfig struct {
 	VersionPath      string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
 	InfoPath         string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
 	SwaggerPath      string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
+}
+
+func DefaultManagerConfig() *ManagerConfig {
+	return &ManagerConfig{
+		Enable:      true,
+		Address:     DefaultManagerAddress,
+		MetricsPath: DefaultMetricsPath,
+		HealthPath:  DefaultHealthPath,
+		VersionPath: DefaultVersionPath,
+		InfoPath:    DefaultInfoPath,
+		SwaggerPath: DefaultSwaggerPath,
+	}
 }
 
 type InfraConfig struct {
@@ -86,19 +104,31 @@ const (
 )
 
 type Config struct {
-	LogLevel                  string           `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
-	RegistryPoolPurgeInterval int              `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
-	Manager                   *ManagerConfig   `json:"manager" yaml:"manager" mapstructure:"manager"`
-	Infra                     *InfraConfig     `json:"infra" yaml:"infra" mapstructure:"infra"`
-	Tracer                    *TracerConfig    `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
-	Registry                  *registry.Config `json:"registry" yaml:"registry" mapstructure:"registry"`
+	LogLevel                  string         `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
+	RegistryPoolPurgeInterval int            `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
+	Manager                   *ManagerConfig `json:"manager" yaml:"manager" mapstructure:"manager"`
+	Infra                     *InfraConfig   `json:"infra" yaml:"infra" mapstructure:"infra"`
+	Tracer                    *TracerConfig  `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
+	Registry                  struct {
+		registry.Config
+
+		Consul *consul.Config `json:"consul" yaml:"consul" mapstructure:"consul"`
+		Redis  *redis.Config  `json:"redis" yaml:"redis" mapstructure:"redis"`
+	} `json:"registry" yaml:"registry" mapstructure:"registry"`
+	Broker struct {
+		broker.Config
+
+		Nats      *nats.Config      `json:"nats" yaml:"nats" mapstructure:"nats"`
+		Nsq       *nsq.Config       `json:"nsq" yaml:"nsq" mapstructure:"nsq"`
+		Jetstream *jetstream.Config `json:"jetstream" yaml:"jetstream" mapstructure:"jetstream"`
+	} `json:"broker" yaml:"broker" mapstructure:"broker"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		LogLevel:                  DefaultLogLevel,
 		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
-		Manager:                   &ManagerConfig{},
+		Manager:                   DefaultManagerConfig(),
 		Infra:                     &InfraConfig{},
 		Tracer: &TracerConfig{
 			Type: DefaultTracerType,
@@ -108,7 +138,7 @@ func DefaultConfig() *Config {
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
-		c = &Config{}
+		c = DefaultConfig()
 	}
 
 	if c.Manager != nil {
@@ -135,6 +165,8 @@ func (c *Config) Ensure() *Config {
 		if c.Manager.SwaggerPath == "" {
 			c.Manager.SwaggerPath = DefaultSwaggerPath
 		}
+	} else {
+		c.Manager = DefaultManagerConfig()
 	}
 
 	if c.Infra == nil {

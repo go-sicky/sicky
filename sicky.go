@@ -41,12 +41,15 @@ import (
 	"syscall"
 	"time"
 
+	brkJetstream "github.com/go-sicky/sicky/broker/jetstream"
+	brkNats "github.com/go-sicky/sicky/broker/nats"
+	brkNsq "github.com/go-sicky/sicky/broker/nsq"
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
+	rgConsul "github.com/go-sicky/sicky/registry/consul"
+	rgRedis "github.com/go-sicky/sicky/registry/redis"
 	"github.com/go-sicky/sicky/service"
-	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -71,6 +74,7 @@ var (
 
 	configLoc  = "config"
 	configType = "json"
+	configIns  = viper.New()
 	verSw      = false
 
 	switchesVars = make(map[string]*FlagSwitch)
@@ -81,7 +85,7 @@ var (
 	afterStopWrappers   []SickyWrapper
 )
 
-func Init(opts *Options, raw any, switches ...*FlagSwitch) {
+func Init(opts *Options, switches ...*FlagSwitch) {
 	pflag.StringVarP(&configLoc, "config", "C", configLoc, "Config definition, local filename or remote K/V store with format : REMOTE://ADDR/PATH (For example: consul://localhost:8500/app/config).")
 	pflag.StringVar(&configType, "config-type", configType, "Configuration data format.")
 	pflag.BoolVarP(&verSw, "version", "V", false, "Show version.")
@@ -107,29 +111,28 @@ func Init(opts *Options, raw any, switches ...*FlagSwitch) {
 	}
 
 	// Load config
-	cfg := viper.New()
-	cfg.SetConfigType(configType)
+	configIns.SetConfigType(configType)
 
 	// Try config source
 	u, err := url.Parse(configLoc)
 	if err == nil && u != nil && u.Scheme != "" && u.Path != "" {
 		// Remote config source
 		remote := strings.ToLower(u.Scheme)
-		err = cfg.AddRemoteProvider(remote, u.Host, u.Path)
+		err = configIns.AddRemoteProvider(remote, u.Host, u.Path)
 		if err != nil {
 			logger.Logger.Fatal("Add remote config source failed", "error", err.Error())
 		}
 
-		err = cfg.ReadRemoteConfig()
+		err = configIns.ReadRemoteConfig()
 	} else {
 		// Local file
-		cfg.SetConfigName(configLoc)
-		cfg.AddConfigPath("/etc")
-		cfg.AddConfigPath("/etc/" + options.AppName)
-		cfg.AddConfigPath("$HOME/." + options.AppName)
-		cfg.AddConfigPath(".")
+		configIns.SetConfigName(configLoc)
+		configIns.AddConfigPath("/etc")
+		configIns.AddConfigPath("/etc/" + options.AppName)
+		configIns.AddConfigPath("$HOME/." + options.AppName)
+		configIns.AddConfigPath(".")
 
-		err = cfg.ReadInConfig()
+		err = configIns.ReadInConfig()
 	}
 
 	if err != nil {
@@ -139,13 +142,18 @@ func Init(opts *Options, raw any, switches ...*FlagSwitch) {
 	logger.Logger.Info("Config read", "location", configLoc)
 
 	// Read config from environment variables
-	cfg.SetEnvPrefix(strings.ToUpper(options.EnvPrefix))
-	cfg.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	cfg.AutomaticEnv()
+	configIns.SetEnvPrefix(strings.ToUpper(options.EnvPrefix))
+	configIns.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	configIns.AutomaticEnv()
+}
 
-	// Marshal
+func Viper() *viper.Viper {
+	return configIns
+}
+
+func ConfigUnmarshal(raw any) {
 	if raw != nil {
-		cfg.Unmarshal(raw)
+		configIns.Unmarshal(raw)
 	}
 }
 
@@ -160,6 +168,7 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 
 	if manager != nil {
 		ins.ManagerAddress = manager.Addr()
+		ins.ManagerPort = manager.Port()
 	}
 
 	// Servers
@@ -312,6 +321,59 @@ func Run(cfg *Config) error {
 
 	// Tracer
 
+	// Registries
+	var (
+		rgConsulIns *rgConsul.Consul
+		rgRedisIns  *rgRedis.Redis
+	)
+	if cfg.Registry.Consul != nil {
+		rgConsulIns = rgConsul.New(nil, cfg.Registry.Consul)
+		rgConsulIns.Watch()
+	}
+
+	if cfg.Registry.Redis != nil {
+		rgRedisIns = rgRedis.New(nil, cfg.Registry.Redis)
+	}
+
+	// Brokers
+	var (
+		brkNatsIns      *brkNats.Nats
+		brkNsqIns       *brkNsq.Nsq
+		brkJetstreamIns *brkJetstream.Jetstream
+	)
+	if cfg.Broker.Nats != nil {
+		brkNatsIns = brkNats.New(nil, cfg.Broker.Nats)
+		err = brkNatsIns.Connect()
+		if err != nil {
+			logger.Logger.Fatal(
+				"Nats broker connect failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
+	if cfg.Broker.Nsq != nil {
+		brkNsqIns = brkNsq.New(nil, cfg.Broker.Nsq)
+		err = brkNsqIns.Connect()
+		if err != nil {
+			logger.Logger.Fatal(
+				"Nsq broker connect failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
+	if cfg.Broker.Jetstream != nil {
+		brkJetstreamIns = brkJetstream.New(nil, cfg.Broker.Jetstream)
+		err = brkJetstreamIns.Connect()
+		if err != nil {
+			logger.Logger.Fatal(
+				"Jetstream broker connect failed",
+				"error", err.Error(),
+			)
+		}
+	}
+
 	// Command flags
 	for flag, sw := range switchesVars {
 		if sw.Flag == flag && sw.On && sw.Callback != nil {
@@ -327,7 +389,7 @@ func Run(cfg *Config) error {
 	}
 
 	// Start manager
-	if cfg.Manager != nil {
+	if cfg.Manager != nil && cfg.Manager.Enable {
 		manager = NewManager(cfg.Manager)
 		err = manager.Start()
 		if err != nil {
@@ -383,7 +445,6 @@ func Run(cfg *Config) error {
 
 		// Registry instance
 		ins := serviceToRegistryInstance(svc)
-		utils.JSONAny(ins)
 		err = registry.Register(ins)
 		if err != nil {
 			logger.ErrorContext(
@@ -432,21 +493,19 @@ func Run(cfg *Config) error {
 
 	for id, svc := range service.Services() {
 		// Deregistry instance
-		if registry.Default() != nil {
-			err = registry.Default().Deregister(uuid.Nil)
-			if err != nil {
-				logger.ErrorContext(
-					options.Context,
-					"Deregistry instance failed",
-					"service", svc.String(),
-					"id", id,
-					"name", svc.Options().Name,
-					"version", svc.Options().Version,
-					"branch", svc.Options().Branch,
-					"registry", registry.Default().String(),
-					"error", err.Error(),
-				)
-			}
+		err = registry.Deregister(id)
+		if err != nil {
+			logger.ErrorContext(
+				options.Context,
+				"Deregistry instance failed",
+				"service", svc.String(),
+				"id", id,
+				"name", svc.Options().Name,
+				"version", svc.Options().Version,
+				"branch", svc.Options().Branch,
+				"registry", registry.Default().String(),
+				"error", err.Error(),
+			)
 		}
 
 		logger.InfoContext(
@@ -488,12 +547,34 @@ func Run(cfg *Config) error {
 		)
 	}
 
+	// Brokers
+	if brkNatsIns != nil {
+		brkNatsIns.Disconnect()
+	}
+
+	if brkNsqIns != nil {
+		brkNsqIns.Disconnect()
+	}
+
+	if brkJetstreamIns != nil {
+		brkJetstreamIns.Disconnect()
+	}
+
+	// Registries
+	if rgConsulIns != nil {
+		// Do noting
+	}
+
+	if rgRedisIns != nil {
+		// Do nothing
+	}
+
+	// Tracer
+
 	// Stop manager
 	if manager != nil {
 		manager.Stop()
 	}
-
-	// BaseTicker.Stop()
 
 	if infra.Ristretto != nil {
 		infra.Ristretto.Close()

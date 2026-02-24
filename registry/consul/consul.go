@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
 )
@@ -146,19 +147,46 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 
 	// 	return err
 	// }
+	reg := &api.AgentServiceRegistration{
+		Kind:    api.ServiceKindTypical,
+		ID:      ins.ID.String(),
+		Name:    ins.ServiceMame,
+		Address: ins.ManagerAddress,
+		Port:    ins.ManagerPort,
+		Meta: map[string]string{
+			"servers": utils.JSONAnyString(ins.Servers),
+			"topics":  utils.JSONAnyString(ins.Topics),
+		},
+	}
+	err := rg.client.Agent().ServiceRegister(reg)
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Service register failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"manager_address", ins.ManagerAddress,
+			"manager_port", ins.ManagerPort,
+			"service_name", ins.ServiceMame,
+			"service_id", ins.ID.String(),
+			"error", err.Error(),
+		)
 
-	// rg.options.Logger.InfoContext(
-	// 	rg.ctx,
-	// 	"Server registered",
-	// 	"registry", rg.String(),
-	// 	"id", rg.options.ID,
-	// 	"name", rg.options.Name,
-	// 	"server", srv.String(),
-	// 	"server_id", srv.Options().ID.String(),
-	// 	"server_name", srv.Options().Name,
-	// 	"server_addr", srv.IP().String(),
-	// 	"server_port", srv.Port(),
-	// )
+		return err
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Service registered",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"manager_address", ins.ManagerAddress,
+		"manager_port", ins.ManagerPort,
+		"service_name", ins.ServiceMame,
+		"service_id", ins.ID.String(),
+	)
 
 	return nil
 }
@@ -180,17 +208,29 @@ func (rg *Consul) Deregister(id uuid.UUID) error {
 
 	// 	return err
 	// }
+	err := rg.client.Agent().ServiceDeregister(id.String())
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Service deregister failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"service_id", id.String(),
+			"error", err.Error(),
+		)
 
-	// rg.options.Logger.InfoContext(
-	// 	rg.ctx,
-	// 	"Server deregistered",
-	// 	"registry", rg.String(),
-	// 	"id", rg.options.ID,
-	// 	"name", rg.options.Name,
-	// 	"server", srv.String(),
-	// 	"server_id", srv.Options().ID,
-	// 	"server_name", srv.Options().Name,
-	// )
+		return err
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Service deregistered",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"service_id", id.String(),
+	)
 
 	return nil
 }

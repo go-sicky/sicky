@@ -30,6 +30,102 @@
 
 package redis
 
+import (
+	"context"
+
+	"github.com/go-sicky/sicky/registry"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+)
+
+type Redis struct {
+	config  *Config
+	ctx     context.Context
+	options *registry.Options
+	client  *redis.Client
+}
+
+func New(opts *registry.Options, cfg *Config) *Redis {
+	opts = opts.Ensure()
+	cfg = cfg.Ensure()
+
+	rg := &Redis{
+		config:  cfg,
+		ctx:     opts.Context,
+		options: opts,
+	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Addr,
+		Password: cfg.Password,
+		DB:       cfg.DB,
+		PoolSize: cfg.PoolSize,
+	})
+	err := rdb.Ping(context.TODO()).Err()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Registry connection failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+
+		return nil
+	}
+
+	rg.client = rdb
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Registry connected",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+	)
+
+	registry.Set(rg)
+
+	return rg
+}
+
+func (rg *Redis) Context() context.Context {
+	return rg.ctx
+}
+
+func (rg *Redis) Options() *registry.Options {
+	return rg.options
+}
+
+func (rg *Redis) String() string {
+	return "consul"
+}
+
+func (rg *Redis) ID() uuid.UUID {
+	return rg.options.ID
+}
+
+func (rg *Redis) Name() string {
+	return rg.options.Name
+}
+
+func (rg *Redis) Register(ins *registry.Instance) error {
+	return nil
+}
+
+func (rg *Redis) Deregister(id uuid.UUID) error {
+	return nil
+}
+
+func (rg *Redis) CheckInstance(id uuid.UUID) bool {
+	return false
+}
+
+func (rg *Redis) Watch() error {
+	return nil
+}
+
 /*
  * Local variables:
  * tab-width: 4

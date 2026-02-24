@@ -35,8 +35,10 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 
 	"github.com/go-sicky/sicky/logger"
@@ -73,6 +75,13 @@ func (m *Manager) Server() *http.Server {
 
 func (m *Manager) Addr() string {
 	return utils.Advertise(m.srv.Addr, m.config.AdvertiseAddress, "tcp").String()
+}
+
+func (m *Manager) Port() int {
+	_, port, _ := net.SplitHostPort(m.srv.Addr)
+	portV, _ := strconv.Atoi(port)
+
+	return portV
 }
 
 func (m *Manager) Start() error {
