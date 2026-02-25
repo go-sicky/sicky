@@ -16,10 +16,10 @@ require (
 	github.com/go-co-op/gocron/v2 v2.19.1
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gofiber/contrib/websocket v1.3.4
-	github.com/gofiber/fiber/v2 v2.52.11
+	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/gofiber/swagger v1.1.1
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/consul/api v1.33.3
+	github.com/hashicorp/consul/api v1.33.4
 	github.com/nats-io/nats.go v1.49.0
 	github.com/ncruces/go-sqlite3 v0.30.5
 	github.com/nsqio/go-nsq v1.1.0
@@ -145,7 +145,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
-	github.com/prometheus/procfs v0.19.2 // indirect
+	github.com/prometheus/procfs v0.20.0 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/crypt v0.31.0 // indirect
@@ -189,7 +189,7 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
-	google.golang.org/api v0.268.0 // indirect
+	google.golang.org/api v0.269.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260223185530-2f722ef697dc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260223185530-2f722ef697dc // indirect
 	mellium.im/sasl v0.3.2 // indirect
