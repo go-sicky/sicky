@@ -47,8 +47,11 @@ type Options struct {
 	BuildTime string
 	EnvPrefix string
 
-	Silence bool
-	Context context.Context
+	Silence      bool
+	MustInfra    []string
+	MustBroker   bool
+	MustRegistry bool
+	Context      context.Context
 }
 
 func (o *Options) Ensure() *Options {

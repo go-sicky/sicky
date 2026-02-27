@@ -78,6 +78,9 @@ var (
 	verSw      = false
 
 	switchesVars = make(map[string]*FlagSwitch)
+	MustInfra    = make(map[string]bool)
+	MustBroker   = false
+	MustRegistry = false
 
 	beforeStartWrappers []SickyWrapper
 	afterStartWrappers  []SickyWrapper
@@ -103,7 +106,7 @@ func Init(opts *Options, switches ...*FlagSwitch) {
 		logger.Logger.Level(logger.SilenceLevel)
 	}
 
-	fmt.Println(verSw)
+	// fmt.Println(verSw)
 	if verSw {
 		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
 
@@ -145,6 +148,21 @@ func Init(opts *Options, switches ...*FlagSwitch) {
 	configIns.SetEnvPrefix(strings.ToUpper(options.EnvPrefix))
 	configIns.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	configIns.AutomaticEnv()
+
+	// MustInfra
+	for _, infra := range options.MustInfra {
+		infra = strings.TrimSpace(infra)
+		switch infra {
+		case "badger", "bun", "clickhouse", "elastic", "mqtt", "mongo", "nats", "redis", "ristretto", "s3":
+			MustInfra[infra] = true
+		}
+	}
+
+	// MustBroker
+	MustBroker = options.MustBroker
+
+	// MustRegistry
+	MustRegistry = options.MustRegistry
 }
 
 func Viper() *viper.Viper {
@@ -227,6 +245,10 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		if MustInfra["badger"] {
+			MustInfra["badger"] = false
+		}
 	}
 
 	if cfg.Infra.Bun != nil {
@@ -236,6 +258,10 @@ func Run(cfg *Config) error {
 				"Initialize bun failed",
 				"error", err.Error(),
 			)
+		}
+
+		if MustInfra["bun"] {
+			MustInfra["bun"] = false
 		}
 	}
 
@@ -247,6 +273,10 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		if MustInfra["clickhouse"] {
+			MustInfra["clickhouse"] = false
+		}
 	}
 
 	if cfg.Infra.Elastic != nil {
@@ -256,6 +286,10 @@ func Run(cfg *Config) error {
 				"Initialize elastic failed",
 				"error", err.Error(),
 			)
+		}
+
+		if MustInfra["elastic"] {
+			MustInfra["elastic"] = false
 		}
 	}
 
@@ -267,6 +301,10 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		if MustInfra["mqtt"] {
+			MustInfra["mqtt"] = false
+		}
 	}
 
 	if cfg.Infra.Mongo != nil {
@@ -276,6 +314,10 @@ func Run(cfg *Config) error {
 				"Initialize mongo failed",
 				"error", err.Error(),
 			)
+		}
+
+		if MustInfra["mongo"] {
+			MustInfra["mongo"] = false
 		}
 	}
 
@@ -287,6 +329,10 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		if MustInfra["nats"] {
+			MustInfra["nats"] = false
+		}
 	}
 
 	if cfg.Infra.Redis != nil {
@@ -296,6 +342,10 @@ func Run(cfg *Config) error {
 				"Initialize redis failed",
 				"error", err.Error(),
 			)
+		}
+
+		if MustInfra["redis"] {
+			MustInfra["redis"] = false
 		}
 	}
 
@@ -307,6 +357,10 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		if MustInfra["ristretto"] {
+			MustInfra["ristretto"] = false
+		}
 	}
 
 	if cfg.Infra.S3 != nil {
@@ -315,6 +369,20 @@ func Run(cfg *Config) error {
 			logger.Logger.Fatal(
 				"Initialize s3 failed",
 				"error", err.Error(),
+			)
+		}
+
+		if MustInfra["s3"] {
+			MustInfra["s3"] = false
+		}
+	}
+
+	// Check infra
+	for infra, must := range MustInfra {
+		if must {
+			logger.Logger.Fatal(
+				"Must infrastructure is not initialized",
+				"infra", infra,
 			)
 		}
 	}
@@ -329,10 +397,18 @@ func Run(cfg *Config) error {
 	if cfg.Registry.Consul != nil {
 		rgConsulIns = rgConsul.New(nil, cfg.Registry.Consul)
 		rgConsulIns.Watch()
+		MustRegistry = false
 	}
 
 	if cfg.Registry.Redis != nil {
 		rgRedisIns = rgRedis.New(nil, cfg.Registry.Redis)
+		MustRegistry = false
+	}
+
+	if MustRegistry {
+		logger.Logger.Fatal(
+			"Registry is not initialized",
+		)
 	}
 
 	// Brokers
@@ -350,6 +426,8 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		MustBroker = false
 	}
 
 	if cfg.Broker.Nsq != nil {
@@ -361,6 +439,8 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		MustBroker = false
 	}
 
 	if cfg.Broker.Jetstream != nil {
@@ -372,6 +452,14 @@ func Run(cfg *Config) error {
 				"error", err.Error(),
 			)
 		}
+
+		MustBroker = false
+	}
+
+	if MustBroker {
+		logger.Logger.Fatal(
+			"Broker is not initialized",
+		)
 	}
 
 	// Command flags
