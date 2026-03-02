@@ -22,13 +22,27 @@
  */
 
 /**
- * @file noop.go
- * @package noop
+ * @file config.go
+ * @package local
  * @author Dr.NP <np@herewe.tech>
- * @since 02/22/2026
+ * @since 08/19/2024
  */
 
-package noop
+package local
+
+type Config struct{}
+
+func DefaultConfig() *Config {
+	return &Config{}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	return c
+}
 
 /*
  * Local variables:
