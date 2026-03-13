@@ -38,16 +38,17 @@ import (
 
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/godoes/gorm-dameng/dm8"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/mssqldialect"
 	"github.com/uptrace/bun/dialect/mysqldialect"
+	"github.com/uptrace/bun/dialect/oracledialect"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/extra/bundebug"
-	//_ "github.com/godoes/gorm-dameng/dm8"
 )
 
 type BunConfig struct {
@@ -95,14 +96,14 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		}
 
 		db = bun.NewDB(sqldb, sqlitedialect.New())
-	// case "dm":
-	// 	// DaMeng
-	// 	sqldb, err = sql.Open("dm", cfg.DSN)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
+	case "dm":
+		// DaMeng
+		sqldb, err = sql.Open("dm", cfg.DSN)
+		if err != nil {
+			return nil, err
+		}
 
-	// 	db = bun.NewDB(sqldb, oracledialect.New())
+		db = bun.NewDB(sqldb, oracledialect.New())
 	default:
 		// PostgreSQL
 		sqldb = sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(cfg.DSN)))

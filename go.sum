@@ -177,6 +177,8 @@ github.com/go-sql-driver/mysql v1.9.3/go.mod h1:qn46aNg1333BRMNU69Lq93t8du/dwxI6
 github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/melR3HDY=
 github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPEgAXnvj1Ro=
 github.com/go-viper/mapstructure/v2 v2.5.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
+github.com/godoes/gorm-dameng v0.7.2 h1:REw2sMyN2z/hfYEJqV1VbiCIl+zwyzIdRWFQYqQ4xrQ=
+github.com/godoes/gorm-dameng v0.7.2/go.mod h1:KP1qenBY+T4ZYwcRhM5VNWd33z2w7Mb5gIQw8X6pBeo=
 github.com/gofiber/contrib/websocket v1.3.4 h1:tWeBdbJ8q0WFQXariLN4dBIbGH9KBU75s0s7YXplOSg=
 github.com/gofiber/contrib/websocket v1.3.4/go.mod h1:kTFBPC6YENCnKfKx0BoOFjgXxdz7E85/STdkmZPEmPs=
 github.com/gofiber/fiber/v2 v2.52.12 h1:0LdToKclcPOj8PktUdIKo9BUohjjwfnQl42Dhw8/WUw=
@@ -437,6 +439,8 @@ github.com/uptrace/bun/dialect/mssqldialect v1.2.18 h1:nYzHoyJKJlIyl5i95Exi8ZTK8
 github.com/uptrace/bun/dialect/mssqldialect v1.2.18/go.mod h1:Su45Je7z66sfeZ3d1ZsnOQEK8xfzGgaMzBvtoE8yFhk=
 github.com/uptrace/bun/dialect/mysqldialect v1.2.18 h1:w+3iuWa4cVmsXXt8w28A0+Ikve77AU0tiBWG6UvGvM8=
 github.com/uptrace/bun/dialect/mysqldialect v1.2.18/go.mod h1:FhJEK620SM9HJ9fx0/IHT7k1cpn2+6MmtKvNptWezPY=
+github.com/uptrace/bun/dialect/oracledialect v1.2.18 h1:L51zA1S02Um3ukYwrqyqlaYv9NAw8M5EmcUc7cPEHpQ=
+github.com/uptrace/bun/dialect/oracledialect v1.2.18/go.mod h1:+wFOA+RxcjTWa1S2OASNj7U0cC2Mp4vQClY/OkThoPU=
 github.com/uptrace/bun/dialect/pgdialect v1.2.18 h1:IZ6nM2+OYrL8lkEAy7UkSEZvoa3vluTAUlZfPtlRB2k=
 github.com/uptrace/bun/dialect/pgdialect v1.2.18/go.mod h1:Tqdf4QP1okrGYpXfodXvCOK6Ob1OOTwSaoAzCgBB3IU=
 github.com/uptrace/bun/dialect/sqlitedialect v1.2.18 h1:Z33SY/U++XK9uGWqS4h8OZVxfCXguIG+sU9cYq2PGFQ=
