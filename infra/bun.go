@@ -34,13 +34,11 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/go-sicky/sicky/logger"
-
 	_ "github.com/denisenkom/go-mssqldb"
+	"github.com/go-sicky/sicky/logger"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/godoes/gorm-dameng/dm8"
 	_ "github.com/ncruces/go-sqlite3/driver"
-	_ "github.com/ncruces/go-sqlite3/embed"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/mssqldialect"
 	"github.com/uptrace/bun/dialect/mysqldialect"
