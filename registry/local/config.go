@@ -30,15 +30,27 @@
 
 package local
 
-type Config struct{}
+const (
+	DefaultRegistryFilePath = "/tmp/sicky/registry"
+)
+
+type Config struct {
+	RegistryFilePath string `json:"registryFilePath" yaml:"registryFilePath"`
+}
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		RegistryFilePath: DefaultRegistryFilePath,
+	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.RegistryFilePath == "" {
+		c.RegistryFilePath = DefaultRegistryFilePath
 	}
 
 	return c

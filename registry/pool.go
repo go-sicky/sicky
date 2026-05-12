@@ -33,6 +33,7 @@ package registry
 import (
 	"sync"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
@@ -113,6 +114,7 @@ func (p *Pool) RegisterService(svc *Service) {
 	defer p.Unlock()
 
 	p.Services[svc.Service] = svc
+	logger.Debug("Service registered", "service", svc.Service)
 }
 
 func (p *Pool) GetService(service string) *Service {
@@ -133,6 +135,7 @@ func (p *Pool) RegisterInstance(ins *Instance) {
 	// Check service
 	if p.Services[ins.ServiceMame] == nil {
 		// Service not exists
+		logger.Warn("Try to register instance to non exist service", "service", ins.ServiceMame, "instance", ins.ID.String())
 	} else {
 		if p.Services[ins.ServiceMame].Instances == nil {
 			p.Services[ins.ServiceMame].Instances = make(map[uuid.UUID]*Instance)
@@ -140,6 +143,7 @@ func (p *Pool) RegisterInstance(ins *Instance) {
 
 		// Register
 		p.Services[ins.ServiceMame].Instances[ins.ID] = ins
+		logger.Debug("Instance registered", "service", ins.ServiceMame, "instance", ins.ID.String())
 	}
 }
 
@@ -152,6 +156,30 @@ func (p *Pool) GetInstance(service string, id uuid.UUID) *Instance {
 	}
 
 	return p.Services[service].Instances[id]
+}
+
+func (p *Pool) UnregisterInstance(service string, id uuid.UUID) {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.Services[service] == nil {
+		return
+	}
+
+	delete(p.Services[service].Instances, id)
+	logger.Debug("Instance unregistered", "service", service, "instance", id.String())
+}
+
+func (p *Pool) GetInstances(service string) map[uuid.UUID]*Instance {
+	p.RLock()
+	defer p.RUnlock()
+
+	s, ok := p.Services[service]
+	if ok && s.Instances != nil {
+		return s.Instances
+	}
+
+	return nil
 }
 
 // func GetInstances(service string) map[string]*Instance {

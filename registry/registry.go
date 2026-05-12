@@ -53,8 +53,12 @@ type Registry interface {
 	Deregister(uuid.UUID) error
 	// Check service instance
 	CheckInstance(uuid.UUID) bool
+	// Load instances
+	Load() ([]*Instance, error)
 	// Watch services
 	Watch() error
+	// Purge registry
+	Purge() error
 }
 
 var (

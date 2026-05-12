@@ -221,7 +221,7 @@ func (srv *HTTPServer) Start() error {
 	srv.wg.Add(1)
 	go func() error {
 		err := srv.app.Serve(listener)
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"HTTP server listen failed",
@@ -230,22 +230,20 @@ func (srv *HTTPServer) Start() error {
 				"name", srv.options.Name,
 				"error", err.Error(),
 			)
-
-			return err
+		} else {
+			srv.options.Logger.InfoContext(
+				srv.ctx,
+				"HTTP server closed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"addr", srv.addr.String(),
+			)
 		}
-
-		srv.options.Logger.InfoContext(
-			srv.ctx,
-			"HTTP server closed",
-			"server", srv.String(),
-			"id", srv.options.ID,
-			"name", srv.options.Name,
-			"addr", srv.addr.String(),
-		)
 
 		srv.wg.Done()
 
-		return nil
+		return err
 	}()
 
 	srv.options.Logger.InfoContext(

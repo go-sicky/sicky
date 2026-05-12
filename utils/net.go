@@ -31,8 +31,12 @@
 package utils
 
 import (
+	"crypto/tls"
+	"errors"
 	"net"
+	"reflect"
 	"strings"
+	"unsafe"
 )
 
 func ObtainIPs() ([]net.IP, error) {
@@ -197,6 +201,34 @@ func Advertise(listen, advertise, network string) net.Addr {
 	}
 
 	return nil
+}
+
+func Net2fd(conn net.Conn) (int, error) {
+	c := conn
+	if c == nil {
+		return -1, errors.New("nil connection")
+	}
+
+	switch conn.(type) {
+	case *tls.Conn:
+		innerConn := reflect.Indirect(
+			reflect.ValueOf(conn).Elem().FieldByName("conn"),
+		)
+		v := reflect.NewAt(
+			innerConn.Type(),
+			unsafe.Pointer(
+				innerConn.UnsafeAddr(),
+			),
+		).Elem()
+		c = v.Interface().(net.Conn)
+	}
+
+	fdVal := reflect.Indirect(
+		reflect.ValueOf(c),
+	).FieldByName("conn").FieldByName("fd")
+	pfdVal := reflect.Indirect(fdVal).FieldByName("pfd")
+
+	return int(pfdVal.FieldByName("Sysfd").Int()), nil
 }
 
 /*

@@ -122,7 +122,15 @@ func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 	return false
 }
 
+func (rg *Redis) Load() ([]*registry.Instance, error) {
+	return nil, nil
+}
+
 func (rg *Redis) Watch() error {
+	return nil
+}
+
+func (rg *Redis) Purge() error {
 	return nil
 }
 

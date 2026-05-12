@@ -31,7 +31,7 @@
 package registry
 
 const (
-	DefaultPoolPurgeInterval = 0
+	DefaultPoolPurgeInterval = 60
 )
 
 type Config struct {
@@ -46,7 +46,11 @@ func DefaultConfig() *Config {
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
-		c = &Config{}
+		c = DefaultConfig()
+	}
+
+	if c.PoolPurgeInterval <= 0 {
+		c.PoolPurgeInterval = DefaultPoolPurgeInterval
 	}
 
 	return c

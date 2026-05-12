@@ -122,31 +122,6 @@ func (rg *Consul) Name() string {
 }
 
 func (rg *Consul) Register(ins *registry.Instance) error {
-	// reg := &api.AgentServiceRegistration{
-	// 	ID:      srv.Options().ID.String(),
-	// 	Name:    srv.Options().Name,
-	// 	Address: srv.AdvertiseIP().String(),
-	// 	Port:    srv.AdvertisePort(),
-	// 	Meta:    srv.Metadata(),
-	// }
-	// err := rg.client.Agent().ServiceRegister(reg)
-	// if err != nil {
-	// 	rg.options.Logger.ErrorContext(
-	// 		rg.ctx,
-	// 		"Server register failed",
-	// 		"registry", rg.String(),
-	// 		"id", rg.options.ID,
-	// 		"name", rg.options.Name,
-	// 		"server", srv.String(),
-	// 		"server_id", srv.Options().ID.String(),
-	// 		"server_name", srv.Options().Name,
-	// 		"server_addr", srv.IP().String(),
-	// 		"server_port", srv.Port(),
-	// 		"error", err.Error(),
-	// 	)
-
-	// 	return err
-	// }
 	reg := &api.AgentServiceRegistration{
 		Kind:    api.ServiceKindTypical,
 		ID:      ins.ID.String(),
@@ -192,22 +167,6 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 }
 
 func (rg *Consul) Deregister(id uuid.UUID) error {
-	// err := rg.client.Agent().ServiceDeregister(srv.Options().ID.String())
-	// if err != nil {
-	// 	rg.options.Logger.ErrorContext(
-	// 		rg.ctx,
-	// 		"Server deregister failed",
-	// 		"registry", rg.String(),
-	// 		"id", rg.options.ID,
-	// 		"name", rg.options.Name,
-	// 		"server", srv.String(),
-	// 		"server_id", srv.Options().ID.String(),
-	// 		"server_name", srv.Options().Name,
-	// 		"error", err.Error(),
-	// 	)
-
-	// 	return err
-	// }
 	err := rg.client.Agent().ServiceDeregister(id.String())
 	if err != nil {
 		rg.options.Logger.ErrorContext(
@@ -255,6 +214,81 @@ func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	return ok
 }
 
+func (rg *Consul) Load() ([]*registry.Instance, error) {
+	svcs, err := rg.client.Agent().Services()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Get consul services failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	var instances []*registry.Instance
+	for _, svc := range svcs {
+		id, err := uuid.Parse(svc.ID)
+		if err != nil {
+			rg.options.Logger.WarnContext(
+				rg.ctx,
+				"Parse service ID failed",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+				"service_id", svc.ID,
+				"error", err.Error(),
+			)
+
+			continue
+		}
+
+		instance := &registry.Instance{
+			ID:             id,
+			ServiceMame:    svc.Service,
+			ManagerAddress: svc.Address,
+			ManagerPort:    svc.Port,
+		}
+
+		// if servers, ok := svc.Meta["servers"]; ok {
+		// 	err = utils.JSONAnyUnmarshalString(servers, &instance.Servers)
+		// 	if err != nil {
+		// 		rg.options.Logger.WarnContext(
+		// 			rg.ctx,
+		// 			"Parse service servers failed",
+		// 			"registry", rg.String(),
+		// 			"id", rg.options.ID,
+		// 			"name", rg.options.Name,
+		// 			"service_id", svc.ID,
+		// 			"error", err.Error(),
+		// 		)
+		// 	}
+		// }
+
+		// if topics, ok := svc.Meta["topics"]; ok {
+		// 	err = utils.JSONAnyUnmarshalString(topics, &instance.Topics)
+		// 	if err != nil {
+		// 		rg.options.Logger.WarnContext(
+		// 			rg.ctx,
+		// 			"Parse service topics failed",
+		// 			"registry", rg.String(),
+		// 			"id", rg.options.ID,
+		// 			"name", rg.options.Name,
+		// 			"service_id", svc.ID,
+		// 			"error", err.Error(),
+		// 		)
+		// 	}
+		// }
+
+		instances = append(instances, instance)
+	}
+
+	return instances, nil
+}
+
 func (rg *Consul) Watch() error {
 	if rg.watcher != nil {
 		rg.watcher.Start()
@@ -276,6 +310,10 @@ func (rg *Consul) Watch() error {
 		)
 	}
 
+	return nil
+}
+
+func (rg *Consul) Purge() error {
 	return nil
 }
 

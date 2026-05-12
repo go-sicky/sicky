@@ -32,6 +32,18 @@ package broker
 
 type Config struct{}
 
+func DefaultConfig() *Config {
+	return &Config{}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	return c
+}
+
 /*
  * Local variables:
  * tab-width: 4

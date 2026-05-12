@@ -38,6 +38,7 @@ import (
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/registry/consul"
+	"github.com/go-sicky/sicky/registry/local"
 	"github.com/go-sicky/sicky/registry/redis"
 )
 
@@ -98,22 +99,21 @@ type TracerConfig struct {
 }
 
 const (
-	DefaultLogLevel                  = "info"
-	DefaultRegistryPoolPurgeInterval = 0
-	DefaultTracerType                = "none"
+	DefaultLogLevel   = "info"
+	DefaultTracerType = "none"
 )
 
 type Config struct {
-	LogLevel                  string         `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
-	RegistryPoolPurgeInterval int            `json:"registry_pool_purge_interval" yaml:"registry_pool_purge_interval" mapstructure:"registry_pool_purge_interval"`
-	Manager                   *ManagerConfig `json:"manager" yaml:"manager" mapstructure:"manager"`
-	Infra                     *InfraConfig   `json:"infra" yaml:"infra" mapstructure:"infra"`
-	Tracer                    *TracerConfig  `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
-	Registry                  struct {
+	LogLevel string         `json:"log_level" yaml:"log_level" mapstructure:"log_level"`
+	Manager  *ManagerConfig `json:"manager" yaml:"manager" mapstructure:"manager"`
+	Infra    *InfraConfig   `json:"infra" yaml:"infra" mapstructure:"infra"`
+	Tracer   *TracerConfig  `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
+	Registry struct {
 		registry.Config
 
 		Consul *consul.Config `json:"consul" yaml:"consul" mapstructure:"consul"`
 		Redis  *redis.Config  `json:"redis" yaml:"redis" mapstructure:"redis"`
+		Local  *local.Config  `json:"local" yaml:"local" mapstructure:"local"`
 	} `json:"registry" yaml:"registry" mapstructure:"registry"`
 	Broker struct {
 		broker.Config
@@ -126,10 +126,9 @@ type Config struct {
 
 func DefaultConfig() *Config {
 	return &Config{
-		LogLevel:                  DefaultLogLevel,
-		RegistryPoolPurgeInterval: DefaultRegistryPoolPurgeInterval,
-		Manager:                   DefaultManagerConfig(),
-		Infra:                     &InfraConfig{},
+		LogLevel: DefaultLogLevel,
+		Manager:  DefaultManagerConfig(),
+		Infra:    &InfraConfig{},
 		Tracer: &TracerConfig{
 			Type: DefaultTracerType,
 		},
@@ -177,6 +176,32 @@ func (c *Config) Ensure() *Config {
 		c.Tracer = &TracerConfig{
 			Type: DefaultTracerType,
 		}
+	}
+
+	c.Registry.Ensure()
+	if c.Registry.Consul != nil {
+		c.Registry.Consul.Ensure()
+	}
+
+	if c.Registry.Redis != nil {
+		c.Registry.Redis.Ensure()
+	}
+
+	if c.Registry.Local != nil {
+		c.Registry.Local.Ensure()
+	}
+
+	c.Broker.Ensure()
+	if c.Broker.Nats != nil {
+		c.Broker.Nats.Ensure()
+	}
+
+	if c.Broker.Nsq != nil {
+		c.Broker.Nsq.Ensure()
+	}
+
+	if c.Broker.Jetstream != nil {
+		c.Broker.Jetstream.Ensure()
 	}
 
 	return c

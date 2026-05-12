@@ -48,8 +48,10 @@ import (
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	rgConsul "github.com/go-sicky/sicky/registry/consul"
+	rgLocal "github.com/go-sicky/sicky/registry/local"
 	rgRedis "github.com/go-sicky/sicky/registry/redis"
 	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -219,7 +221,9 @@ func Run(cfg *Config) error {
 		options.Context = context.Background()
 	}
 
+	utils.JSONAny(cfg)
 	cfg = cfg.Ensure()
+	utils.JSONAny(cfg)
 
 	// Wrappers
 	for _, fn := range beforeStartWrappers {
@@ -393,6 +397,8 @@ func Run(cfg *Config) error {
 	var (
 		rgConsulIns *rgConsul.Consul
 		rgRedisIns  *rgRedis.Redis
+		rgLocalIns  *rgLocal.Local
+		rgTicker    *time.Ticker
 	)
 	if cfg.Registry.Consul != nil {
 		rgConsulIns = rgConsul.New(nil, cfg.Registry.Consul)
@@ -405,10 +411,40 @@ func Run(cfg *Config) error {
 		MustRegistry = false
 	}
 
+	if cfg.Registry.Local != nil {
+		rgLocalIns = rgLocal.New(nil, cfg.Registry.Local)
+		MustRegistry = false
+	}
+
 	if MustRegistry {
 		logger.Logger.Fatal(
 			"Registry is not initialized",
 		)
+	}
+
+	if cfg.Registry.PoolPurgeInterval > 0 {
+		rgTicker = time.NewTicker(time.Duration(cfg.Registry.PoolPurgeInterval) * time.Second)
+		go func() {
+			for t := range rgTicker.C {
+				if rgConsulIns != nil {
+					rgConsulIns.Purge()
+				}
+
+				if rgRedisIns != nil {
+					rgRedisIns.Purge()
+				}
+
+				if rgLocalIns != nil {
+					rgLocalIns.Purge()
+				}
+
+				logger.InfoContext(
+					options.Context,
+					"Registry pool purged",
+					"time", t.Format(time.RFC3339),
+				)
+			}
+		}()
 	}
 
 	// Brokers
@@ -649,11 +685,19 @@ func Run(cfg *Config) error {
 	}
 
 	// Registries
+	if rgTicker != nil {
+		rgTicker.Stop()
+	}
+
 	if rgConsulIns != nil {
 		// Do noting
 	}
 
 	if rgRedisIns != nil {
+		// Do nothing
+	}
+
+	if rgLocalIns != nil {
 		// Do nothing
 	}
 
