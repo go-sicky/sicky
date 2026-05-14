@@ -51,7 +51,6 @@ import (
 	rgLocal "github.com/go-sicky/sicky/registry/local"
 	rgRedis "github.com/go-sicky/sicky/registry/redis"
 	"github.com/go-sicky/sicky/service"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -108,7 +107,6 @@ func Init(opts *Options, switches ...*FlagSwitch) {
 		logger.Logger.Level(logger.SilenceLevel)
 	}
 
-	// fmt.Println(verSw)
 	if verSw {
 		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
 
@@ -203,6 +201,16 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 		}
 	}
 
+	if svc.Options().Metadata != nil {
+		ins.Metadata = svc.Options().Metadata.Clone()
+	}
+
+	ins.Metadata.Set("AppName", options.AppName)
+	ins.Metadata.Set("version", options.Version)
+	ins.Metadata.Set("Commit", options.Commit)
+	ins.Metadata.Set("BuildTime", options.BuildTime)
+	ins.Metadata.Set("Branch", options.Branch)
+
 	return ins
 }
 
@@ -221,9 +229,9 @@ func Run(cfg *Config) error {
 		options.Context = context.Background()
 	}
 
-	utils.JSONAny(cfg)
 	cfg = cfg.Ensure()
-	utils.JSONAny(cfg)
+	// Log level
+	logger.Logger.Level(logger.LogLevel(cfg.LogLevel))
 
 	// Wrappers
 	for _, fn := range beforeStartWrappers {
@@ -422,30 +430,31 @@ func Run(cfg *Config) error {
 		)
 	}
 
-	if cfg.Registry.PoolPurgeInterval > 0 {
+	if cfg.Registry.PoolPurgeInterval > 0 && !MustRegistry {
 		rgTicker = time.NewTicker(time.Duration(cfg.Registry.PoolPurgeInterval) * time.Second)
 		go func() {
-			for t := range rgTicker.C {
-				if rgConsulIns != nil {
-					rgConsulIns.Purge()
+			for range rgTicker.C {
+				// err := registry.Purge()
+				ins, err := registry.Load()
+				if err != nil {
+					logger.ErrorContext(
+						options.Context,
+						"Registry pool purge failed",
+						"error", err.Error(),
+					)
+				} else {
+					registry.PurgePool(ins)
+					logger.InfoContext(
+						options.Context,
+						"Registry pool purged",
+					)
 				}
-
-				if rgRedisIns != nil {
-					rgRedisIns.Purge()
-				}
-
-				if rgLocalIns != nil {
-					rgLocalIns.Purge()
-				}
-
-				logger.InfoContext(
-					options.Context,
-					"Registry pool purged",
-					"time", t.Format(time.RFC3339),
-				)
 			}
 		}()
 	}
+
+	registry.InitPool()
+	registry.Watch()
 
 	// Brokers
 	var (
@@ -685,6 +694,7 @@ func Run(cfg *Config) error {
 	}
 
 	// Registries
+	registry.Stop()
 	if rgTicker != nil {
 		rgTicker.Stop()
 	}

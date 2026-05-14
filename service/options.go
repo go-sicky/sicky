@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
 
@@ -43,11 +44,12 @@ const (
 )
 
 type Options struct {
-	Name    string
-	Version string
-	Branch  string
-	ID      uuid.UUID
-	Logger  logger.GeneralLogger
+	Name     string
+	Version  string
+	Branch   string
+	ID       uuid.UUID
+	Metadata utils.Metadata
+	Logger   logger.GeneralLogger
 
 	Context context.Context
 }
@@ -59,6 +61,10 @@ func (o *Options) Ensure() *Options {
 
 	if o.ID == uuid.Nil {
 		o.ID = uuid.New()
+	}
+
+	if o.Metadata == nil {
+		o.Metadata = utils.NewMetadata()
 	}
 
 	if o.Name == "" {

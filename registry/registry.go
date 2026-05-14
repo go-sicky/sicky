@@ -57,8 +57,8 @@ type Registry interface {
 	Load() ([]*Instance, error)
 	// Watch services
 	Watch() error
-	// Purge registry
-	Purge() error
+	// Stop registry watcher
+	Stop() error
 }
 
 var (
@@ -110,6 +110,30 @@ func CheckInstance(id uuid.UUID) bool {
 	}
 
 	return defaultRegistry.CheckInstance(id)
+}
+
+func Load() ([]*Instance, error) {
+	if defaultRegistry == nil {
+		return nil, nil
+	}
+
+	return defaultRegistry.Load()
+}
+
+func Watch() error {
+	if defaultRegistry == nil {
+		return nil
+	}
+
+	return defaultRegistry.Watch()
+}
+
+func Stop() error {
+	if defaultRegistry == nil {
+		return nil
+	}
+
+	return defaultRegistry.Stop()
 }
 
 /* }}} */

@@ -130,7 +130,7 @@ func (rg *Redis) Watch() error {
 	return nil
 }
 
-func (rg *Redis) Purge() error {
+func (rg *Redis) Stop() error {
 	return nil
 }
 

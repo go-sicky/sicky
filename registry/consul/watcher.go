@@ -33,6 +33,7 @@ package consul
 import (
 	"sync"
 
+	"github.com/go-sicky/sicky/registry"
 	"github.com/hashicorp/consul/api/watch"
 )
 
@@ -124,7 +125,29 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 		//}
 
 		// Reload services list
-		rg.Load()
+		ins, err := rg.Load()
+		if err != nil {
+			rg.options.Logger.ErrorContext(
+				rg.ctx,
+				"Reload services list failed",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+				"error", err.Error(),
+			)
+
+			return
+		}
+
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Watcher triggered",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+		)
+
+		registry.PurgePool(ins)
 	}
 
 	w.watchPlan = wp

@@ -97,7 +97,7 @@ func (rg *Local) Watch() error {
 	return nil
 }
 
-func (rg *Local) Purge() error {
+func (rg *Local) Stop() error {
 	return nil
 }
 

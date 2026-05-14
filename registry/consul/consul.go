@@ -32,6 +32,9 @@ package consul
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
@@ -128,11 +131,35 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 		Name:    ins.ServiceMame,
 		Address: ins.ManagerAddress,
 		Port:    ins.ManagerPort,
-		Meta: map[string]string{
-			"servers": utils.JSONAnyString(ins.Servers),
-			"topics":  utils.JSONAnyString(ins.Topics),
-		},
+		Meta:    make(map[string]string),
+		Tags:    make([]string, 0),
 	}
+
+	if ins.Servers != nil {
+		for _, v := range ins.Servers {
+			// reg.Meta["server::"+n] = utils.JSONAnyString(v)
+			reg.Tags = append(reg.Tags, utils.JSONAnyString(v))
+		}
+	}
+
+	if ins.Topics != nil {
+		for n, v := range ins.Topics {
+			reg.Meta["topic-"+n] = utils.JSONAnyString(v)
+		}
+	}
+
+	if ins.Metadata != nil {
+		for n, v := range ins.Metadata {
+			reg.Meta["meta-"+n] = v
+		}
+	}
+
+	if ins.Tags != nil {
+		for n, v := range ins.Tags {
+			reg.Meta["tag-"+fmt.Sprintf("%d", n)] = v
+		}
+	}
+
 	err := rg.client.Agent().ServiceRegister(reg)
 	if err != nil {
 		rg.options.Logger.ErrorContext(
@@ -231,6 +258,7 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 
 	var instances []*registry.Instance
 	for _, svc := range svcs {
+		// utils.JSONAny(svc)
 		id, err := uuid.Parse(svc.ID)
 		if err != nil {
 			rg.options.Logger.WarnContext(
@@ -251,37 +279,63 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 			ServiceMame:    svc.Service,
 			ManagerAddress: svc.Address,
 			ManagerPort:    svc.Port,
+			Servers:        make(map[string]*registry.Server),
+			Topics:         make(map[string]*registry.Topic),
+			Tags:           make([]string, 0),
+			Metadata:       make(utils.Metadata),
 		}
 
-		// if servers, ok := svc.Meta["servers"]; ok {
-		// 	err = utils.JSONAnyUnmarshalString(servers, &instance.Servers)
-		// 	if err != nil {
-		// 		rg.options.Logger.WarnContext(
-		// 			rg.ctx,
-		// 			"Parse service servers failed",
-		// 			"registry", rg.String(),
-		// 			"id", rg.options.ID,
-		// 			"name", rg.options.Name,
-		// 			"service_id", svc.ID,
-		// 			"error", err.Error(),
-		// 		)
-		// 	}
-		// }
+		for _, v := range svc.Tags {
+			var server registry.Server
+			err = json.Unmarshal([]byte(v), &server)
+			if err != nil {
+				rg.options.Logger.WarnContext(
+					rg.ctx,
+					"Parse service server failed",
+					"registry", rg.String(),
+					"id", rg.options.ID,
+					"name", rg.options.Name,
+					"service_id", svc.ID,
+					"error", err.Error(),
+				)
 
-		// if topics, ok := svc.Meta["topics"]; ok {
-		// 	err = utils.JSONAnyUnmarshalString(topics, &instance.Topics)
-		// 	if err != nil {
-		// 		rg.options.Logger.WarnContext(
-		// 			rg.ctx,
-		// 			"Parse service topics failed",
-		// 			"registry", rg.String(),
-		// 			"id", rg.options.ID,
-		// 			"name", rg.options.Name,
-		// 			"service_id", svc.ID,
-		// 			"error", err.Error(),
-		// 		)
-		// 	}
-		// }
+				continue
+			}
+
+			instance.Servers[server.Name] = &server
+		}
+
+		for k, v := range svc.Meta {
+			if strings.HasPrefix(k, "meta-") {
+				key := strings.TrimPrefix(k, "meta-")
+				instance.Metadata.Set(key, v)
+			}
+
+			if strings.HasPrefix(k, "topic-") {
+				key := strings.TrimPrefix(k, "topic-")
+				var topic registry.Topic
+				err = json.Unmarshal([]byte(v), &topic)
+				if err != nil {
+					rg.options.Logger.WarnContext(
+						rg.ctx,
+						"Parse service topic failed",
+						"registry", rg.String(),
+						"id", rg.options.ID,
+						"name", rg.options.Name,
+						"service_id", svc.ID,
+						"error", err.Error(),
+					)
+
+					continue
+				}
+
+				instance.Topics[key] = &topic
+			}
+
+			if strings.HasPrefix(k, "tag-") {
+				instance.Tags = append(instance.Tags, v)
+			}
+		}
 
 		instances = append(instances, instance)
 	}
@@ -292,7 +346,6 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 func (rg *Consul) Watch() error {
 	if rg.watcher != nil {
 		rg.watcher.Start()
-
 		rg.options.Logger.InfoContext(
 			rg.ctx,
 			"Consul registry watcher start",
@@ -313,7 +366,19 @@ func (rg *Consul) Watch() error {
 	return nil
 }
 
-func (rg *Consul) Purge() error {
+func (rg *Consul) Stop() error {
+	if rg.watcher != nil {
+		rg.watcher.Stop()
+
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Consul registry watcher stop",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+		)
+	}
+
 	return nil
 }
 

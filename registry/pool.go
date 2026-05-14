@@ -42,11 +42,16 @@ type PoolEvent struct {
 	Changed bool
 }
 
-var currentPool *Pool
+var (
+	currentPool *Pool
+	poolLock    sync.RWMutex
+)
+
+// Pool definition
 
 type Pool struct {
 	Services map[string]*Service `json:"services" yaml:"services"`
-	Notify   chan PoolEvent
+	Notify   chan PoolEvent      `json:"-" yaml:"-"`
 
 	sync.RWMutex
 }
@@ -103,6 +108,27 @@ func InitPool() *Pool {
 	}
 
 	return currentPool
+}
+
+func NewPool() *Pool {
+	return &Pool{
+		Services: make(map[string]*Service),
+		Notify:   make(chan PoolEvent, 1),
+	}
+}
+
+func GetPool() *Pool {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	return currentPool
+}
+
+func SetPool(p *Pool) {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	currentPool = p
 }
 
 func (p *Pool) RegisterService(svc *Service) {
@@ -180,6 +206,94 @@ func (p *Pool) GetInstances(service string) map[uuid.UUID]*Instance {
 	}
 
 	return nil
+}
+
+/* {{{ [Helpers] */
+func RegisterInstance(ins *Instance) {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		return
+	}
+
+	currentPool.RegisterInstance(ins)
+}
+
+func GetInstance(service string, id uuid.UUID) *Instance {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		return nil
+	}
+
+	return currentPool.GetInstance(service, id)
+}
+
+func UnregisterInstance(service string, id uuid.UUID) {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		return
+	}
+
+	currentPool.UnregisterInstance(service, id)
+}
+
+func GetInstances(service string) map[uuid.UUID]*Instance {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		return nil
+	}
+
+	return currentPool.GetInstances(service)
+}
+
+func RegisterService(svc *Service) {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		return
+	}
+
+	currentPool.RegisterService(svc)
+}
+
+func GetService(service string) *Service {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		return nil
+	}
+
+	return currentPool.GetService(service)
+}
+
+/* }}} */
+
+func PurgePool(ins []*Instance) {
+	p := NewPool()
+	for _, in := range ins {
+		svc := p.GetService(in.ServiceMame)
+		if svc == nil {
+			svc = &Service{
+				Service:   in.ServiceMame,
+				Instances: make(map[uuid.UUID]*Instance),
+			}
+			p.RegisterService(svc)
+		}
+
+		p.RegisterInstance(in)
+	}
+
+	SetPool(p)
+	utils.JSONAny(GetPool())
 }
 
 // func GetInstances(service string) map[string]*Instance {

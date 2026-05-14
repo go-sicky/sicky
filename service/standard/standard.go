@@ -115,20 +115,6 @@ func (s *Standard) Start() []error {
 		}
 	}
 
-	// Registry
-	// if !s.config.DisableServerRegister {
-	// 	for _, rg := range s.registries {
-	// 		rg.Watch()
-	// 		for _, srv := range s.servers {
-	// 			if srv.Running() {
-	// 				if err = rg.Register(srv); err != nil {
-	// 					errs = append(errs, err)
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }
-
 	return errs
 }
 
@@ -137,21 +123,6 @@ func (s *Standard) Stop() []error {
 		err  error
 		errs []error
 	)
-
-	// Deregister
-	// if !s.config.DisableServerRegister {
-	// 	for _, rg := range s.registries {
-	// 		for _, srv := range s.servers {
-	// 			if srv.Running() {
-	// 				if err = rg.Deregister(srv); err != nil {
-	// 					errs = append(errs, err)
-	// 				}
-	// 			}
-	// 		}
-
-	// 		rg.Context().Done()
-	// 	}
-	// }
 
 	// Disconnect brokers
 	for _, brk := range s.brokers {

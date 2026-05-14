@@ -109,14 +109,14 @@ type Config struct {
 	Infra    *InfraConfig   `json:"infra" yaml:"infra" mapstructure:"infra"`
 	Tracer   *TracerConfig  `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
 	Registry struct {
-		registry.Config
+		registry.Config `mapstructure:",squash"`
 
 		Consul *consul.Config `json:"consul" yaml:"consul" mapstructure:"consul"`
 		Redis  *redis.Config  `json:"redis" yaml:"redis" mapstructure:"redis"`
 		Local  *local.Config  `json:"local" yaml:"local" mapstructure:"local"`
 	} `json:"registry" yaml:"registry" mapstructure:"registry"`
 	Broker struct {
-		broker.Config
+		broker.Config `mapstructure:",squash"`
 
 		Nats      *nats.Config      `json:"nats" yaml:"nats" mapstructure:"nats"`
 		Nsq       *nsq.Config       `json:"nsq" yaml:"nsq" mapstructure:"nsq"`
@@ -138,6 +138,10 @@ func DefaultConfig() *Config {
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.LogLevel == "" {
+		c.LogLevel = DefaultLogLevel
 	}
 
 	if c.Manager != nil {
