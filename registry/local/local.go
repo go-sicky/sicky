@@ -32,8 +32,13 @@ package local
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
 
@@ -78,10 +83,77 @@ func (rg *Local) Name() string {
 }
 
 func (rg *Local) Register(ins *registry.Instance) error {
+	dir := rg.config.RegistryFilePath
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			rg.options.Logger.ErrorContext(
+				rg.ctx,
+				"Register instance to local file failed",
+				"registry", rg.String(),
+				"instance_id", ins.ID.String(),
+				"error", err.Error(),
+			)
+
+			return err
+		}
+	}
+
+	file := filepath.Join(dir, ins.ID.String()+".json")
+	data := utils.JSONAnyBytes(ins)
+	err := os.WriteFile(file, data, 0644)
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Register instance to local file failed",
+			"registry", rg.String(),
+			"instance_id", ins.ID.String(),
+			"file", file,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Instance registered to local file",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"manager_address", ins.ManagerAddress,
+		"manager_port", ins.ManagerPort,
+		"service_name", ins.ServiceMame,
+		"instance_id", ins.ID.String(),
+	)
+
 	return nil
 }
 
 func (rg *Local) Deregister(id uuid.UUID) error {
+	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
+	err := os.Remove(file)
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Deregister instance from local file failed",
+			"registry", rg.String(),
+			"instance_id", id.String(),
+			"file", file,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Instance deregistered from local file",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"instance_id", id.String(),
+	)
+
 	return nil
 }
 
@@ -90,10 +162,113 @@ func (rg *Local) CheckInstance(id uuid.UUID) bool {
 }
 
 func (rg *Local) Load() ([]*registry.Instance, error) {
-	return nil, nil
+	var instances []*registry.Instance
+	dir := rg.config.RegistryFilePath
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return instances, nil
+		}
+
+		return nil, err
+	}
+
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		path := filepath.Join(dir, file.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			rg.options.Logger.ErrorContext(
+				rg.Context(),
+				"Read instance file failed",
+				"file", path,
+				"error", err.Error(),
+			)
+
+			continue
+		}
+
+		var ins registry.Instance
+		if err := json.Unmarshal(data, &ins); err != nil {
+			rg.options.Logger.ErrorContext(
+				rg.Context(),
+				"Unmarshal instance failed",
+				"file", path,
+				"error", err.Error(),
+			)
+
+			continue
+		}
+
+		instances = append(instances, &ins)
+	}
+
+	return instances, nil
 }
 
 func (rg *Local) Watch() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+
+	dir := rg.config.RegistryFilePath
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			watcher.Close()
+
+			return err
+		}
+	}
+
+	go func() {
+		defer watcher.Close()
+		for {
+			select {
+			case <-rg.Context().Done():
+				return
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+
+				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
+					rg.options.Logger.DebugContext(rg.Context(), "Registry directory changed", "event", event.String())
+					// Trigger reload or notify subscribers here
+					ins, err := rg.Load()
+					if err != nil {
+						rg.options.Logger.ErrorContext(
+							rg.ctx,
+							"Reload services list failed",
+							"registry", rg.String(),
+							"id", rg.options.ID,
+							"name", rg.options.Name,
+							"error", err.Error(),
+						)
+
+						continue
+					}
+
+					registry.PurgePool(ins)
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+
+				rg.options.Logger.ErrorContext(rg.Context(), "Inotify watcher error", "error", err)
+			}
+		}
+	}()
+
+	err = watcher.Add(dir)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

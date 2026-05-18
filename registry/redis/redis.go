@@ -32,8 +32,10 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -76,7 +78,6 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 	}
 
 	rg.client = rdb
-
 	rg.options.Logger.InfoContext(
 		rg.ctx,
 		"Registry connected",
@@ -99,7 +100,7 @@ func (rg *Redis) Options() *registry.Options {
 }
 
 func (rg *Redis) String() string {
-	return "consul"
+	return "redis"
 }
 
 func (rg *Redis) ID() uuid.UUID {
@@ -111,11 +112,66 @@ func (rg *Redis) Name() string {
 }
 
 func (rg *Redis) Register(ins *registry.Instance) error {
+	_, err := rg.client.HSet(rg.ctx, rg.config.InstanceKey, ins.ID.String(), utils.JSONAnyString(ins)).Result()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Register instance failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"instance_id", ins.ID.String(),
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Instance registered",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"manager_address", ins.ManagerAddress,
+		"manager_port", ins.ManagerPort,
+		"service_name", ins.ServiceMame,
+		"instance_id", ins.ID.String(),
+	)
+
+	_, err = rg.client.Publish(rg.ctx, rg.config.NotifyKey, ins.ID.String()).Result()
+
 	return nil
 }
 
 func (rg *Redis) Deregister(id uuid.UUID) error {
-	return nil
+	_, err := rg.client.HDel(rg.ctx, rg.config.InstanceKey, id.String()).Result()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Deregister instance failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"instance_id", id.String(),
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Instance deregistered",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+		"instance_id", id.String(),
+	)
+
+	_, err = rg.client.Publish(rg.ctx, rg.config.NotifyKey, id.String()).Result()
+
+	return err
 }
 
 func (rg *Redis) CheckInstance(id uuid.UUID) bool {
@@ -123,14 +179,88 @@ func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 }
 
 func (rg *Redis) Load() ([]*registry.Instance, error) {
-	return nil, nil
+	var instances []*registry.Instance
+	res, err := rg.client.HGetAll(rg.ctx, rg.config.InstanceKey).Result()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Load instances failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	for _, v := range res {
+		var ins registry.Instance
+		err = json.Unmarshal([]byte(v), &ins)
+		if err != nil {
+			rg.options.Logger.ErrorContext(
+				rg.ctx,
+				"Unmarshal instance failed",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+				"error", err.Error(),
+			)
+
+			continue
+		}
+
+		instances = append(instances, &ins)
+	}
+
+	return instances, nil
 }
 
 func (rg *Redis) Watch() error {
+	pubsub := rg.client.Subscribe(rg.ctx, rg.config.NotifyKey)
+
+	go func() {
+		ch := pubsub.Channel()
+		for {
+			select {
+			case <-rg.ctx.Done():
+				pubsub.Close()
+				return
+			case <-ch:
+				// Reload services list
+				ins, err := rg.Load()
+				if err != nil {
+					rg.options.Logger.ErrorContext(
+						rg.ctx,
+						"Reload services list failed",
+						"registry", rg.String(),
+						"id", rg.options.ID,
+						"name", rg.options.Name,
+						"error", err.Error(),
+					)
+					continue
+				}
+
+				rg.options.Logger.InfoContext(
+					rg.ctx,
+					"Watcher triggered",
+					"registry", rg.String(),
+				)
+
+				registry.PurgePool(ins)
+			}
+		}
+	}()
+
 	return nil
 }
 
 func (rg *Redis) Stop() error {
+	if rg.ctx != nil {
+		_, done := context.WithCancel(rg.ctx)
+		done()
+	}
+
 	return nil
 }
 

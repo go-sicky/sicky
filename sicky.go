@@ -430,7 +430,8 @@ func Run(cfg *Config) error {
 		)
 	}
 
-	if cfg.Registry.PoolPurgeInterval > 0 && !MustRegistry {
+	if cfg.Registry.PoolPurgeInterval > 0 &&
+		(rgRedisIns != nil || rgConsulIns != nil || rgLocalIns != nil) {
 		rgTicker = time.NewTicker(time.Duration(cfg.Registry.PoolPurgeInterval) * time.Second)
 		go func() {
 			for range rgTicker.C {
@@ -524,6 +525,7 @@ func Run(cfg *Config) error {
 	// Start manager
 	if cfg.Manager != nil && cfg.Manager.Enable {
 		manager = NewManager(cfg.Manager)
+		manager.cfgVar = cfg
 		err = manager.Start()
 		if err != nil {
 			logger.ErrorContext(

@@ -43,6 +43,7 @@ import (
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -53,6 +54,8 @@ type Manager struct {
 	config  *ManagerConfig
 	srv     *http.Server
 	running bool
+
+	cfgVar *Config
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -98,6 +101,8 @@ func (m *Manager) Start() error {
 	mux.Handle(m.config.HealthPath, m.health())
 	mux.Handle(m.config.VersionPath, m.version())
 	mux.Handle(m.config.InfoPath, m.info())
+	mux.Handle(m.config.ConfigPath, m.cfg())
+	mux.Handle(m.config.ServicePoolPath, m.servicePool())
 	m.srv.Handler = mux
 	m.wg.Add(1)
 	go func() error {
@@ -127,6 +132,8 @@ func (m *Manager) Start() error {
 	logger.Logger.InfoContext(
 		m.ctx,
 		"Manager server started",
+		"address", m.Addr(),
+		"port", m.Port(),
 	)
 
 	m.running = true
@@ -214,6 +221,20 @@ func (m *Manager) info() http.Handler {
 				Version: "0.0.1",
 			},
 		)
+	})
+}
+
+func (m *Manager) cfg() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(m.cfgVar)
+	})
+}
+
+func (m *Manager) servicePool() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(registry.GetPool())
 	})
 }
 

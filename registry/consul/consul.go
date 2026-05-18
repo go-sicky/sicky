@@ -180,14 +180,14 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Service registered",
+		"Instance registered",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
 		"manager_address", ins.ManagerAddress,
 		"manager_port", ins.ManagerPort,
 		"service_name", ins.ServiceMame,
-		"service_id", ins.ID.String(),
+		"instance_id", ins.ID.String(),
 	)
 
 	return nil
@@ -198,11 +198,11 @@ func (rg *Consul) Deregister(id uuid.UUID) error {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Service deregister failed",
+			"Deregister instance failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
-			"service_id", id.String(),
+			"instance_id", id.String(),
 			"error", err.Error(),
 		)
 

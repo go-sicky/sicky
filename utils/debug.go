@@ -82,6 +82,15 @@ func JSONAnyString(d any) string {
 	return string(b)
 }
 
+func JSONAnyBytes(d any) []byte {
+	b, _ := json.MarshalIndent(d, "", "  ")
+	if b == nil {
+		return nil
+	}
+
+	return b
+}
+
 func XMLAny(d any) {
 	b, _ := xml.MarshalIndent(d, "", "  ")
 	if b == nil {
@@ -98,6 +107,15 @@ func XMLAnyString(d any) string {
 	}
 
 	return string(b)
+}
+
+func XMLAnyBytes(d any) []byte {
+	b, _ := xml.MarshalIndent(d, "", "  ")
+	if b == nil {
+		return nil
+	}
+
+	return b
 }
 
 /*

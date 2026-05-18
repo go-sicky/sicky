@@ -31,31 +31,31 @@
 package redis
 
 const (
-	DefaultAddr           = "localhost:6379"
-	DefaultDB             = 0
-	DefaultPoolSize       = 10
-	DefaultPassword       = ""
-	DefaultNotifyKey      = "sicky-registry-notify"
-	DefaultInstancePrefix = "sicky-registry-instance"
+	DefaultAddr        = "localhost:6379"
+	DefaultDB          = 0
+	DefaultPoolSize    = 10
+	DefaultPassword    = ""
+	DefaultNotifyKey   = "sicky-registry-notify"
+	DefaultInstanceKey = "sicky-registry-instance"
 )
 
 type Config struct {
-	Addr           string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	Password       string `json:"password" yaml:"password" mapstructure:"password"`
-	DB             int    `json:"db" yaml:"db" mapstructure:"db"`
-	PoolSize       int    `json:"pool_size" yaml:"pool_size" mapstructure:"pool_size"`
-	NotifyKey      string `json:"notify_key" yaml:"notify_key" mapstructure:"notify_key"`
-	InstancePrefix string `json:"instance_prefix" yaml:"instance_prefix" mapstructure:"instance_prefix"`
+	Addr        string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Password    string `json:"password" yaml:"password" mapstructure:"password"`
+	DB          int    `json:"db" yaml:"db" mapstructure:"db"`
+	PoolSize    int    `json:"pool_size" yaml:"pool_size" mapstructure:"pool_size"`
+	NotifyKey   string `json:"notify_key" yaml:"notify_key" mapstructure:"notify_key"`
+	InstanceKey string `json:"instance_key" yaml:"instance_key" mapstructure:"instance_key"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Addr:           DefaultAddr,
-		Password:       DefaultPassword,
-		DB:             DefaultDB,
-		PoolSize:       DefaultPoolSize,
-		NotifyKey:      DefaultNotifyKey,
-		InstancePrefix: DefaultInstancePrefix,
+		Addr:        DefaultAddr,
+		Password:    DefaultPassword,
+		DB:          DefaultDB,
+		PoolSize:    DefaultPoolSize,
+		NotifyKey:   DefaultNotifyKey,
+		InstanceKey: DefaultInstanceKey,
 	}
 }
 
@@ -76,12 +76,16 @@ func (c *Config) Ensure() *Config {
 		c.PoolSize = DefaultPoolSize
 	}
 
+	if c.Password == "" {
+		c.Password = DefaultPassword
+	}
+
 	if c.NotifyKey == "" {
 		c.NotifyKey = DefaultNotifyKey
 	}
 
-	if c.InstancePrefix == "" {
-		c.InstancePrefix = DefaultInstancePrefix
+	if c.InstanceKey == "" {
+		c.InstanceKey = DefaultInstanceKey
 	}
 
 	return c

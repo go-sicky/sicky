@@ -35,7 +35,7 @@ const (
 )
 
 type Config struct {
-	RegistryFilePath string `json:"registryFilePath" yaml:"registryFilePath"`
+	RegistryFilePath string `json:"registry_file_path" yaml:"registry_file_path" mapstructure:"registry_file_path"`
 }
 
 func DefaultConfig() *Config {

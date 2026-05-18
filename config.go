@@ -43,12 +43,14 @@ import (
 )
 
 const (
-	DefaultManagerAddress = ":8888"
-	DefaultMetricsPath    = "/metrics"
-	DefaultHealthPath     = "/health"
-	DefaultVersionPath    = "/version"
-	DefaultInfoPath       = "/info"
-	DefaultSwaggerPath    = "/swagger.json"
+	DefaultManagerAddress  = ":8888"
+	DefaultMetricsPath     = "/metrics"
+	DefaultHealthPath      = "/health"
+	DefaultVersionPath     = "/version"
+	DefaultInfoPath        = "/info"
+	DefaultSwaggerPath     = "/swagger.json"
+	DefaultConfigPath      = "/config"
+	DefaultServicePoolPath = "/services"
 )
 
 type ManagerConfig struct {
@@ -61,18 +63,62 @@ type ManagerConfig struct {
 	VersionPath      string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
 	InfoPath         string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
 	SwaggerPath      string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
+	ConfigPath       string `json:"config_path" yaml:"config_path" mapstructure:"config_path"`
+	ServicePoolPath  string `json:"service_pool_path" yaml:"service_pool_path" mapstructure:"service_pool_path"`
 }
 
 func DefaultManagerConfig() *ManagerConfig {
 	return &ManagerConfig{
-		Enable:      true,
-		Address:     DefaultManagerAddress,
-		MetricsPath: DefaultMetricsPath,
-		HealthPath:  DefaultHealthPath,
-		VersionPath: DefaultVersionPath,
-		InfoPath:    DefaultInfoPath,
-		SwaggerPath: DefaultSwaggerPath,
+		Enable:          true,
+		Address:         DefaultManagerAddress,
+		MetricsPath:     DefaultMetricsPath,
+		HealthPath:      DefaultHealthPath,
+		VersionPath:     DefaultVersionPath,
+		InfoPath:        DefaultInfoPath,
+		SwaggerPath:     DefaultSwaggerPath,
+		ConfigPath:      DefaultConfigPath,
+		ServicePoolPath: DefaultServicePoolPath,
 	}
+}
+
+func (c *ManagerConfig) Ensure() *ManagerConfig {
+	if c == nil {
+		c = DefaultManagerConfig()
+	}
+
+	if c.Address == "" {
+		c.Address = DefaultManagerAddress
+	}
+
+	if c.MetricsPath == "" {
+		c.MetricsPath = DefaultMetricsPath
+	}
+
+	if c.HealthPath == "" {
+		c.HealthPath = DefaultHealthPath
+	}
+
+	if c.VersionPath == "" {
+		c.VersionPath = DefaultVersionPath
+	}
+
+	if c.InfoPath == "" {
+		c.InfoPath = DefaultInfoPath
+	}
+
+	if c.SwaggerPath == "" {
+		c.SwaggerPath = DefaultSwaggerPath
+	}
+
+	if c.ConfigPath == "" {
+		c.ConfigPath = DefaultConfigPath
+	}
+
+	if c.ServicePoolPath == "" {
+		c.ServicePoolPath = DefaultServicePoolPath
+	}
+
+	return c
 }
 
 type InfraConfig struct {
@@ -144,32 +190,9 @@ func (c *Config) Ensure() *Config {
 		c.LogLevel = DefaultLogLevel
 	}
 
-	if c.Manager != nil {
-		if c.Manager.Address == "" {
-			c.Manager.Address = DefaultManagerAddress
-		}
-
-		if c.Manager.MetricsPath == "" {
-			c.Manager.MetricsPath = DefaultMetricsPath
-		}
-
-		if c.Manager.HealthPath == "" {
-			c.Manager.HealthPath = DefaultHealthPath
-		}
-
-		if c.Manager.VersionPath == "" {
-			c.Manager.VersionPath = DefaultVersionPath
-		}
-
-		if c.Manager.InfoPath == "" {
-			c.Manager.InfoPath = DefaultInfoPath
-		}
-
-		if c.Manager.SwaggerPath == "" {
-			c.Manager.SwaggerPath = DefaultSwaggerPath
-		}
-	} else {
-		c.Manager = DefaultManagerConfig()
+	c.Manager = c.Manager.Ensure()
+	if c.Manager.AdvertiseAddress == "" {
+		c.Manager.AdvertiseAddress = c.Manager.Address
 	}
 
 	if c.Infra == nil {
