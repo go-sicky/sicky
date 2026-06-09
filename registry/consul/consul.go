@@ -128,7 +128,7 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 	reg := &api.AgentServiceRegistration{
 		Kind:    api.ServiceKindTypical,
 		ID:      ins.ID.String(),
-		Name:    ins.ServiceMame,
+		Name:    ins.ServiceName,
 		Address: ins.ManagerAddress,
 		Port:    ins.ManagerPort,
 		Meta:    make(map[string]string),
@@ -170,7 +170,7 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 			"name", rg.options.Name,
 			"manager_address", ins.ManagerAddress,
 			"manager_port", ins.ManagerPort,
-			"service_name", ins.ServiceMame,
+			"service_name", ins.ServiceName,
 			"service_id", ins.ID.String(),
 			"error", err.Error(),
 		)
@@ -186,7 +186,7 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 		"name", rg.options.Name,
 		"manager_address", ins.ManagerAddress,
 		"manager_port", ins.ManagerPort,
-		"service_name", ins.ServiceMame,
+		"service_name", ins.ServiceName,
 		"instance_id", ins.ID.String(),
 	)
 
@@ -276,7 +276,7 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 
 		instance := &registry.Instance{
 			ID:             id,
-			ServiceMame:    svc.Service,
+			ServiceName:    svc.Service,
 			ManagerAddress: svc.Address,
 			ManagerPort:    svc.Port,
 			Servers:        make(map[string]*registry.Server),

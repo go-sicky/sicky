@@ -22,7 +22,7 @@
  */
 
 /**
- * @file nats.go
+ * @file mqtt.go
  * @package infra
  * @author Dr.NP <np@herewe.tech>
  * @since 12/21/2025

@@ -84,7 +84,7 @@ func (o *Options) Ensure() *Options {
 	}
 
 	if o.beforeStart == nil {
-		o.beforeStop = make([]ServerWrapper, 0)
+		o.beforeStart = make([]ServerWrapper, 0)
 	}
 
 	if o.afterStop == nil {

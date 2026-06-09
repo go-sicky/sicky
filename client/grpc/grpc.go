@@ -264,7 +264,7 @@ func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, repl
 	return err
 }
 
-func (clt GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+func (clt *GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	// Stream call
 	clt.options.Logger.DebugContext(
 		ctx,

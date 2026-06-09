@@ -44,7 +44,7 @@ type Cron struct {
 	ctx       context.Context
 	options   *job.Options
 	running   bool
-	tasks     []gocron.Job
+	tasks     []*Task
 	scheduler gocron.Scheduler
 
 	sync.RWMutex
@@ -60,7 +60,7 @@ func New(opts *job.Options, cfg *Config) *Cron {
 		ctx:     opts.Context,
 		options: opts,
 		running: false,
-		tasks:   make([]gocron.Job, 0),
+		tasks:   make([]*Task, 0),
 	}
 
 	j.options.Logger.InfoContext(
@@ -97,21 +97,14 @@ func (job *Cron) Name() string {
 }
 
 func (job *Cron) Add(task *Task) error {
+	job.Lock()
+	defer job.Unlock()
+
 	if task.ID == uuid.Nil {
 		task.ID = uuid.New()
 	}
 
-	j, err := job.scheduler.NewJob(
-		gocron.CronJob(task.Expression, true),
-		gocron.NewTask(
-			task.Handler,
-		),
-	)
-	if err != nil {
-		return err
-	}
-
-	job.tasks = append(job.tasks, j)
+	job.tasks = append(job.tasks, task)
 
 	return nil
 }
@@ -130,7 +123,38 @@ func (job *Cron) Start() error {
 	}
 
 	job.scheduler = sch
+
+	// Register all pre-added tasks
+	for _, task := range job.tasks {
+		_, err := job.scheduler.NewJob(
+			gocron.CronJob(task.Expression, true),
+			gocron.NewTask(
+				task.Handler,
+			),
+		)
+		if err != nil {
+			job.options.Logger.ErrorContext(
+				job.ctx,
+				"Register cron task failed",
+				"job", job.String(),
+				"id", job.options.ID,
+				"name", job.options.Name,
+				"task_id", task.ID.String(),
+				"error", err.Error(),
+			)
+		}
+	}
+
 	job.running = true
+
+	job.options.Logger.InfoContext(
+		job.ctx,
+		"Cron job started",
+		"job", job.String(),
+		"id", job.options.ID,
+		"name", job.options.Name,
+		"tasks", len(job.tasks),
+	)
 
 	return nil
 }

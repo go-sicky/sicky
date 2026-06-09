@@ -43,6 +43,7 @@ import (
 type Redis struct {
 	config  *Config
 	ctx     context.Context
+	cancel  context.CancelFunc
 	options *registry.Options
 	client  *redis.Client
 }
@@ -51,9 +52,11 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
+	ctx, cancel := context.WithCancel(opts.Context)
 	rg := &Redis{
 		config:  cfg,
-		ctx:     opts.Context,
+		ctx:     ctx,
+		cancel:  cancel,
 		options: opts,
 	}
 
@@ -135,11 +138,24 @@ func (rg *Redis) Register(ins *registry.Instance) error {
 		"name", rg.options.Name,
 		"manager_address", ins.ManagerAddress,
 		"manager_port", ins.ManagerPort,
-		"service_name", ins.ServiceMame,
+		"service_name", ins.ServiceName,
 		"instance_id", ins.ID.String(),
 	)
 
 	_, err = rg.client.Publish(rg.ctx, rg.config.NotifyKey, ins.ID.String()).Result()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Publish register notification failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"instance_id", ins.ID.String(),
+			"error", err.Error(),
+		)
+
+		return err
+	}
 
 	return nil
 }
@@ -175,7 +191,22 @@ func (rg *Redis) Deregister(id uuid.UUID) error {
 }
 
 func (rg *Redis) CheckInstance(id uuid.UUID) bool {
-	return false
+	exists, err := rg.client.HExists(rg.ctx, rg.config.InstanceKey, id.String()).Result()
+	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Check instance failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"instance_id", id.String(),
+			"error", err.Error(),
+		)
+
+		return false
+	}
+
+	return exists
 }
 
 func (rg *Redis) Load() ([]*registry.Instance, error) {
@@ -256,9 +287,31 @@ func (rg *Redis) Watch() error {
 }
 
 func (rg *Redis) Stop() error {
-	if rg.ctx != nil {
-		_, done := context.WithCancel(rg.ctx)
-		done()
+	if rg.cancel != nil {
+		rg.cancel()
+	}
+
+	if rg.client != nil {
+		if err := rg.client.Close(); err != nil {
+			rg.options.Logger.ErrorContext(
+				rg.ctx,
+				"Redis client close failed",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+				"error", err.Error(),
+			)
+
+			return err
+		}
+
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Redis registry stopped",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+		)
 	}
 
 	return nil

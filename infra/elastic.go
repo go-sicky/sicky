@@ -22,7 +22,7 @@
  */
 
 /**
- * @file clickhouse.go
+ * @file elastic.go
  * @package infra
  * @author Dr.NP <np@herewe.tech>
  * @since 12/25/2025

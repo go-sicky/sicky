@@ -36,7 +36,7 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"runtime"
 	"strconv"
 
@@ -49,17 +49,18 @@ const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456
 func RandomString(length int) string {
 	b := make([]byte, length)
 	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+		num, _ := crand.Int(crand.Reader, big.NewInt(int64(len(letterBytes))))
+		b[i] = letterBytes[num.Int64()]
 	}
 
 	return string(b)
 }
 
 func RandomHex(length int) []byte {
-	bytes := make([]byte, length)
-	crand.Read(bytes)
+	b := make([]byte, length)
+	crand.Read(b)
 
-	return bytes
+	return b
 }
 
 func MD5String(input string) string {
@@ -84,7 +85,11 @@ func CryptoPassword(original, salt string) string {
 }
 
 func EnsureStatus(status, bit int64) bool {
-	return (status & 1 << bit) != 0
+	if bit < 0 || bit > 63 {
+		return false
+	}
+
+	return (status & (1 << bit)) != 0
 }
 
 /*

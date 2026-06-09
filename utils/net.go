@@ -168,7 +168,11 @@ func Advertise(listen, advertise, network string) net.Addr {
 		// Parse listen
 		if strings.HasPrefix(listen, ":") {
 			// Null IPv4 host
-			ip, _ := ObtainPreferIP(true)
+			ip, err := ObtainPreferIP(true)
+			if err != nil || ip == nil {
+				return nil
+			}
+
 			listen = ip.String() + listen
 		}
 

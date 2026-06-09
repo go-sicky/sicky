@@ -31,8 +31,10 @@
 package interactive
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 
@@ -201,9 +203,13 @@ func (s *Interactive) interact() bool {
 	}
 
 	p.PrintFunc()(s.config.Prompt)
-	fmt.Scanf("%s", &cmd)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
 
-	cmd = strings.TrimSpace(cmd)
+	cmd = strings.TrimSpace(line)
 	parts := strings.SplitN(cmd, " ", 2)
 	if len(parts) > 0 {
 		if parts[0] == s.config.StopCommand {

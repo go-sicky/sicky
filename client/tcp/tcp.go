@@ -47,11 +47,25 @@ type TCPClient struct {
 	addr      *net.TCPAddr
 }
 
-func New(opts *client.Options, cfg *Config) *TCPClient {
+func New(opts *client.Options, cfg *Config) (*TCPClient, error) {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveTCPAddr("tcp", cfg.Addr)
+	addr, err := net.ResolveTCPAddr("tcp", cfg.Addr)
+	if err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"TCP client resolve address failed",
+			"client", "tcp",
+			"id", opts.ID,
+			"name", opts.Name,
+			"addr", cfg.Addr,
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
 	clt := &TCPClient{
 		config:    cfg,
 		options:   opts,
@@ -71,7 +85,7 @@ func New(opts *client.Options, cfg *Config) *TCPClient {
 
 	client.Set(clt)
 
-	return clt
+	return clt, nil
 }
 
 func (clt *TCPClient) Options() *client.Options {

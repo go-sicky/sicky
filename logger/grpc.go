@@ -71,7 +71,7 @@ type grpcLogger struct {
 
 func NewGRPC(l ...*slog.Logger) GRPCLogger {
 	var ins *slog.Logger
-	var level = new(slog.LevelVar)
+	level := new(slog.LevelVar)
 	if len(l) > 0 {
 		ins = l[0]
 	} else {
@@ -155,17 +155,17 @@ func (gl *grpcLogger) Errorf(format string, args ...any) {
 }
 
 func (gl *grpcLogger) Fatal(args ...any) {
-	gl.ins.Log(context.TODO(), level2slog(FatalLevel), fmt.Sprint(args...))
+	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprint(args...))
 	os.Exit(-1)
 }
 
 func (gl *grpcLogger) Fatalln(args ...any) {
-	gl.ins.Log(context.TODO(), level2slog(FatalLevel), fmt.Sprintln(args...))
+	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprintln(args...))
 	os.Exit(-1)
 }
 
 func (gl *grpcLogger) Fatalf(format string, args ...any) {
-	gl.ins.Log(context.TODO(), level2slog(FatalLevel), fmt.Sprintf(format, args...))
+	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprintf(format, args...))
 	os.Exit(-1)
 }
 

@@ -98,7 +98,7 @@ type generalLogger struct {
 
 func NewGeneral(l ...*slog.Logger) GeneralLogger {
 	var ins *slog.Logger
-	var level = new(slog.LevelVar)
+	level := new(slog.LevelVar)
 	if len(l) > 0 {
 		ins = l[0]
 	} else {
@@ -151,11 +151,11 @@ func (gl *generalLogger) Level(level Level) {
 }
 
 func (gl *generalLogger) Log(level Level, msg string, args ...any) {
-	gl.ins.Log(context.TODO(), level2slog(level), msg, args...)
+	gl.ins.Log(context.Background(), level2slog(level), msg, args...)
 }
 
 func (gl *generalLogger) Logf(level Level, format string, args ...any) {
-	gl.ins.Log(context.TODO(), level2slog(level), fmt.Sprintf(format, args...))
+	gl.ins.Log(context.Background(), level2slog(level), fmt.Sprintf(format, args...))
 }
 
 func (gl *generalLogger) LogContext(ctx context.Context, level Level, msg string, args ...any) {

@@ -54,6 +54,7 @@ func New(opts *registry.Options, cfg *Config) *Local {
 
 	rg := &Local{
 		config:  cfg,
+		ctx:     opts.Context,
 		options: opts,
 	}
 
@@ -122,7 +123,7 @@ func (rg *Local) Register(ins *registry.Instance) error {
 		"name", rg.options.Name,
 		"manager_address", ins.ManagerAddress,
 		"manager_port", ins.ManagerPort,
-		"service_name", ins.ServiceMame,
+		"service_name", ins.ServiceName,
 		"instance_id", ins.ID.String(),
 	)
 
@@ -158,7 +159,10 @@ func (rg *Local) Deregister(id uuid.UUID) error {
 }
 
 func (rg *Local) CheckInstance(id uuid.UUID) bool {
-	return true
+	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
+	_, err := os.Stat(file)
+
+	return err == nil
 }
 
 func (rg *Local) Load() ([]*registry.Instance, error) {

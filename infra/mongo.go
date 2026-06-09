@@ -22,7 +22,7 @@
  */
 
 /**
- * @file s3.go
+ * @file mongo.go
  * @package infra
  * @author Dr.NP <np@herewe.tech>
  * @since 12/20/2025
@@ -31,8 +31,13 @@
 package infra
 
 import (
+	"context"
+	"time"
+
+	"github.com/go-sicky/sicky/logger"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type MongoConfig struct {
@@ -49,8 +54,34 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 
 	client, err := mongo.Connect(options.Client().ApplyURI(cfg.URI))
 	if err != nil {
+		logger.Logger.Error(
+			"Mongo connect failed",
+			"uri", cfg.URI,
+			"error", err.Error(),
+		)
+
 		return nil, err
 	}
+
+	// Ping to verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+		logger.Logger.Error(
+			"Mongo ping failed",
+			"uri", cfg.URI,
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	logger.Logger.Info(
+		"Mongo initialized",
+		"uri", cfg.URI,
+		"db", cfg.DB,
+	)
 
 	Mongo = client
 

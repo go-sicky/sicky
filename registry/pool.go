@@ -69,7 +69,7 @@ type Service struct {
 // Service instance
 type Instance struct {
 	ID               uuid.UUID          `json:"id" yaml:"id"`
-	ServiceMame      string             `json:"service_name" yaml:"service_name"`
+	ServiceName      string             `json:"service_name" yaml:"service_name"`
 	Type             string             `json:"type" yaml:"type"`
 	AdvertiseAddress string             `json:"advertise_address" yaml:"advertise_address"`
 	ManagerPort      int                `json:"manager_port" yaml:"manager_port"`
@@ -159,17 +159,17 @@ func (p *Pool) RegisterInstance(ins *Instance) {
 	defer p.Unlock()
 
 	// Check service
-	if p.Services[ins.ServiceMame] == nil {
+	if p.Services[ins.ServiceName] == nil {
 		// Service not exists
-		logger.Warn("Try to register instance to non exist service", "service", ins.ServiceMame, "instance", ins.ID.String())
+		logger.Warn("Try to register instance to non exist service", "service", ins.ServiceName, "instance", ins.ID.String())
 	} else {
-		if p.Services[ins.ServiceMame].Instances == nil {
-			p.Services[ins.ServiceMame].Instances = make(map[uuid.UUID]*Instance)
+		if p.Services[ins.ServiceName].Instances == nil {
+			p.Services[ins.ServiceName].Instances = make(map[uuid.UUID]*Instance)
 		}
 
 		// Register
-		p.Services[ins.ServiceMame].Instances[ins.ID] = ins
-		logger.Debug("Instance registered", "service", ins.ServiceMame, "instance", ins.ID.String())
+		p.Services[ins.ServiceName].Instances[ins.ID] = ins
+		logger.Debug("Instance registered", "service", ins.ServiceName, "instance", ins.ID.String())
 	}
 }
 
@@ -221,7 +221,7 @@ func RegisterInstance(ins *Instance) {
 }
 
 func GetInstance(service string, id uuid.UUID) *Instance {
-	poolLock.Lock()
+	poolLock.RLock()
 	defer poolLock.Unlock()
 
 	if currentPool == nil {
@@ -243,8 +243,8 @@ func UnregisterInstance(service string, id uuid.UUID) {
 }
 
 func GetInstances(service string) map[uuid.UUID]*Instance {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+	poolLock.RLock()
+	defer poolLock.RUnlock()
 
 	if currentPool == nil {
 		return nil
@@ -254,8 +254,8 @@ func GetInstances(service string) map[uuid.UUID]*Instance {
 }
 
 func RegisterService(svc *Service) {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+	poolLock.RLock()
+	defer poolLock.RUnlock()
 
 	if currentPool == nil {
 		return
@@ -265,8 +265,8 @@ func RegisterService(svc *Service) {
 }
 
 func GetService(service string) *Service {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+	poolLock.RLock()
+	defer poolLock.RUnlock()
 
 	if currentPool == nil {
 		return nil
@@ -280,10 +280,10 @@ func GetService(service string) *Service {
 func PurgePool(ins []*Instance) {
 	p := NewPool()
 	for _, in := range ins {
-		svc := p.GetService(in.ServiceMame)
+		svc := p.GetService(in.ServiceName)
 		if svc == nil {
 			svc = &Service{
-				Service:   in.ServiceMame,
+				Service:   in.ServiceName,
 				Instances: make(map[uuid.UUID]*Instance),
 			}
 			p.RegisterService(svc)

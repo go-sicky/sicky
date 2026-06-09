@@ -53,7 +53,7 @@ type BunConfig struct {
 	Driver       string `json:"driver" yaml:"driver" mapstructure:"driver"`
 	DSN          string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
 	Debug        bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
-	SlowDuration int    `json:"slow_duration" yaml:"slow_duration" mapstructure:"time_duration"`
+	SlowDuration int    `json:"slow_duration" yaml:"slow_duration" mapstructure:"slow_duration"`
 }
 
 var Bun *bun.DB

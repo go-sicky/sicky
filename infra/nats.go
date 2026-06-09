@@ -39,6 +39,10 @@ type NatsConfig struct {
 var Nats *nats.Conn
 
 func InitNats(cfg *NatsConfig) (*nats.Conn, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
 	nc, err := nats.Connect(cfg.URL)
 	if err != nil {
 		return nil, err

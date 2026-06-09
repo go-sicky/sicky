@@ -32,6 +32,7 @@ package nsq
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"strings"
 	"time"
@@ -195,8 +196,11 @@ func (brk *Nsq) Disconnect() error {
 
 func (brk *Nsq) Publish(topic string, m *broker.Message) error {
 	if brk.producer == nil {
-		// No producer
-		return nil
+		return errors.New("broker not connected")
+	}
+
+	if m == nil {
+		return errors.New("nil message")
 	}
 
 	m.Topic = topic
@@ -338,7 +342,7 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 	)
 
 	hdl := h.Broker.handlers[h.Topic]
-	if h.Broker.handlers[h.Topic] != nil {
+	if hdl != nil {
 		msg := broker.NewMessage(m.Body)
 		err := hdl(msg)
 		if err != nil {
@@ -352,17 +356,19 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 				"channel", h.Channel,
 				"error", err.Error(),
 			)
-		} else {
-			h.Broker.options.Logger.DebugContext(
-				h.Broker.ctx,
-				"Nsq broker handler processed",
-				"broker", h.Broker.String(),
-				"id", h.Broker.options.ID,
-				"name", h.Broker.options.Name,
-				"topic", h.Topic,
-				"channel", h.Channel,
-			)
+
+			return err
 		}
+
+		h.Broker.options.Logger.DebugContext(
+			h.Broker.ctx,
+			"Nsq broker handler processed",
+			"broker", h.Broker.String(),
+			"id", h.Broker.options.ID,
+			"name", h.Broker.options.Name,
+			"topic", h.Topic,
+			"channel", h.Channel,
+		)
 	}
 
 	return nil

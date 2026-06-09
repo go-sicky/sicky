@@ -56,7 +56,7 @@ func NewSession(conn *net.UDPConn, addr *net.UDPAddr) *Session {
 			ID:         uuid.New(),
 			LastActive: time.Now(),
 			Meta:       utils.NewMetadata(),
-			Type:       server.SessionTCP,
+			Type:       server.SessionUDP,
 			Valid:      true,
 		},
 		conn: conn,

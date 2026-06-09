@@ -31,6 +31,9 @@
 package infra
 
 import (
+	"context"
+	"time"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/uptrace/go-clickhouse/ch"
 )
@@ -47,6 +50,21 @@ func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
 	}
 
 	db := ch.Connect(ch.WithDSN(cfg.DSN))
+
+	// Ping to verify connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.Ping(ctx); err != nil {
+		logger.Logger.Error(
+			"Clickhouse ping failed",
+			"dsn", cfg.DSN,
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
 	logger.Logger.Info(
 		"Clickhouse initialized",
 		"dsn", cfg.DSN,

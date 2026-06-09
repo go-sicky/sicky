@@ -76,7 +76,7 @@ func (o *Options) Ensure() *Options {
 		o.NThreads = runtime.NumCPU() * 4
 	}
 
-	if o.BufferSize < 0 {
+	if o.BufferSize <= 0 {
 		// Default : 256
 		o.BufferSize = DefaultBufferSize
 	}

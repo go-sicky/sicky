@@ -178,7 +178,7 @@ func ConfigUnmarshal(raw any) {
 func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 	ins := &registry.Instance{
 		ID:          svc.Options().ID,
-		ServiceMame: svc.Options().Name,
+		ServiceName: svc.Options().Name,
 		Type:        svc.String(),
 		Servers:     make(map[string]*registry.Server),
 		Topics:      make(map[string]*registry.Topic),

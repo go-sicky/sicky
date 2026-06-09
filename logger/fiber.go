@@ -115,6 +115,11 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 		cfg.Logger = Logger
 	}
 
+	// Fallback: create a default logger if still nil
+	if cfg.Logger == nil {
+		cfg.Logger = NewGeneral()
+	}
+
 	return func(c *fiber.Ctx) error {
 		// Metric
 		//runtime.NumHTTPServerAccessCounter.Inc()

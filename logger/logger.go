@@ -49,9 +49,9 @@ const (
 	// InfoLevel is the default logging priority.
 	// General operational entries about what's going on inside the application.
 	InfoLevel
-	// WarnLevel level. Non-critical entries that deserve eyes.
-	NoticeLevel
 	// NoticeLevel level. Notice messages
+	NoticeLevel
+	// WarnLevel level. Non-critical entries that deserve eyes.
 	WarnLevel
 	// ErrorLevel level. Logs. Used for errors that should definitely be noted.
 	ErrorLevel

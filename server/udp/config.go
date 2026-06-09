@@ -33,7 +33,7 @@ package udp
 const (
 	DefaultNetwork         = "udp"
 	DefaultAddress         = ":9980"
-	DefaulBufferSize       = 4096
+	DefaultBufferSize      = 4096
 	DefaultMaxIdleDuration = 60
 )
 
@@ -49,7 +49,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Network:         DefaultNetwork,
 		Address:         DefaultAddress,
-		BufferSize:      DefaulBufferSize,
+		BufferSize:      DefaultBufferSize,
 		MaxIdleDuration: DefaultMaxIdleDuration,
 	}
 }
@@ -68,7 +68,7 @@ func (c *Config) Ensure() *Config {
 	}
 
 	if c.BufferSize <= 0 {
-		c.BufferSize = DefaulBufferSize
+		c.BufferSize = DefaultBufferSize
 	}
 
 	if c.MaxIdleDuration == 0 {

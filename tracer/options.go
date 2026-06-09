@@ -23,7 +23,7 @@
 
 /**
  * @file options.go
- * @package tracerr
+ * @package tracer
  * @author Dr.NP <np@herewe.tech>
  * @since 09/14/2024
  */

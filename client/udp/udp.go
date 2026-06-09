@@ -47,11 +47,25 @@ type UDPClient struct {
 	addr      *net.UDPAddr
 }
 
-func New(opts *client.Options, cfg *Config) *UDPClient {
+func New(opts *client.Options, cfg *Config) (*UDPClient, error) {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	addr, _ := net.ResolveUDPAddr("udp", cfg.Addr)
+	addr, err := net.ResolveUDPAddr("udp", cfg.Addr)
+	if err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"UDP client resolve address failed",
+			"client", "udp",
+			"id", opts.ID,
+			"name", opts.Name,
+			"addr", cfg.Addr,
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
 	clt := &UDPClient{
 		config:    cfg,
 		ctx:       opts.Context,
@@ -71,7 +85,7 @@ func New(opts *client.Options, cfg *Config) *UDPClient {
 
 	client.Set(clt)
 
-	return clt
+	return clt, nil
 }
 
 func (clt *UDPClient) Options() *client.Options {

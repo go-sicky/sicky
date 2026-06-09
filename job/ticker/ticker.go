@@ -45,6 +45,7 @@ type Ticker struct {
 	ctx     context.Context
 	options *job.Options
 	ticker  *time.Ticker
+	done    chan struct{}
 	counter atomic.Uint64
 	running bool
 
@@ -99,12 +100,16 @@ func (job *Ticker) Name() string {
 }
 
 func (job *Ticker) Add(task *Task) error {
+	job.Lock()
+	defer job.Unlock()
+
 	if task.ID == uuid.Nil {
 		task.ID = uuid.New()
 	}
 
-	job.Lock()
-	defer job.Unlock()
+	if task.Inteval == 0 {
+		task.Inteval = 1
+	}
 
 	job.tasks = append(job.tasks, task)
 
@@ -119,38 +124,57 @@ func (job *Ticker) Start() error {
 		return nil
 	}
 
+	job.done = make(chan struct{})
 	job.ticker = time.NewTicker(time.Duration(job.config.Interval) * time.Second)
 	go func() {
-		for t := range job.ticker.C {
-			for _, hdl := range job.tasks {
-				if job.counter.Load()%hdl.Inteval == 0 {
-					err := hdl.Handler(t, job.counter.Load())
-					if err != nil {
-						job.options.Logger.ErrorContext(
-							job.ctx,
-							"Ticker handler failed",
-							"error", err.Error(),
-						)
-					} else {
-						job.options.Logger.DebugContext(
-							job.ctx,
-							"Ticker handler success",
-							"job", job.String(),
-							"handler", hdl.ID,
-							"id", job.options.ID,
-							"name", job.options.Name,
-							"counter", job.counter.Load(),
-						)
+		for {
+			select {
+			case t, ok := <-job.ticker.C:
+				if !ok {
+					return
+				}
+				for _, hdl := range job.tasks {
+					if job.counter.Load()%hdl.Inteval == 0 {
+						err := hdl.Handler(t, job.counter.Load())
+						if err != nil {
+							job.options.Logger.ErrorContext(
+								job.ctx,
+								"Ticker handler failed",
+								"error", err.Error(),
+							)
+						} else {
+							job.options.Logger.DebugContext(
+								job.ctx,
+								"Ticker handler success",
+								"job", job.String(),
+								"handler", hdl.ID,
+								"id", job.options.ID,
+								"name", job.options.Name,
+								"counter", job.counter.Load(),
+							)
+						}
 					}
 				}
-			}
 
-			// Increase counter
-			job.counter.Add(1)
+				// Increase counter
+				job.counter.Add(1)
+			case <-job.done:
+				return
+			}
 		}
 	}()
 
 	job.running = true
+
+	job.options.Logger.InfoContext(
+		job.ctx,
+		"Ticker job started",
+		"job", job.String(),
+		"id", job.options.ID,
+		"name", job.options.Name,
+		"interval", job.config.Interval,
+		"tasks", len(job.tasks),
+	)
 
 	return nil
 }
@@ -163,8 +187,17 @@ func (job *Ticker) Stop() error {
 		return nil
 	}
 
+	close(job.done)
 	job.ticker.Stop()
 	job.running = false
+
+	job.options.Logger.InfoContext(
+		job.ctx,
+		"Ticker job stopped",
+		"job", job.String(),
+		"id", job.options.ID,
+		"name", job.options.Name,
+	)
 
 	return nil
 }
