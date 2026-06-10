@@ -30,6 +30,33 @@
 
 package uptrace
 
+const (
+	DefaultSampleRate = 1.0
+)
+
+type Config struct {
+	DSN        string  `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	SampleRate float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+}
+
+func DefaultConfig() *Config {
+	return &Config{
+		SampleRate: DefaultSampleRate,
+	}
+}
+
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = DefaultConfig()
+	}
+
+	if c.SampleRate > 1.0 || c.SampleRate < 0.0 {
+		c.SampleRate = DefaultSampleRate
+	}
+
+	return c
+}
+
 /*
  * Local variables:
  * tab-width: 4

@@ -36,11 +36,13 @@ const (
 
 type Config struct {
 	RegistryFilePath string `json:"registry_file_path" yaml:"registry_file_path" mapstructure:"registry_file_path"`
+	CleanupOnStart   bool   `json:"cleanup_on_start" yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		RegistryFilePath: DefaultRegistryFilePath,
+		CleanupOnStart:   false,
 	}
 }
 

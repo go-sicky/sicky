@@ -36,7 +36,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
@@ -45,26 +44,42 @@ import (
 type Local struct {
 	config  *Config
 	ctx     context.Context
+	cancel  context.CancelFunc
 	options *registry.Options
+	watcher *Watcher
 }
 
 func New(opts *registry.Options, cfg *Config) *Local {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
+	ctx, cancel := context.WithCancel(opts.Context)
 	rg := &Local{
 		config:  cfg,
-		ctx:     opts.Context,
+		ctx:     ctx,
+		cancel:  cancel,
 		options: opts,
 	}
 
+	if cfg.CleanupOnStart {
+		rg.cleanupStaleFiles()
+	}
+
 	registry.Set(rg)
+
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Registry created",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+	)
 
 	return rg
 }
 
 func (rg *Local) Context() context.Context {
-	return rg.options.Context
+	return rg.ctx
 }
 
 func (rg *Local) Options() *registry.Options {
@@ -214,70 +229,100 @@ func (rg *Local) Load() ([]*registry.Instance, error) {
 }
 
 func (rg *Local) Watch() error {
-	watcher, err := fsnotify.NewWatcher()
+	w, err := newWatcher(rg)
 	if err != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"Create watcher failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"error", err.Error(),
+		)
+
 		return err
 	}
 
-	dir := rg.config.RegistryFilePath
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			watcher.Close()
+	rg.watcher = w
+	w.Start()
 
-			return err
-		}
-	}
-
-	go func() {
-		defer watcher.Close()
-		for {
-			select {
-			case <-rg.Context().Done():
-				return
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
-					rg.options.Logger.DebugContext(rg.Context(), "Registry directory changed", "event", event.String())
-					// Trigger reload or notify subscribers here
-					ins, err := rg.Load()
-					if err != nil {
-						rg.options.Logger.ErrorContext(
-							rg.ctx,
-							"Reload services list failed",
-							"registry", rg.String(),
-							"id", rg.options.ID,
-							"name", rg.options.Name,
-							"error", err.Error(),
-						)
-
-						continue
-					}
-
-					registry.PurgePool(ins)
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-
-				rg.options.Logger.ErrorContext(rg.Context(), "Inotify watcher error", "error", err)
-			}
-		}
-	}()
-
-	err = watcher.Add(dir)
-	if err != nil {
-		return err
-	}
+	rg.options.Logger.InfoContext(
+		rg.ctx,
+		"Local registry watcher started",
+		"registry", rg.String(),
+		"id", rg.options.ID,
+		"name", rg.options.Name,
+	)
 
 	return nil
 }
 
 func (rg *Local) Stop() error {
+	if rg.watcher != nil {
+		rg.watcher.Stop()
+
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Local registry watcher stopped",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+		)
+	}
+
+	if rg.cancel != nil {
+		rg.cancel()
+	}
+
 	return nil
+}
+
+func (rg *Local) cleanupStaleFiles() {
+	dir := rg.config.RegistryFilePath
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return
+	}
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		rg.options.Logger.WarnContext(
+			rg.ctx,
+			"Cleanup stale registry files failed",
+			"registry", rg.String(),
+			"error", err.Error(),
+		)
+
+		return
+	}
+
+	count := 0
+	for _, file := range files {
+		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		path := filepath.Join(dir, file.Name())
+		if err := os.Remove(path); err != nil {
+			rg.options.Logger.WarnContext(
+				rg.ctx,
+				"Remove stale registry file failed",
+				"registry", rg.String(),
+				"file", path,
+				"error", err.Error(),
+			)
+		} else {
+			count++
+		}
+	}
+
+	if count > 0 {
+		rg.options.Logger.InfoContext(
+			rg.ctx,
+			"Cleaned up stale registry files",
+			"registry", rg.String(),
+			"count", count,
+		)
+	}
 }
 
 /*

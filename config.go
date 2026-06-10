@@ -136,6 +136,7 @@ type InfraConfig struct {
 
 type TracerConfig struct {
 	Type        string  `json:"type" yaml:"type" mapstructure:"type"`
+	DSN         string  `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
 	Endpoint    string  `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
 	Compress    bool    `json:"compress" yaml:"compress" mapstructure:"compress"`
 	Timeout     int     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`

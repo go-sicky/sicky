@@ -51,6 +51,11 @@ import (
 	rgLocal "github.com/go-sicky/sicky/registry/local"
 	rgRedis "github.com/go-sicky/sicky/registry/redis"
 	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/tracer"
+	tracerGrpc "github.com/go-sicky/sicky/tracer/grpc"
+	tracerHTTP "github.com/go-sicky/sicky/tracer/http"
+	tracerStdout "github.com/go-sicky/sicky/tracer/stdout"
+	tracerUptrace "github.com/go-sicky/sicky/tracer/uptrace"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -400,6 +405,53 @@ func Run(cfg *Config) error {
 	}
 
 	// Tracer
+	if cfg.Tracer.Type != "none" {
+		switch cfg.Tracer.Type {
+		case "grpc":
+			tc := tracerGrpc.New(nil, &tracerGrpc.Config{
+				ServiceName:    options.AppName,
+				ServiceVersion: options.Version,
+				Endpoint:       cfg.Tracer.Endpoint,
+				Compress:       cfg.Tracer.Compress,
+				Timeout:        cfg.Tracer.Timeout,
+				SampleRate:     cfg.Tracer.SampleRate,
+			})
+			if tc != nil {
+				logger.Logger.Info("Tracer initialized", "type", cfg.Tracer.Type)
+			}
+		case "http":
+			tc := tracerHTTP.New(nil, &tracerHTTP.Config{
+				ServiceName:    options.AppName,
+				ServiceVersion: options.Version,
+				Endpoint:       cfg.Tracer.Endpoint,
+				SampleRate:     cfg.Tracer.SampleRate,
+			})
+			if tc != nil {
+				logger.Logger.Info("Tracer initialized", "type", cfg.Tracer.Type)
+			}
+		case "stdout":
+			tc := tracerStdout.New(nil, &tracerStdout.Config{
+				ServiceName:    options.AppName,
+				ServiceVersion: options.Version,
+				PrettyPrint:    cfg.Tracer.PrettyPrint,
+				Timestamps:     cfg.Tracer.Timestamps,
+				SampleRate:     cfg.Tracer.SampleRate,
+			})
+			if tc != nil {
+				logger.Logger.Info("Tracer initialized", "type", cfg.Tracer.Type)
+			}
+		case "uptrace":
+			tc := tracerUptrace.New(nil, &tracerUptrace.Config{
+				DSN:        cfg.Tracer.DSN,
+				SampleRate: cfg.Tracer.SampleRate,
+			})
+			if tc != nil {
+				logger.Logger.Info("Tracer initialized", "type", cfg.Tracer.Type)
+			}
+		default:
+			logger.Logger.Warn("Unknown tracer type", "type", cfg.Tracer.Type)
+		}
+	}
 
 	// Registries
 	var (
@@ -714,6 +766,11 @@ func Run(cfg *Config) error {
 	}
 
 	// Tracer
+	if tracer.Default() != nil {
+		if err := tracer.Default().Stop(); err != nil {
+			logger.Logger.Error("Tracer stop failed", "error", err.Error())
+		}
+	}
 
 	// Stop manager
 	if manager != nil {
