@@ -31,7 +31,10 @@
 package infra
 
 import (
+	"context"
+
 	"github.com/elastic/go-elasticsearch/v9"
+	"github.com/go-sicky/sicky/logger"
 )
 
 type ElasticConfig struct {
@@ -56,9 +59,17 @@ func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		return nil, err
 	}
 
-	Elastic = client
+	if Elastic == nil {
+		Elastic = client
+	}
 
-	return client, err
+	logger.Logger.InfoContext(
+		context.Background(),
+		"Init Elasticsearch successful",
+		"addresses", cfg.Addresses,
+	)
+
+	return client, nil
 }
 
 /*

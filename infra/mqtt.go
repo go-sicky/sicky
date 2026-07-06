@@ -31,7 +31,10 @@
 package infra
 
 import (
+	"context"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
 )
 
@@ -59,7 +62,16 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 		return nil, token.Error()
 	}
 
-	MQTT = client
+	if MQTT == nil {
+		MQTT = client
+	}
+
+	logger.Logger.InfoContext(
+		context.Background(),
+		"Init MQTT successful",
+		"broker", cfg.Broker,
+		"client_id", cfg.ClientID,
+	)
 
 	return client, nil
 }

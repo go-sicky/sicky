@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
@@ -249,6 +250,7 @@ func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, repl
 		"args", args,
 		"reply", reply,
 	)
+	metrics.NumGRPCClientCallCounter.Inc()
 	err := clt.conn.Invoke(ctx, method, args, reply, opts...)
 	if err != nil {
 		clt.options.Logger.ErrorContext(

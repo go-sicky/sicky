@@ -1,0 +1,41 @@
+package resource
+
+import mcp "github.com/go-sicky/sicky/service/mcp"
+
+type {{.ExportedName}}Resource struct{}
+
+func New{{.ExportedName}}Resource() *{{.ExportedName}}Resource {
+	return &{{.ExportedName}}Resource{}
+}
+
+func (r *{{.ExportedName}}Resource) Name() string        { return "{{.Name}}" }
+func (r *{{.ExportedName}}Resource) Description() string { return "{{.Name}} resource" }
+
+func (r *{{.ExportedName}}Resource) Tools() []mcp.Tool           { return nil }
+func (r *{{.ExportedName}}Resource) CallTool(name string, args map[string]interface{}) (*mcp.ToolsCallResult, error) {
+	return nil, nil
+}
+
+func (r *{{.ExportedName}}Resource) Resources() []mcp.Resource {
+	return []mcp.Resource{
+		{
+			URI:         "{{.Name}}://default",
+			Name:        "{{.Name}}",
+			Description: "{{.Name}} resource",
+			MimeType:    "text/plain",
+		},
+	}
+}
+
+func (r *{{.ExportedName}}Resource) ReadResource(uri string) (*mcp.ResourcesReadResult, error) {
+	return &mcp.ResourcesReadResult{
+		Contents: []mcp.ResourceContent{
+			{URI: uri, MimeType: "text/plain", Text: "{{.Name}} content"},
+		},
+	}, nil
+}
+
+func (r *{{.ExportedName}}Resource) Prompts() []mcp.Prompt                { return nil }
+func (r *{{.ExportedName}}Resource) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
+	return nil, nil
+}

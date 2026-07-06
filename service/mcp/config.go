@@ -30,15 +30,23 @@
 
 package mcp
 
+const (
+	DefaultTransport = "stdio"
+)
+
 type Config struct {
-	DisableWrappers       bool `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
-	DisableJobs           bool `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
-	DisableServerRegister bool `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
-	DisableTracing        bool `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
+	DisableWrappers       bool   `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
+	DisableJobs           bool   `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
+	DisableServerRegister bool   `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
+	DisableTracing        bool   `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
+	Transport             string `json:"transport" yaml:"transport" mapstructure:"transport"`
+	Listen                string `json:"listen" yaml:"listen" mapstructure:"listen"`
 }
 
 func DefaultConfig() *Config {
-	return &Config{}
+	return &Config{
+		Transport: DefaultTransport,
+	}
 }
 
 func (c *Config) Ensure() *Config {
@@ -46,7 +54,7 @@ func (c *Config) Ensure() *Config {
 		c = DefaultConfig()
 	}
 
-	return nil
+	return c
 }
 
 /*

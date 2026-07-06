@@ -1,0 +1,46 @@
+package main
+
+import (
+	"context"
+
+	"{{.Module}}/handler"
+	"github.com/go-sicky/sicky"
+	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/service/interactive"
+)
+
+var (
+	AppName   = "{{.AppName}}"
+	Version   = "latest"
+	Branch    = "main"
+	Commit    = ""
+	BuildTime = ""
+)
+
+func main() {
+	ctx := context.Background()
+
+	sicky.Init(
+		&sicky.Options{
+			AppName:   AppName,
+			Version:   Version,
+			Branch:    Branch,
+			Commit:    Commit,
+			BuildTime: BuildTime,
+			Context:   ctx,
+		},
+	)
+
+	sicky.ConfigUnmarshal(&config)
+
+	svc := interactive.New(
+		&service.Options{
+			Name:    AppName,
+			Context: ctx,
+		},
+		config.Service,
+	)
+	svc.Handle(handler.New{{.ExportedName}}())
+
+	sicky.Run(config.Sicky)
+}

@@ -32,6 +32,7 @@ package service
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
@@ -64,9 +65,13 @@ type Service interface {
 var (
 	services       = make(map[uuid.UUID]Service)
 	defaultService Service
+	svcMu          sync.RWMutex
 )
 
 func Set(svcs ...Service) {
+	svcMu.Lock()
+	defer svcMu.Unlock()
+
 	for _, svc := range svcs {
 		services[svc.Options().ID] = svc
 		if defaultService == nil {
@@ -76,14 +81,23 @@ func Set(svcs ...Service) {
 }
 
 func Get(id uuid.UUID) Service {
+	svcMu.RLock()
+	defer svcMu.RUnlock()
+
 	return services[id]
 }
 
 func Default() Service {
+	svcMu.RLock()
+	defer svcMu.RUnlock()
+
 	return defaultService
 }
 
 func Services() map[uuid.UUID]Service {
+	svcMu.RLock()
+	defer svcMu.RUnlock()
+
 	return services
 }
 

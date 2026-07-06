@@ -160,7 +160,7 @@ func (s *Interactive) Registries(rgs ...registry.Registry) []registry.Registry {
 }
 
 func (s *Interactive) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
-	if s.config.DisableTracing && len(trs) > 0 {
+	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)
 	}
 
@@ -247,7 +247,7 @@ type Handler interface {
 
 /* }}} */
 
-/*/*
+/*
  * Local variables:
  * tab-width: 4
  * c-basic-offset: 4

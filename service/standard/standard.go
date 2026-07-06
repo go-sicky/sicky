@@ -66,6 +66,7 @@ func New(opts *service.Options, cfg *Config) *Standard {
 		brokers:    make([]broker.Broker, 0),
 		jobs:       make([]job.Job, 0),
 		registries: make([]registry.Registry, 0),
+		tracers:    make([]tracer.Tracer, 0),
 	}
 
 	svc.options.Logger.InfoContext(
@@ -115,6 +116,27 @@ func (s *Standard) Start() []error {
 		}
 	}
 
+	// Start jobs
+	for _, j := range s.jobs {
+		if err = j.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Start registries
+	for _, rg := range s.registries {
+		if err = rg.Watch(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Start tracers
+	for _, tr := range s.tracers {
+		if err = tr.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	return errs
 }
 
@@ -123,6 +145,27 @@ func (s *Standard) Stop() []error {
 		err  error
 		errs []error
 	)
+
+	// Stop jobs
+	for _, j := range s.jobs {
+		if err = j.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Stop registries
+	for _, rg := range s.registries {
+		if err = rg.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	// Stop tracers
+	for _, tr := range s.tracers {
+		if err = tr.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 
 	// Disconnect brokers
 	for _, brk := range s.brokers {
@@ -136,8 +179,6 @@ func (s *Standard) Stop() []error {
 		if err = srv.Stop(); err != nil {
 			errs = append(errs, err)
 		}
-
-		srv.Context().Done()
 	}
 
 	return errs

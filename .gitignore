@@ -1,5 +1,6 @@
 go.work
 go.work.sum
 .qodo
-GEMINI.md
-AGENTS.md
+
+bin/
+

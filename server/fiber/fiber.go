@@ -221,6 +221,8 @@ func (srv *FiberServer) Start() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStart()
+
 	// Try TLS first
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
@@ -233,6 +235,8 @@ func (srv *FiberServer) Start() error {
 				"name", srv.options.Name,
 				"error", err.Error(),
 			)
+
+			return err
 		}
 
 		listener, err = tls.Listen(
@@ -276,6 +280,9 @@ func (srv *FiberServer) Start() error {
 	}
 
 	srv.addr = listener.Addr()
+	if srv.config.AdvertiseAddress == "" {
+		srv.advertiseAddr = listener.Addr()
+	}
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
@@ -283,7 +290,9 @@ func (srv *FiberServer) Start() error {
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
-	go func() error {
+	go func() {
+		defer srv.wg.Done()
+
 		err := srv.app.Listener(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
@@ -295,7 +304,7 @@ func (srv *FiberServer) Start() error {
 				"error", err.Error(),
 			)
 
-			return err
+			return
 		}
 
 		srv.options.Logger.InfoContext(
@@ -306,9 +315,6 @@ func (srv *FiberServer) Start() error {
 			"name", srv.options.Name,
 			"addr", srv.addr.String(),
 		)
-		srv.wg.Done()
-
-		return nil
 	}()
 
 	srv.options.Logger.InfoContext(
@@ -320,6 +326,7 @@ func (srv *FiberServer) Start() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = true
+	srv.options.RunAfterStart()
 
 	return nil
 }
@@ -333,6 +340,8 @@ func (srv *FiberServer) Stop() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStop()
+
 	srv.app.Server().Shutdown()
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
@@ -344,6 +353,7 @@ func (srv *FiberServer) Stop() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = false
+	srv.options.RunAfterStop()
 
 	return nil
 }

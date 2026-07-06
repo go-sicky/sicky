@@ -55,7 +55,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	})
-	err := rdb.Ping(context.TODO()).Err()
+	err := rdb.Ping(context.Background()).Err()
 	if err != nil {
 		logger.Logger.Error(
 			"Redis initialize failed",

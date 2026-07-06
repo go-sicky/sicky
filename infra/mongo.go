@@ -83,7 +83,9 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		"db", cfg.DB,
 	)
 
-	Mongo = client
+	if Mongo == nil {
+		Mongo = client
+	}
 
 	return client, nil
 }

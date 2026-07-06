@@ -1,0 +1,18 @@
+{
+{{if .WithFiber}}    "server": {
+        "fiber": {
+            "listen": ":3000"
+        }
+    },
+{{end}}    "sicky": {
+        "log_level": "debug",
+        "registry": {
+            "local": {
+                "registry_file_path": "/tmp/sicky/registry/"
+            }
+        }
+    },
+    "service": {
+        "transport": "stdio"
+    }
+}

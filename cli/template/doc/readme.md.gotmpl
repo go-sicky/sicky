@@ -1,0 +1,35 @@
+# {{.ExportedName}}
+
+A go-sicky MCP server project.
+
+## Getting Started
+
+```bash
+make build
+make run
+```
+
+## MCP Configuration
+
+```json
+{
+    "mcpServers": {
+        "{{.Name}}": {
+            "command": "./bin/svc"
+        }
+    }
+}
+```
+
+## Project Structure
+
+```
+{{.Name}}/
+  main.go        # Entry point
+  config.go      # Configuration struct
+  config.json    # Default configuration
+  handler/       # MCP handlers
+  tool/          # Tool definitions
+  resource/      # Resource definitions
+  Makefile       # Build targets
+```

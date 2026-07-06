@@ -1,0 +1,17 @@
+package main
+
+import (
+{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
+{{end}}	"github.com/go-sicky/sicky"
+	mcp "github.com/go-sicky/sicky/service/mcp"
+)
+
+type ConfigDef struct {
+	Server struct {
+{{if .WithFiber}}		Fiber *srvFiber.Config `json:"fiber" yaml:"fiber" mapstructure:"fiber"`
+{{end}}	} `json:"server" yaml:"server" mapstructure:"server"`
+	Service *mcp.Config  `json:"service" yaml:"service" mapstructure:"service"`
+	Sicky   *sicky.Config `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
+}
+
+var config ConfigDef

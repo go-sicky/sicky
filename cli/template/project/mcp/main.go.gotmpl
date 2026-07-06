@@ -1,0 +1,61 @@
+package main
+
+import (
+	"context"
+
+	"{{.Module}}/handler"
+	"github.com/go-sicky/sicky"
+	"github.com/go-sicky/sicky/server"
+{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
+{{end}}	"github.com/go-sicky/sicky/service"
+	mcp "github.com/go-sicky/sicky/service/mcp"
+)
+
+var (
+	AppName   = "{{.AppName}}"
+	Version   = "latest"
+	Branch    = "main"
+	Commit    = ""
+	BuildTime = ""
+)
+
+func main() {
+	ctx := context.Background()
+
+	sicky.Init(
+		&sicky.Options{
+			AppName:   AppName,
+			Version:   Version,
+			Branch:    Branch,
+			Commit:    Commit,
+			BuildTime: BuildTime,
+			Context:   ctx,
+		},
+	)
+
+	sicky.ConfigUnmarshal(&config)
+
+{{if .WithFiber}}	fiberSrv := srvFiber.New(
+		&server.Options{
+			Name:    AppName + "@fiber",
+			Context: ctx,
+		},
+		config.Server.Fiber,
+	)
+	fiberSrv.Handle(handler.New{{.ExportedName}}HTTP())
+
+{{end}}	svc := mcp.New(
+		&service.Options{
+			Name:    AppName,
+			Version: Version,
+			Context: ctx,
+		},
+		config.Service,
+	)
+
+{{if .WithFiber}}	svc.Servers(fiberSrv)
+{{end}}
+	svc.Handle(handler.New{{.ExportedName}}())
+
+	sicky.Run(config.Sicky)
+}

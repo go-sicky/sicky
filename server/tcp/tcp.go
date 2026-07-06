@@ -39,6 +39,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
@@ -215,6 +216,8 @@ func (srv *TCPServer) Start() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStart()
+
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
@@ -268,7 +271,6 @@ func (srv *TCPServer) Start() error {
 					)
 				}
 
-				// TODO : Exit accept
 				break
 			}
 
@@ -308,6 +310,7 @@ func (srv *TCPServer) Start() error {
 						if n > 0 {
 							dst := make([]byte, n)
 							copy(dst, buff)
+							metrics.NumTCPServerAccessCounter.Inc()
 							for _, hdl := range srv.handlers {
 								err = hdl.OnData(sess, dst)
 								if err != nil {
@@ -362,6 +365,7 @@ func (srv *TCPServer) Start() error {
 		"address", srv.addr.String(),
 	)
 	srv.running = true
+	srv.options.RunAfterStart()
 
 	return nil
 }
@@ -373,6 +377,8 @@ func (srv *TCPServer) Stop() error {
 	if !srv.running {
 		return nil
 	}
+
+	srv.options.RunBeforeStop()
 
 	err := srv.conn.Close()
 	if err != nil {
@@ -401,6 +407,7 @@ func (srv *TCPServer) Stop() error {
 		"address", srv.addr.String(),
 	)
 	srv.running = false
+	srv.options.RunAfterStop()
 
 	return nil
 }

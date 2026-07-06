@@ -61,7 +61,9 @@ func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
 		"path", cfg.Path,
 	)
 
-	Badger = kv
+	if Badger == nil {
+		Badger = kv
+	}
 
 	return kv, nil
 }

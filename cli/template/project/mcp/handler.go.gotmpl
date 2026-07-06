@@ -1,0 +1,58 @@
+package handler
+
+import (
+	"fmt"
+
+	mcp "github.com/go-sicky/sicky/service/mcp"
+)
+
+type {{.ExportedName}} struct{}
+
+func New{{.ExportedName}}() *{{.ExportedName}} {
+	return &{{.ExportedName}}{}
+}
+
+func (h *{{.ExportedName}}) Name() string        { return "{{.Name}}" }
+func (h *{{.ExportedName}}) Description() string { return "{{.Name}} handler" }
+
+func (h *{{.ExportedName}}) Tools() []mcp.Tool {
+	return []mcp.Tool{
+		{
+			Name:        "ping",
+			Description: "Responds with pong",
+			InputSchema: mcp.InputSchema{
+				Type: "object",
+				Properties: map[string]mcp.Property{},
+			},
+		},
+	}
+}
+
+func (h *{{.ExportedName}}) CallTool(name string, args map[string]interface{}) (*mcp.ToolsCallResult, error) {
+	return &mcp.ToolsCallResult{
+		Content: []mcp.ContentBlock{
+			{Type: "text", Text: fmt.Sprintf("pong from %s", h.Name())},
+		},
+	}, nil
+}
+
+func (h *{{.ExportedName}}) Resources() []mcp.Resource          { return nil }
+func (h *{{.ExportedName}}) ReadResource(uri string) (*mcp.ResourcesReadResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (h *{{.ExportedName}}) Prompts() []mcp.Prompt                { return nil }
+func (h *{{.ExportedName}}) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+{{if .WithFiber}}
+type {{.ExportedName}}HTTP struct{}
+
+func New{{.ExportedName}}HTTP() *{{.ExportedName}}HTTP {
+	return &{{.ExportedName}}HTTP{}
+}
+
+func (h *{{.ExportedName}}HTTP) Name() string { return "{{.Name}}.http" }
+func (h *{{.ExportedName}}HTTP) Type() string { return "http" }
+{{end}}

@@ -71,7 +71,9 @@ func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 		"buffer_items", cfg.BufferItems,
 	)
 
-	Ristretto = cache
+	if Ristretto == nil {
+		Ristretto = cache
+	}
 
 	return cache, nil
 }

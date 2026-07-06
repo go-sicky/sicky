@@ -40,6 +40,11 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+var (
+	ErrBrokerNotConnected     = errors.New("broker not connected")
+	ErrTopicAlreadySubscribed = errors.New("topic already subscribed")
+)
+
 type Jetstream struct {
 	config     *Config
 	ctx        context.Context
@@ -201,7 +206,7 @@ func (brk *Jetstream) Disconnect() error {
 
 func (brk *Jetstream) Publish(topic string, m *broker.Message) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
-		return errors.New("broker not connected")
+		return ErrBrokerNotConnected
 	}
 
 	msg := nats.NewMsg(topic)
@@ -244,11 +249,11 @@ func (brk *Jetstream) Publish(topic string, m *broker.Message) error {
 
 func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
-		return errors.New("broker not connected")
+		return ErrBrokerNotConnected
 	}
 
 	if brk.subscriptions[topic] != nil {
-		return errors.New("topic already subscribed")
+		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.streamer.Subscribe(topic, func(msg *nats.Msg) {

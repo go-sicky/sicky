@@ -1,0 +1,19 @@
+package main
+
+import (
+{{if .WithGRPC}}	srvGRPC "github.com/go-sicky/sicky/server/grpc"
+{{end}}{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
+{{end}}	"github.com/go-sicky/sicky"
+	"github.com/go-sicky/sicky/service/standard"
+)
+
+type ConfigDef struct {
+	Server struct {
+{{if .WithGRPC}}		GRPC  *srvGRPC.Config  `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
+{{end}}{{if .WithFiber}}		Fiber *srvFiber.Config `json:"fiber" yaml:"fiber" mapstructure:"fiber"`
+{{end}}	} `json:"server" yaml:"server" mapstructure:"server"`
+	Service *standard.Config `json:"service" yaml:"service" mapstructure:"service"`
+	Sicky   *sicky.Config    `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
+}
+
+var config ConfigDef

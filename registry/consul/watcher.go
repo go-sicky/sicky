@@ -162,7 +162,9 @@ func (w *Watcher) Start() error {
 }
 
 func (w *Watcher) Stop() error {
-	w.watchPlan.Stop()
+	if w.watchPlan != nil {
+		w.watchPlan.Stop()
+	}
 
 	return nil
 }

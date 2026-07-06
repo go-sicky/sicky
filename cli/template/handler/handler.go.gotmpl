@@ -1,0 +1,10 @@
+package handler
+
+type {{.ExportedName}} struct{}
+
+func New{{.ExportedName}}() *{{.ExportedName}} {
+	return &{{.ExportedName}}{}
+}
+
+func (h *{{.ExportedName}}) Name() string        { return "{{.Name}}" }
+func (h *{{.ExportedName}}) Description() string { return "{{.Name}} handler" }

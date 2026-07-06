@@ -51,6 +51,7 @@ const (
 	DefaultSwaggerPath     = "/swagger.json"
 	DefaultConfigPath      = "/config"
 	DefaultServicePoolPath = "/services"
+	DefaultShutdownTimeout = 5  // seconds
 )
 
 type ManagerConfig struct {
@@ -58,6 +59,8 @@ type ManagerConfig struct {
 	Address          string `json:"address" yaml:"address" mapstructure:"address"`
 	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
 	EnableSwagger    bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
+	ExposeConfig     bool   `json:"expose_config" yaml:"expose_config" mapstructure:"expose_config"`
+	ShutdownTimeout  int    `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
 	MetricsPath      string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
 	HealthPath       string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
 	VersionPath      string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
@@ -116,6 +119,10 @@ func (c *ManagerConfig) Ensure() *ManagerConfig {
 
 	if c.ServicePoolPath == "" {
 		c.ServicePoolPath = DefaultServicePoolPath
+	}
+
+	if c.ShutdownTimeout == 0 {
+		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 
 	return c

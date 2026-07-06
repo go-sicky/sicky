@@ -32,6 +32,7 @@ package registry
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -64,9 +65,13 @@ type Registry interface {
 var (
 	registries      = make(map[uuid.UUID]Registry)
 	defaultRegistry Registry
+	rgMu            sync.RWMutex
 )
 
 func Set(rgs ...Registry) {
+	rgMu.Lock()
+	defer rgMu.Unlock()
+
 	for _, rg := range rgs {
 		registries[rg.ID()] = rg
 		if defaultRegistry == nil {
@@ -76,14 +81,23 @@ func Set(rgs ...Registry) {
 }
 
 func Get(id uuid.UUID) Registry {
+	rgMu.RLock()
+	defer rgMu.RUnlock()
+
 	return registries[id]
 }
 
 func Default() Registry {
+	rgMu.RLock()
+	defer rgMu.RUnlock()
+
 	return defaultRegistry
 }
 
 func Registries() map[uuid.UUID]Registry {
+	rgMu.RLock()
+	defer rgMu.RUnlock()
+
 	return registries
 }
 

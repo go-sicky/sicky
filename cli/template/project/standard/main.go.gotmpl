@@ -1,0 +1,69 @@
+package main
+
+import (
+	"context"
+
+	"{{.Module}}/handler"
+	"github.com/go-sicky/sicky"
+	"github.com/go-sicky/sicky/server"
+{{if .WithGRPC}}	srvGRPC "github.com/go-sicky/sicky/server/grpc"
+{{end}}{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
+{{end}}	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/service/standard"
+)
+
+var (
+	AppName   = "{{.AppName}}"
+	Version   = "latest"
+	Branch    = "main"
+	Commit    = ""
+	BuildTime = ""
+)
+
+func main() {
+	ctx := context.Background()
+
+	sicky.Init(
+		&sicky.Options{
+			AppName:   AppName,
+			Version:   Version,
+			Branch:    Branch,
+			Commit:    Commit,
+			BuildTime: BuildTime,
+			Context:   ctx,
+		},
+	)
+
+	sicky.ConfigUnmarshal(&config)
+
+{{if .WithGRPC}}	grpcSrv := srvGRPC.New(
+		&server.Options{
+			Name:    AppName + "@grpc",
+			Context: ctx,
+		},
+		config.Server.GRPC,
+	)
+	grpcSrv.Handle(handler.New{{.ExportedName}}GRPC())
+
+{{end}}{{if .WithFiber}}	fiberSrv := srvFiber.New(
+		&server.Options{
+			Name:    AppName + "@fiber",
+			Context: ctx,
+		},
+		config.Server.Fiber,
+	)
+	fiberSrv.Handle(handler.New{{.ExportedName}}HTTP())
+
+{{end}}	svc := standard.New(
+		&service.Options{
+			Name:    AppName,
+			Context: ctx,
+		},
+		config.Service,
+	)
+
+{{if .WithGRPC}}	svc.Servers(grpcSrv{{if .WithFiber}}, fiberSrv{{end}})
+{{else if .WithFiber}}	svc.Servers(fiberSrv)
+{{end}}
+	sicky.Run(config.Sicky)
+}

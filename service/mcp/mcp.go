@@ -51,7 +51,8 @@ type Mcp struct {
 	jobs       []job.Job
 	registries []registry.Registry
 	tracers    []tracer.Tracer
-	// handlers   []Handler
+	handlers   []Handler
+	mcpServer  *MCPServer
 }
 
 func New(opts *service.Options, cfg *Config) *Mcp {
@@ -63,6 +64,20 @@ func New(opts *service.Options, cfg *Config) *Mcp {
 		ctx:     opts.Context,
 		options: opts,
 	}
+
+	serverCaps := ServerCapabilities{
+		Tools:     &ToolsCapability{},
+		Resources: &ResourcesCapability{},
+		Prompts:   &PromptsCapability{},
+	}
+
+	svc.mcpServer = NewMCPServer(
+		ImplementationInfo{
+			Name:    opts.Name,
+			Version: opts.Version,
+		},
+		serverCaps,
+	)
 
 	svc.options.Logger.InfoContext(
 		svc.ctx,
@@ -92,13 +107,81 @@ func (s *Mcp) String() string {
 }
 
 func (s *Mcp) Start() []error {
-	// Implement the start logic here
-	return nil
+	var (
+		err  error
+		errs []error
+	)
+
+	for _, srv := range s.servers {
+		if err = srv.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, brk := range s.brokers {
+		if err = brk.Connect(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, j := range s.jobs {
+		if err = j.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, rg := range s.registries {
+		if err = rg.Watch(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, tr := range s.tracers {
+		if err = tr.Start(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
 }
 
 func (s *Mcp) Stop() []error {
-	// Implement the stop logic here
-	return nil
+	var (
+		err  error
+		errs []error
+	)
+
+	for _, j := range s.jobs {
+		if err = j.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, rg := range s.registries {
+		if err = rg.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, tr := range s.tracers {
+		if err = tr.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, brk := range s.brokers {
+		if err = brk.Disconnect(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, srv := range s.servers {
+		if err = srv.Stop(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
 }
 
 func (s *Mcp) Servers(srvs ...server.Server) []server.Server {
@@ -134,11 +217,31 @@ func (s *Mcp) Registries(rgs ...registry.Registry) []registry.Registry {
 }
 
 func (s *Mcp) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
-	if s.config.DisableTracing && len(trs) > 0 {
+	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)
 	}
 
 	return s.tracers
+}
+
+func (s *Mcp) Handle(hdls ...Handler) {
+	s.handlers = append(s.handlers, hdls...)
+	s.mcpServer.Handle(hdls...)
+
+	s.options.Logger.InfoContext(
+		s.ctx,
+		"MCP handler registered",
+		"service", s.String(),
+		"count", len(hdls),
+	)
+}
+
+func (s *Mcp) MCPServer() *MCPServer {
+	return s.mcpServer
+}
+
+func (s *Mcp) Handlers() []Handler {
+	return s.handlers
 }
 
 /*

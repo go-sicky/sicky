@@ -30,7 +30,12 @@
 
 package infra
 
-import "github.com/nats-io/nats.go"
+import (
+	"context"
+
+	"github.com/go-sicky/sicky/logger"
+	"github.com/nats-io/nats.go"
+)
 
 type NatsConfig struct {
 	URL string `json:"url" yaml:"url" mapstructure:"url"`
@@ -51,6 +56,12 @@ func InitNats(cfg *NatsConfig) (*nats.Conn, error) {
 	if Nats == nil {
 		Nats = nc
 	}
+
+	logger.Logger.InfoContext(
+		context.Background(),
+		"Init NATS successful",
+		"url", cfg.URL,
+	)
 
 	return nc, nil
 }

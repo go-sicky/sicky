@@ -79,7 +79,9 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 	}
 
 	// Insecure default
-	oo = append(oo, otlptracegrpc.WithInsecure())
+	if cfg.Insecure {
+		oo = append(oo, otlptracegrpc.WithInsecure())
+	}
 
 	// Exporter
 	e, err := otlptracegrpc.New(tc.ctx, oo...)

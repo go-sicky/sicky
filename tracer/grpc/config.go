@@ -44,6 +44,7 @@ type Config struct {
 	Compress       bool    `json:"compress" yaml:"compress" mapstructure:"compress"`
 	Timeout        int     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
 	SampleRate     float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+	Insecure       bool    `json:"insecure" yaml:"insecure" mapstructure:"insecure"`
 }
 
 func DefaultConfig() *Config {
@@ -54,6 +55,7 @@ func DefaultConfig() *Config {
 		ServiceName:    DefaultServiceName,
 		ServiceVersion: DefaultServiceVersion,
 		SampleRate:     DefaultSampleRate,
+		Insecure:       true,
 	}
 }
 

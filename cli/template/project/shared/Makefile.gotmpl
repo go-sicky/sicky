@@ -1,0 +1,48 @@
+PROJECT := {{.Name}}
+VERSION ?= latest
+BRANCH ?= main
+BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+COMMIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DOCKER_TAG := hkccr.ccs.tencentyun.com/sicky/$(PROJECT):$(VERSION)
+
+META_FLAGS := -X "main.Version=$(VERSION)" \
+	-X "main.Branch=$(BRANCH)" \
+	-X "main.BuildTime=$(BUILD_TIME)" \
+	-X "main.Commit=$(COMMIT_SHA)" \
+	-X "main.AppName=$(PROJECT)"
+
+LDFLAGS := -s -w -extldflags "-static" $(META_FLAGS)
+
+.PHONY: all build proto docker run clean
+
+all: summary{{if .WithProto}} proto{{end}} fmt build
+
+summary:
+	@echo "Project  : $(PROJECT)"
+	@echo "Version  : $(VERSION)"
+	@echo "Branch   : $(BRANCH)"
+	@echo "Time     : $(BUILD_TIME)"
+	@echo "Commit   : $(COMMIT_SHA)"
+
+build:
+	@mkdir -p bin
+	CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags '$(LDFLAGS)' -o bin/svc .
+	@echo "Build done: bin/svc"
+
+{{if .WithProto}}proto:
+	@for f in proto/*.proto; do \
+		protoc --go_out=. --go-grpc_out=. $$f; \
+	done
+	@echo "Proto generated"
+{{end}}
+fmt:
+	go fmt ./...
+
+run:
+	go run -ldflags '$(LDFLAGS)' .
+
+docker:
+	docker build --rm -t $(DOCKER_TAG) .
+
+clean:
+	rm -rf bin/

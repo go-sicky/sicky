@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -76,6 +77,7 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 			return c.Next()
 		}
 
+		metrics.NumHTTPServerAccessCounter.Inc()
 		start := time.Now()
 		rv := c.Locals(cfg.AccessLoggerConfig.RequestIDContextKey)
 		requestID, _ := rv.(string)

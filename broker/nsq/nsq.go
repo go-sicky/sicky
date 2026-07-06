@@ -42,6 +42,11 @@ import (
 	"github.com/nsqio/go-nsq"
 )
 
+var (
+	ErrBrokerNotConnected = errors.New("broker not connected")
+	ErrNilMessage         = errors.New("nil message")
+)
+
 type Nsq struct {
 	config    *Config
 	ctx       context.Context
@@ -196,11 +201,11 @@ func (brk *Nsq) Disconnect() error {
 
 func (brk *Nsq) Publish(topic string, m *broker.Message) error {
 	if brk.producer == nil {
-		return errors.New("broker not connected")
+		return ErrBrokerNotConnected
 	}
 
 	if m == nil {
-		return errors.New("nil message")
+		return ErrNilMessage
 	}
 
 	m.Topic = topic

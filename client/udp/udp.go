@@ -35,6 +35,7 @@ import (
 	"net"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/google/uuid"
 )
 
@@ -140,6 +141,7 @@ func (clt *UDPClient) Disconnect() error {
 }
 
 func (clt *UDPClient) Call() error {
+	metrics.NumUDPClientCallCounter.Inc()
 	return nil
 }
 

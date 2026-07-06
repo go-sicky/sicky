@@ -66,7 +66,7 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 		DB:       cfg.DB,
 		PoolSize: cfg.PoolSize,
 	})
-	err := rdb.Ping(context.TODO()).Err()
+	err := rdb.Ping(context.Background()).Err()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,

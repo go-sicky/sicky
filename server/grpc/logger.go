@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -89,6 +90,7 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		}
 
 		start := time.Now()
+		metrics.NumGRPCServerAccessCounter.Inc()
 		resp, err := handler(ctx, req)
 		end := time.Now()
 

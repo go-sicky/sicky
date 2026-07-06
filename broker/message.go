@@ -65,23 +65,25 @@ type Message struct {
 	Body []byte `msgpack:"body,omitempty" json:"body,omitempty"`
 }
 
-func (m *Message) Scan(v any) {
+func (m *Message) Scan(v any) error {
 	switch m.Mime {
 	case MsgJson:
-		json.Unmarshal(m.Body, v)
+		return json.Unmarshal(m.Body, v)
 	case MsgProtobuf:
 		pm, ok := v.(proto.Message)
 		if ok {
-			proto.Unmarshal(m.Body, pm)
+			return proto.Unmarshal(m.Body, pm)
 		}
 	case MsgMsgpack:
-		msgpack.Unmarshal(m.Body, v)
+		return msgpack.Unmarshal(m.Body, v)
 	default:
 		// Raw
 	}
+
+	return nil
 }
 
-func (m *Message) Format(v any, mime ...int) {
+func (m *Message) Format(v any, mime ...int) error {
 	tm := MsgJson
 	if len(mime) > 0 {
 		tm = mime[0]
@@ -89,14 +91,23 @@ func (m *Message) Format(v any, mime ...int) {
 
 	switch tm {
 	case MsgJson:
-		m.Body, _ = json.Marshal(v)
+		var err error
+		m.Body, err = json.Marshal(v)
+
+		return err
 	case MsgProtobuf:
 		pm, ok := v.(proto.Message)
 		if ok {
-			m.Body, _ = proto.Marshal(pm)
+			var err error
+			m.Body, err = proto.Marshal(pm)
+
+			return err
 		}
 	case MsgMsgpack:
-		m.Body, _ = msgpack.Marshal(v)
+		var err error
+		m.Body, err = msgpack.Marshal(v)
+
+		return err
 	default:
 		// Raw
 		b, ok := v.([]byte)
@@ -107,6 +118,8 @@ func (m *Message) Format(v any, mime ...int) {
 	}
 
 	m.Mime = tm
+
+	return nil
 }
 
 func (m *Message) Raw() []byte {

@@ -1,0 +1,27 @@
+{
+{{if .WithGRPC}}    "server": {
+        "grpc": {
+            "addr": ":44945"
+        }
+    },
+{{end}}{{if .WithFiber}}{{if not .WithGRPC}}    "server": {
+        "fiber": {
+            "listen": ":3000"
+        }
+    },
+{{else}}        "fiber": {
+            "listen": ":3000"
+        }
+    },
+{{end}}{{end}}    "sicky": {
+        "log_level": "debug",
+        "registry": {
+            "local": {
+                "registry_file_path": "/tmp/sicky/registry/"
+            }
+        }
+    },
+    "service": {
+        "disable_jobs": true
+    }
+}

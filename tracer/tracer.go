@@ -32,6 +32,7 @@ package tracer
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -63,9 +64,13 @@ type Tracer interface {
 var (
 	tracers       = make(map[uuid.UUID]Tracer)
 	defaultTracer Tracer
+	trMu          sync.RWMutex
 )
 
 func Set(trs ...Tracer) {
+	trMu.Lock()
+	defer trMu.Unlock()
+
 	for _, trc := range trs {
 		tracers[trc.ID()] = trc
 		if defaultTracer == nil {
@@ -75,19 +80,31 @@ func Set(trs ...Tracer) {
 }
 
 func Get(id uuid.UUID) Tracer {
+	trMu.RLock()
+	defer trMu.RUnlock()
+
 	return tracers[id]
 }
 
 func Default() Tracer {
+	trMu.RLock()
+	defer trMu.RUnlock()
+
 	return defaultTracer
 }
 
 func Tracers() map[uuid.UUID]Tracer {
+	trMu.RLock()
+	defer trMu.RUnlock()
+
 	return tracers
 }
 
 /* {{{ [Helpers] */
 func Provider() *sdktrace.TracerProvider {
+	trMu.RLock()
+	defer trMu.RUnlock()
+
 	if defaultTracer == nil {
 		return nil
 	}

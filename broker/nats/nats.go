@@ -40,6 +40,11 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+var (
+	ErrBrokerNotConnected    = errors.New("broker not connected")
+	ErrTopicAlreadySubscribed = errors.New("topic already subscribed")
+)
+
 type Nats struct {
 	config  *Config
 	ctx     context.Context
@@ -165,7 +170,7 @@ func (brk *Nats) Disconnect() error {
 
 func (brk *Nats) Publish(topic string, m *broker.Message) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
-		return errors.New("broker not connected")
+		return ErrBrokerNotConnected
 	}
 
 	msg := nats.NewMsg(topic)
@@ -207,11 +212,11 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 
 func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
-		return errors.New("broker not connected")
+		return ErrBrokerNotConnected
 	}
 
 	if brk.subscriptions[topic] != nil {
-		return errors.New("topic already subscribed")
+		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {

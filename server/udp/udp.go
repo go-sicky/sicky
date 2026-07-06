@@ -37,10 +37,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 )
+
+var ErrObtainUDPAddress = errors.New("obtain UDP address failed")
 
 /* {{{ [Server] */
 
@@ -151,6 +154,8 @@ func (srv *UDPServer) Start() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStart()
+
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
@@ -170,7 +175,7 @@ func (srv *UDPServer) Start() error {
 			"address", srv.addr.String(),
 		)
 
-		return errors.New("obtain UDP address failed")
+		return ErrObtainUDPAddress
 	}
 
 	srv.conn, err = net.ListenUDP(
@@ -221,7 +226,6 @@ func (srv *UDPServer) Start() error {
 					)
 				}
 
-				// TODO : Exit read ???
 				break
 			} else if n >= 0 {
 				sess := srv.pool.GetByAddr(addr)
@@ -237,6 +241,7 @@ func (srv *UDPServer) Start() error {
 
 				dst := make([]byte, n)
 				copy(dst, buff)
+				metrics.NumUDPServerAccessCounter.Inc()
 				for _, hdl := range srv.handlers {
 					hdl.OnData(sess, dst)
 				}
@@ -258,6 +263,7 @@ func (srv *UDPServer) Start() error {
 		"address", srv.addr.String(),
 	)
 	srv.running = true
+	srv.options.RunAfterStart()
 
 	return nil
 }
@@ -270,6 +276,8 @@ func (srv *UDPServer) Stop() error {
 		// Not running
 		return nil
 	}
+
+	srv.options.RunBeforeStop()
 
 	err := srv.conn.Close()
 	if err != nil {
@@ -298,6 +306,7 @@ func (srv *UDPServer) Stop() error {
 		"address", srv.addr.String(),
 	)
 	srv.running = false
+	srv.options.RunAfterStop()
 
 	return nil
 }

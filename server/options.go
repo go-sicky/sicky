@@ -83,8 +83,8 @@ func (o *Options) Ensure() *Options {
 		o.afterStart = make([]ServerWrapper, 0)
 	}
 
-	if o.beforeStart == nil {
-		o.beforeStart = make([]ServerWrapper, 0)
+	if o.beforeStop == nil {
+		o.beforeStop = make([]ServerWrapper, 0)
 	}
 
 	if o.afterStop == nil {
@@ -125,6 +125,41 @@ func (o *Options) AfterStop(wrappers ...ServerWrapper) *Options {
 	}
 
 	return o
+}
+
+/* }}} */
+
+/* {{{ [Hook runners] */
+func (o *Options) RunBeforeStart() {
+	for _, fn := range o.beforeStart {
+		if err := fn(); err != nil {
+			o.Logger.ErrorContext(o.Context, "BeforeStart wrapper failed", "error", err.Error())
+		}
+	}
+}
+
+func (o *Options) RunAfterStart() {
+	for _, fn := range o.afterStart {
+		if err := fn(); err != nil {
+			o.Logger.ErrorContext(o.Context, "AfterStart wrapper failed", "error", err.Error())
+		}
+	}
+}
+
+func (o *Options) RunBeforeStop() {
+	for _, fn := range o.beforeStop {
+		if err := fn(); err != nil {
+			o.Logger.ErrorContext(o.Context, "BeforeStop wrapper failed", "error", err.Error())
+		}
+	}
+}
+
+func (o *Options) RunAfterStop() {
+	for _, fn := range o.afterStop {
+		if err := fn(); err != nil {
+			o.Logger.ErrorContext(o.Context, "AfterStop wrapper failed", "error", err.Error())
+		}
+	}
 }
 
 /* }}} */

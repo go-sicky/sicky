@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/google/uuid"
 )
 
@@ -126,6 +127,7 @@ func (clt *HTTPClient) Disconnect() error {
 }
 
 func (clt *HTTPClient) Call() error {
+	metrics.NumHTTPClientCallCounter.Inc()
 	return nil
 }
 

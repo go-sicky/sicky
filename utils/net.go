@@ -39,6 +39,8 @@ import (
 	"unsafe"
 )
 
+var ErrNilConnection = errors.New("nil connection")
+
 func ObtainIPs() ([]net.IP, error) {
 	ret := make([]net.IP, 0)
 
@@ -210,7 +212,7 @@ func Advertise(listen, advertise, network string) net.Addr {
 func Net2fd(conn net.Conn) (int, error) {
 	c := conn
 	if c == nil {
-		return -1, errors.New("nil connection")
+		return -1, ErrNilConnection
 	}
 
 	switch conn.(type) {

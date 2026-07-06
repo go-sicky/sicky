@@ -70,7 +70,9 @@ func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
 		"dsn", cfg.DSN,
 	)
 
-	Clickhouse = db
+	if Clickhouse == nil {
+		Clickhouse = db
+	}
 
 	return db, nil
 }

@@ -32,6 +32,7 @@ package broker
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -64,9 +65,13 @@ type Handler func(*Message) error
 var (
 	brokers       = make(map[uuid.UUID]Broker, 0)
 	defaultBroker Broker
+	brkMu         sync.RWMutex
 )
 
 func Set(brks ...Broker) {
+	brkMu.Lock()
+	defer brkMu.Unlock()
+
 	for _, brk := range brks {
 		brokers[brk.ID()] = brk
 		if defaultBroker == nil {
@@ -76,19 +81,31 @@ func Set(brks ...Broker) {
 }
 
 func Get(id uuid.UUID) Broker {
+	brkMu.RLock()
+	defer brkMu.RUnlock()
+
 	return brokers[id]
 }
 
 func Default() Broker {
+	brkMu.RLock()
+	defer brkMu.RUnlock()
+
 	return defaultBroker
 }
 
 func Brokers() map[uuid.UUID]Broker {
+	brkMu.RLock()
+	defer brkMu.RUnlock()
+
 	return brokers
 }
 
 /* {{{ [Helpers] */
 func Publish(topic string, m *Message) error {
+	brkMu.RLock()
+	defer brkMu.RUnlock()
+
 	if defaultBroker == nil {
 		return nil
 	}
@@ -97,6 +114,9 @@ func Publish(topic string, m *Message) error {
 }
 
 func Subscribe(topic string, h Handler) error {
+	brkMu.RLock()
+	defer brkMu.RUnlock()
+
 	if defaultBroker == nil {
 		return nil
 	}
@@ -105,6 +125,9 @@ func Subscribe(topic string, h Handler) error {
 }
 
 func Unsubscribe(topic string) error {
+	brkMu.RLock()
+	defer brkMu.RUnlock()
+
 	if defaultBroker == nil {
 		return nil
 	}

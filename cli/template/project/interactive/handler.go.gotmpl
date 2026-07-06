@@ -1,0 +1,22 @@
+package handler
+
+import "github.com/fatih/color"
+
+type {{.ExportedName}} struct{}
+
+func New{{.ExportedName}}() *{{.ExportedName}} {
+	return &{{.ExportedName}}{}
+}
+
+func (h *{{.ExportedName}}) Name() string { return "{{.Name}}.interactive" }
+
+func (h *{{.ExportedName}}) OnInteract(cmd, line string) error {
+	resp := color.New(color.FgWhite, color.Bold)
+	resp.PrintlnFunc()("You say:", cmd)
+
+	return nil
+}
+
+func (h *{{.ExportedName}}) OnStop() error {
+	return nil
+}

@@ -37,6 +37,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/contrib/websocket"
@@ -188,6 +189,8 @@ func (srv *WebsocketServer) Start() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStart()
+
 	// Try TLS first
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
@@ -250,7 +253,9 @@ func (srv *WebsocketServer) Start() error {
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
-	go func() error {
+	go func() {
+		defer srv.wg.Done()
+
 		err := srv.app.Listener(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
@@ -261,7 +266,7 @@ func (srv *WebsocketServer) Start() error {
 				"error", err.Error(),
 			)
 
-			return err
+			return
 		}
 
 		srv.options.Logger.InfoContext(
@@ -271,9 +276,6 @@ func (srv *WebsocketServer) Start() error {
 			"id", srv.options.ID,
 			"name", srv.options.Name,
 		)
-		srv.wg.Done()
-
-		return nil
 	}()
 
 	srv.options.Logger.InfoContext(
@@ -286,6 +288,7 @@ func (srv *WebsocketServer) Start() error {
 		"path", srv.config.Path,
 	)
 	srv.running = true
+	srv.options.RunAfterStart()
 
 	return nil
 }
@@ -299,6 +302,8 @@ func (srv *WebsocketServer) Stop() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStop()
+
 	srv.app.Server().Shutdown()
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
@@ -310,6 +315,7 @@ func (srv *WebsocketServer) Stop() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = false
+	srv.options.RunAfterStop()
 
 	return nil
 }
@@ -437,6 +443,7 @@ read:
 				)
 
 				// OnData
+				metrics.NumWebsocketServerAccessCounter.Inc()
 				for _, hdl := range srv.handlers {
 					err = hdl.OnData(sess, mt, body)
 					if err != nil {

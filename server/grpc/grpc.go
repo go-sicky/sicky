@@ -208,6 +208,8 @@ func (srv *GRPCServer) Start() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStart()
+
 	// Try TLS first
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
@@ -220,6 +222,8 @@ func (srv *GRPCServer) Start() error {
 				"name", srv.options.Name,
 				"error", err.Error(),
 			)
+
+			return err
 		}
 
 		listener, err = tls.Listen(
@@ -274,7 +278,9 @@ func (srv *GRPCServer) Start() error {
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
-	go func() error {
+	go func() {
+		defer srv.wg.Done()
+
 		err := srv.app.Serve(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
@@ -286,7 +292,7 @@ func (srv *GRPCServer) Start() error {
 				"error", err.Error(),
 			)
 
-			return err
+			return
 		}
 
 		srv.options.Logger.InfoContext(
@@ -297,9 +303,6 @@ func (srv *GRPCServer) Start() error {
 			"name", srv.options.Name,
 			"addr", srv.addr.String(),
 		)
-		srv.wg.Done()
-
-		return nil
 	}()
 
 	srv.options.Logger.InfoContext(
@@ -311,6 +314,7 @@ func (srv *GRPCServer) Start() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = true
+	srv.options.RunAfterStart()
 
 	return nil
 }
@@ -324,6 +328,8 @@ func (srv *GRPCServer) Stop() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStop()
+
 	srv.app.GracefulStop()
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
@@ -335,6 +341,7 @@ func (srv *GRPCServer) Stop() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = false
+	srv.options.RunAfterStop()
 
 	return nil
 }

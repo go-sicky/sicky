@@ -35,6 +35,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/go-sicky/sicky/logger"
 )
 
 type S3Config struct{}
@@ -46,14 +47,21 @@ func InitS3(cfg *S3Config) (*s3.Client, error) {
 		return nil, nil
 	}
 
-	c, err := config.LoadDefaultConfig(context.TODO())
+	c, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
 	client := s3.NewFromConfig(c)
 
-	S3 = client
+	if S3 == nil {
+		S3 = client
+	}
+
+	logger.Logger.InfoContext(
+		context.Background(),
+		"Init S3 successful",
+	)
 
 	return client, nil
 }

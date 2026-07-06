@@ -58,6 +58,7 @@ import (
 	tracerUptrace "github.com/go-sicky/sicky/tracer/uptrace"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	_ "github.com/spf13/viper/remote"
 )
 
 type (
@@ -174,10 +175,12 @@ func Viper() *viper.Viper {
 	return configIns
 }
 
-func ConfigUnmarshal(raw any) {
+func ConfigUnmarshal(raw any) error {
 	if raw != nil {
-		configIns.Unmarshal(raw)
+		return configIns.Unmarshal(raw)
 	}
+
+	return nil
 }
 
 func serviceToRegistryInstance(svc service.Service) *registry.Instance {
@@ -189,9 +192,9 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 		Topics:      make(map[string]*registry.Topic),
 	}
 
-	if manager != nil {
-		ins.ManagerAddress = manager.Addr()
-		ins.ManagerPort = manager.Port()
+	if managerApp != nil {
+		ins.ManagerAddress = managerApp.Addr()
+		ins.ManagerPort = managerApp.Port()
 	}
 
 	// Servers
@@ -221,8 +224,9 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 
 func Run(cfg *Config) error {
 	var (
-		err  error
-		errs []error
+		err    error
+		errs   []error
+		runErr error
 	)
 
 	if options == nil {
@@ -237,12 +241,15 @@ func Run(cfg *Config) error {
 	cfg = cfg.Ensure()
 	// Log level
 	logger.Logger.Level(logger.LogLevel(cfg.LogLevel))
+	MustInfra = make(map[string]bool)
+	validateConfig(cfg)
 
 	// Wrappers
 	for _, fn := range beforeStartWrappers {
 		err = fn(options.Context)
 		if err != nil {
-			logger.Logger.Fatal(
+			logger.Logger.ErrorContext(
+				options.Context,
 				"Before start wrapper failed",
 				"error", err.Error(),
 			)
@@ -462,13 +469,17 @@ func Run(cfg *Config) error {
 	)
 	if cfg.Registry.Consul != nil {
 		rgConsulIns = rgConsul.New(nil, cfg.Registry.Consul)
-		rgConsulIns.Watch()
-		MustRegistry = false
+		if rgConsulIns != nil {
+			rgConsulIns.Watch()
+			MustRegistry = false
+		}
 	}
 
 	if cfg.Registry.Redis != nil {
 		rgRedisIns = rgRedis.New(nil, cfg.Registry.Redis)
-		MustRegistry = false
+		if rgRedisIns != nil {
+			MustRegistry = false
+		}
 	}
 
 	if cfg.Registry.Local != nil {
@@ -576,9 +587,9 @@ func Run(cfg *Config) error {
 
 	// Start manager
 	if cfg.Manager != nil && cfg.Manager.Enable {
-		manager = NewManager(cfg.Manager)
-		manager.cfgVar = cfg
-		err = manager.Start()
+		managerApp = NewManager(cfg.Manager, options.AppName, options.Version)
+		managerApp.cfgVar = cfg
+		err = managerApp.Start()
 		if err != nil {
 			logger.ErrorContext(
 				options.Context,
@@ -617,7 +628,9 @@ func Run(cfg *Config) error {
 
 			svc.Stop()
 
-			return err
+			runErr = err
+
+			goto shutdown
 		}
 
 		logger.InfoContext(
@@ -652,7 +665,8 @@ func Run(cfg *Config) error {
 	for _, fn := range afterStartWrappers {
 		err = fn(options.Context)
 		if err != nil {
-			logger.Logger.Fatal(
+			logger.Logger.ErrorContext(
+				options.Context,
 				"After start wrapper failed",
 				"error", err.Error(),
 			)
@@ -660,18 +674,33 @@ func Run(cfg *Config) error {
 	}
 
 	// Wait for signal
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT)
-	select {
-	case <-ch:
-	case <-options.Context.Done():
+shutdown:
+	if runErr == nil {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGABRT)
+		select {
+		case <-ch:
+		case <-options.Context.Done():
+		}
+
+		go func() {
+			select {
+			case <-ch:
+				logger.Logger.Error("Force shutdown triggered by second signal, exiting immediately")
+				os.Exit(1)
+			case <-time.After(30 * time.Second):
+				logger.Logger.Error("Shutdown timed out after 30s, exiting immediately")
+				os.Exit(1)
+			}
+		}()
 	}
 
 	// Wrappers
 	for _, fn := range beforeStopWrappers {
 		err = fn(options.Context)
 		if err != nil {
-			logger.Logger.Fatal(
+			logger.Logger.ErrorContext(
+				options.Context,
 				"Before stop wrapper failed",
 				"error", err.Error(),
 			)
@@ -720,7 +749,9 @@ func Run(cfg *Config) error {
 				"errors", err.Error(),
 			)
 
-			return err
+			if runErr == nil {
+				runErr = err
+			}
 		}
 
 		logger.InfoContext(
@@ -773,8 +804,8 @@ func Run(cfg *Config) error {
 	}
 
 	// Stop manager
-	if manager != nil {
-		manager.Stop()
+	if managerApp != nil {
+		managerApp.Stop()
 	}
 
 	if infra.Ristretto != nil {
@@ -805,8 +836,15 @@ func Run(cfg *Config) error {
 		infra.Clickhouse.Close()
 	}
 
+	if infra.S3 != nil {
+		logger.Logger.InfoContext(
+			options.Context,
+			"S3 client shutdown (connection managed by AWS SDK)",
+		)
+	}
+
 	if infra.Mongo != nil {
-		infra.Mongo.Disconnect(context.TODO())
+		infra.Mongo.Disconnect(options.Context)
 	}
 
 	if infra.MQTT != nil {
@@ -817,14 +855,29 @@ func Run(cfg *Config) error {
 	for _, fn := range afterStopWrappers {
 		err = fn(options.Context)
 		if err != nil {
-			logger.Logger.Fatal(
+			logger.Logger.ErrorContext(
+				options.Context,
 				"After stop wrapper failed",
 				"error", err.Error(),
 			)
 		}
 	}
 
-	return nil
+	return runErr
+}
+
+func validateConfig(cfg *Config) {
+	if cfg.Tracer != nil && cfg.Tracer.Type != "none" {
+		if cfg.Tracer.Timeout < 0 {
+			logger.Logger.Warn("Tracer timeout is invalid (possibly zeroed by environment variable), using default")
+		}
+	}
+
+	if cfg.Manager != nil && cfg.Manager.Enable {
+		if cfg.Manager.ShutdownTimeout <= 0 {
+			logger.Logger.Warn("Manager shutdown timeout is invalid (possibly zeroed by environment variable), using default")
+		}
+	}
 }
 
 func BeforeStart(wrappers ...SickyWrapper) []SickyWrapper {

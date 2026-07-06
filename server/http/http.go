@@ -156,6 +156,8 @@ func (srv *HTTPServer) Start() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStart()
+
 	// Try TLS
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPem != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPem))
@@ -255,6 +257,7 @@ func (srv *HTTPServer) Start() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = true
+	srv.options.RunAfterStart()
 
 	return nil
 }
@@ -268,6 +271,8 @@ func (srv *HTTPServer) Stop() error {
 		return nil
 	}
 
+	srv.options.RunBeforeStop()
+
 	srv.app.Shutdown(srv.ctx)
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
@@ -279,6 +284,7 @@ func (srv *HTTPServer) Stop() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = false
+	srv.options.RunAfterStop()
 
 	return nil
 }
