@@ -45,8 +45,8 @@ const (
 )
 
 const (
-	ContentTypeText    = "text"
-	ContentTypeImage   = "image"
+	ContentTypeText     = "text"
+	ContentTypeImage    = "image"
 	ContentTypeResource = "resource"
 
 	RoleUser      = "user"
@@ -121,7 +121,7 @@ type ToolsListResult struct {
 }
 
 type ToolsCallParams struct {
-	Name      string `json:"name"`
+	Name      string                 `json:"name"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
 }
 
@@ -201,8 +201,8 @@ type PromptsGetResult struct {
 }
 
 type PromptMessage struct {
-	Role    string         `json:"role"`
-	Content PromptContent  `json:"content"`
+	Role    string        `json:"role"`
+	Content PromptContent `json:"content"`
 }
 
 type PromptContent struct {

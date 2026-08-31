@@ -119,36 +119,38 @@ func Init(opts *Options, switches ...*FlagSwitch) {
 		os.Exit(0)
 	}
 
-	// Load config
-	configIns.SetConfigType(configType)
+	if !options.DisableConfig {
+		// Load config
+		configIns.SetConfigType(configType)
 
-	// Try config source
-	u, err := url.Parse(configLoc)
-	if err == nil && u != nil && u.Scheme != "" && u.Path != "" {
-		// Remote config source
-		remote := strings.ToLower(u.Scheme)
-		err = configIns.AddRemoteProvider(remote, u.Host, u.Path)
-		if err != nil {
-			logger.Logger.Fatal("Add remote config source failed", "error", err.Error())
+		// Try config source
+		u, err := url.Parse(configLoc)
+		if err == nil && u != nil && u.Scheme != "" && u.Path != "" {
+			// Remote config source
+			remote := strings.ToLower(u.Scheme)
+			err = configIns.AddRemoteProvider(remote, u.Host, u.Path)
+			if err != nil {
+				logger.Logger.Fatal("Add remote config source failed", "error", err.Error())
+			}
+
+			err = configIns.ReadRemoteConfig()
+		} else {
+			// Local file
+			configIns.SetConfigName(configLoc)
+			configIns.AddConfigPath("/etc")
+			configIns.AddConfigPath("/etc/" + options.AppName)
+			configIns.AddConfigPath("$HOME/." + options.AppName)
+			configIns.AddConfigPath(".")
+
+			err = configIns.ReadInConfig()
 		}
 
-		err = configIns.ReadRemoteConfig()
-	} else {
-		// Local file
-		configIns.SetConfigName(configLoc)
-		configIns.AddConfigPath("/etc")
-		configIns.AddConfigPath("/etc/" + options.AppName)
-		configIns.AddConfigPath("$HOME/." + options.AppName)
-		configIns.AddConfigPath(".")
+		if err != nil {
+			logger.Logger.Fatal("Read config failed", "error", err.Error())
+		}
 
-		err = configIns.ReadInConfig()
+		logger.Logger.Info("Config read", "location", configLoc)
 	}
-
-	if err != nil {
-		logger.Logger.Fatal("Read config failed", "error", err.Error())
-	}
-
-	logger.Logger.Info("Config read", "location", configLoc)
 
 	// Read config from environment variables
 	configIns.SetEnvPrefix(strings.ToUpper(options.EnvPrefix))
@@ -230,7 +232,6 @@ func Run(cfg *Config) error {
 	)
 
 	if options == nil {
-		options = &Options{}
 		options = options.Ensure()
 	}
 
@@ -239,8 +240,12 @@ func Run(cfg *Config) error {
 	}
 
 	cfg = cfg.Ensure()
-	// Log level
-	logger.Logger.Level(logger.LogLevel(cfg.LogLevel))
+
+	if !options.Silence {
+		// Log level
+		logger.Logger.Level(logger.LogLevel(cfg.LogLevel))
+	}
+
 	MustInfra = make(map[string]bool)
 	validateConfig(cfg)
 
@@ -586,7 +591,7 @@ func Run(cfg *Config) error {
 	}
 
 	// Start manager
-	if cfg.Manager != nil && cfg.Manager.Enable {
+	if cfg.Manager != nil && cfg.Manager.Enable && !options.DisableManager {
 		managerApp = NewManager(cfg.Manager, options.AppName, options.Version)
 		managerApp.cfgVar = cfg
 		err = managerApp.Start()
@@ -808,6 +813,7 @@ shutdown:
 		managerApp.Stop()
 	}
 
+	// Stop infra
 	if infra.Ristretto != nil {
 		infra.Ristretto.Close()
 	}

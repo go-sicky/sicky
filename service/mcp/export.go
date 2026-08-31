@@ -33,11 +33,11 @@ package mcp
 import "github.com/go-sicky/sicky/service/mcp/protocol"
 
 type (
-	ServerCapabilities = protocol.ServerCapabilities
-	ToolsCapability    = protocol.ToolsCapability
+	ServerCapabilities  = protocol.ServerCapabilities
+	ToolsCapability     = protocol.ToolsCapability
 	ResourcesCapability = protocol.ResourcesCapability
-	PromptsCapability  = protocol.PromptsCapability
-	ImplementationInfo = protocol.ImplementationInfo
+	PromptsCapability   = protocol.PromptsCapability
+	ImplementationInfo  = protocol.ImplementationInfo
 
 	Tool            = protocol.Tool
 	InputSchema     = protocol.InputSchema
@@ -50,13 +50,13 @@ type (
 	PromptMessage   = protocol.PromptMessage
 	PromptContent   = protocol.PromptContent
 
-	ToolsListResult    = protocol.ToolsListResult
-	ToolsCallParams    = protocol.ToolsCallParams
-	ToolsCallResult    = protocol.ToolsCallResult
+	ToolsListResult     = protocol.ToolsListResult
+	ToolsCallParams     = protocol.ToolsCallParams
+	ToolsCallResult     = protocol.ToolsCallResult
 	ResourcesListResult = protocol.ResourcesListResult
 	ResourcesReadResult = protocol.ResourcesReadResult
-	PromptsListResult  = protocol.PromptsListResult
-	PromptsGetResult   = protocol.PromptsGetResult
+	PromptsListResult   = protocol.PromptsListResult
+	PromptsGetResult    = protocol.PromptsGetResult
 )
 
 /*

@@ -35,6 +35,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"reflect"
+	"strings"
 	"unsafe"
 )
 
@@ -116,6 +117,33 @@ func XMLAnyBytes(d any) []byte {
 	}
 
 	return b
+}
+
+func E(level string, format string, args ...any) {
+	fmt.Println()
+
+	switch strings.ToLower(level) {
+	case "debug":
+		// Color blue
+		fmt.Printf("\033[34m[%s] %s\033[0m\n", level, fmt.Sprintf(format, args...))
+	case "info":
+		// Color green
+		fmt.Printf("\033[32m[%s] %s\033[0m\n", level, fmt.Sprintf(format, args...))
+	case "warn":
+		// Color yellow
+		fmt.Printf("\033[33m[%s] %s\033[0m\n", level, fmt.Sprintf(format, args...))
+	case "error":
+		// Color red
+		fmt.Printf("\033[31m[%s] %s\033[0m\n", level, fmt.Sprintf(format, args...))
+	default:
+		if len(args) > 0 {
+			fmt.Printf("[%s] %s\n", level, fmt.Sprintf(format, args...))
+		} else {
+			fmt.Printf("[%s] %s\n", level, format)
+		}
+	}
+
+	fmt.Println()
 }
 
 /*

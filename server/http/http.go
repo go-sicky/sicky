@@ -40,6 +40,7 @@ import (
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
+	"github.com/uptrace/bunrouter"
 )
 
 /* {{{ [Server] */
@@ -48,6 +49,7 @@ type HTTPServer struct {
 	ctx           context.Context
 	options       *server.Options
 	app           *http.Server
+	router        *bunrouter.Router
 	running       bool
 	addr          net.Addr
 	advertiseAddr net.Addr
@@ -106,6 +108,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	}
 
 	srv.app = app
+	srv.router = bunrouter.New()
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -180,7 +183,6 @@ func (srv *HTTPServer) Start() error {
 				Certificates: []tls.Certificate{cert},
 			},
 		)
-
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -198,7 +200,6 @@ func (srv *HTTPServer) Start() error {
 			srv.addr.Network(),
 			srv.addr.String(),
 		)
-
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -221,6 +222,7 @@ func (srv *HTTPServer) Start() error {
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
+	srv.app.Handler = srv.router
 	go func() error {
 		err := srv.app.Serve(listener)
 		if err != nil && err != http.ErrServerClosed {
@@ -337,6 +339,7 @@ func (srv *HTTPServer) App() *http.Server {
 
 func (srv *HTTPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
+		hdl.Register(srv.router)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"HTTP handler registered",
@@ -354,7 +357,7 @@ func (srv *HTTPServer) Handle(hdls ...Handler) {
 type Handler interface {
 	Name() string
 	Type() string
-	Register(*http.Server)
+	Register(*bunrouter.Router)
 }
 
 /* }}} */

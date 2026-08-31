@@ -293,7 +293,7 @@ func PurgePool(ins []*Instance) {
 	}
 
 	SetPool(p)
-	utils.JSONAny(GetPool())
+	// utils.JSONAny(GetPool())
 }
 
 // func GetInstances(service string) map[string]*Instance {

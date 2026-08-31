@@ -31,7 +31,12 @@
 package mcp
 
 const (
-	DefaultTransport = "stdio"
+	MCPTransportStdio = "stdio"
+	MCPTransportHTTP  = "http"
+)
+
+const (
+	DefaultTransport = MCPTransportStdio
 )
 
 type Config struct {

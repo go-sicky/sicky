@@ -40,12 +40,14 @@ const (
 )
 
 type Options struct {
-	AppName   string
-	Version   string
-	Branch    string
-	Commit    string
-	BuildTime string
-	EnvPrefix string
+	AppName        string
+	Version        string
+	Branch         string
+	Commit         string
+	BuildTime      string
+	EnvPrefix      string
+	DisableConfig  bool
+	DisableManager bool
 
 	Silence      bool
 	MustInfra    []string

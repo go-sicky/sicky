@@ -51,7 +51,7 @@ const (
 	DefaultSwaggerPath     = "/swagger.json"
 	DefaultConfigPath      = "/config"
 	DefaultServicePoolPath = "/services"
-	DefaultShutdownTimeout = 5  // seconds
+	DefaultShutdownTimeout = 5 // seconds
 )
 
 type ManagerConfig struct {
