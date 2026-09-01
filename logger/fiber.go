@@ -123,7 +123,7 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 
 	return func(c *fiber.Ctx) error {
 		// Metric
-		metrics.NumHTTPServerAccessCounter.Inc()
+		metrics.NumFiberServerAccessCounter.Inc()
 
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()

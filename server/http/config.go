@@ -45,6 +45,17 @@ const (
 	DefaultServerErrorLevel       = "error"
 )
 
+var DefaultAccessLogger = &AccessLoggerConfig{
+	RequestIDContextKey:    DefaultRequestIDContextKey,
+	TraceIDContextKey:      DefaultTraceIDContextKey,
+	SpanIDContextKey:       DefaultSpanIDContextKey,
+	ParentSpanIDContextKey: DefaultParentSpanIDContextKey,
+	SampledContextKey:      DefaultSampledContextKey,
+	AccessLevel:            DefaultAccessLevel,
+	ClientErrorLevel:       DefaultClientErrorLevel,
+	ServerErrorLevel:       DefaultServerErrorLevel,
+}
+
 type AccessLoggerConfig struct {
 	RequestIDContextKey    string `json:"request_id_context_key" yaml:"request_id_context_key" mapstructure:"request_id_context_key"`
 	TraceIDContextKey      string `json:"trace_id_context_key" yaml:"trace_id_context_key" mapstructure:"trace_id_context_key"`

@@ -56,6 +56,12 @@ var (
 			Help: "Number of http access",
 		},
 	)
+	NumFiberServerAccessCounter = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "num_fiber_server_access",
+			Help: "Number of fiber access",
+		},
+	)
 	NumTCPServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_tcp_server_access",
@@ -144,6 +150,7 @@ func init() {
 
 	Register("num_grpc_server_access", NumGRPCServerAccessCounter)
 	Register("num_http_server_access", NumHTTPServerAccessCounter)
+	Register("num_fiber_server_access", NumFiberServerAccessCounter)
 	Register("num_tcp_server_access", NumTCPServerAccessCounter)
 	Register("num_udp_server_access", NumUDPServerAccessCounter)
 	Register("num_websocket_server_access", NumWebsocketServerAccessCounter)

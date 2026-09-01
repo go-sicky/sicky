@@ -77,7 +77,7 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 			return c.Next()
 		}
 
-		metrics.NumHTTPServerAccessCounter.Inc()
+		metrics.NumFiberServerAccessCounter.Inc()
 		start := time.Now()
 		rv := c.Locals(cfg.AccessLoggerConfig.RequestIDContextKey)
 		requestID, _ := rv.(string)
@@ -121,7 +121,7 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 		}
 
 		l := cfg.AccessLoggerConfig.AccessLevel
-		msg := "http.request"
+		msg := "fiber.request"
 		if chainErr != nil {
 			if status >= fiber.StatusInternalServerError {
 				l = cfg.AccessLoggerConfig.ServerErrorLevel

@@ -108,8 +108,17 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	}
 
 	srv.app = app
-	srv.router = bunrouter.New()
-
+	srv.router = bunrouter.New(
+		bunrouter.Use(CORSMiddleware),
+		bunrouter.Use(NewPropagationMiddleware()),
+		bunrouter.Use(NewMetadataMiddleware()),
+		bunrouter.Use(NewAccessLoggerMiddleware(
+			AccessLoggerMiddlewareConfig{
+				AccessLoggerConfig: cfg.AccessLogger,
+				Logger:             opts.Logger,
+			},
+		)),
+	)
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"HTTP server created",
