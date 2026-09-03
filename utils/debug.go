@@ -39,7 +39,7 @@ import (
 	"unsafe"
 )
 
-func PrintContextInternals(ctx interface{}, inner bool) {
+func PrintContextInternals(ctx any, inner bool) {
 	contextValues := reflect.ValueOf(ctx).Elem()
 	contextKeys := reflect.TypeOf(ctx).Elem()
 	if !inner {
@@ -66,8 +66,8 @@ func PrintContextInternals(ctx interface{}, inner bool) {
 }
 
 func JSONAny(d any) {
-	b, _ := json.MarshalIndent(d, "", "  ")
-	if b == nil {
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return
 	}
 
@@ -75,8 +75,8 @@ func JSONAny(d any) {
 }
 
 func JSONAnyString(d any) string {
-	b, _ := json.MarshalIndent(d, "", "  ")
-	if b == nil {
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return ""
 	}
 
@@ -84,8 +84,8 @@ func JSONAnyString(d any) string {
 }
 
 func JSONAnyBytes(d any) []byte {
-	b, _ := json.MarshalIndent(d, "", "  ")
-	if b == nil {
+	b, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return nil
 	}
 
@@ -93,8 +93,8 @@ func JSONAnyBytes(d any) []byte {
 }
 
 func XMLAny(d any) {
-	b, _ := xml.MarshalIndent(d, "", "  ")
-	if b == nil {
+	b, err := xml.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return
 	}
 
@@ -102,8 +102,8 @@ func XMLAny(d any) {
 }
 
 func XMLAnyString(d any) string {
-	b, _ := xml.MarshalIndent(d, "", "  ")
-	if b == nil {
+	b, err := xml.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return ""
 	}
 
@@ -111,8 +111,8 @@ func XMLAnyString(d any) string {
 }
 
 func XMLAnyBytes(d any) []byte {
-	b, _ := xml.MarshalIndent(d, "", "  ")
-	if b == nil {
+	b, err := xml.MarshalIndent(d, "", "  ")
+	if err != nil {
 		return nil
 	}
 

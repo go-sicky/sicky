@@ -32,6 +32,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/go-co-op/gocron/v2"
@@ -100,11 +101,23 @@ func (job *Cron) Add(task *Task) error {
 	job.Lock()
 	defer job.Unlock()
 
+	if task == nil {
+		return errors.New("cron task is nil")
+	}
 	if task.ID == uuid.Nil {
 		task.ID = uuid.New()
 	}
 
 	job.tasks = append(job.tasks, task)
+
+	if job.running && job.scheduler != nil && task.Handler != nil {
+		if _, err := job.scheduler.NewJob(
+			gocron.CronJob(task.Expression, true),
+			gocron.NewTask(task.Handler),
+		); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -126,6 +139,9 @@ func (job *Cron) Start() error {
 
 	// Register all pre-added tasks
 	for _, task := range job.tasks {
+		if task == nil || task.Handler == nil {
+			continue
+		}
 		_, err := job.scheduler.NewJob(
 			gocron.CronJob(task.Expression, true),
 			gocron.NewTask(
@@ -144,6 +160,8 @@ func (job *Cron) Start() error {
 			)
 		}
 	}
+
+	job.scheduler.Start()
 
 	job.running = true
 

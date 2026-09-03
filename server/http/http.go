@@ -33,15 +33,23 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"sync"
 
 	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/uptrace/bunrouter"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
+// is set. Falling back to plaintext silently would be a security hole, so
+// startup fails fast instead.
+var ErrIncompleteTLSConfig = errors.New("incomplete TLS configuration: both tls_cert_pem and tls_key_pem must be set")
 
 /* {{{ [Server] */
 type HTTPServer struct {
@@ -51,6 +59,7 @@ type HTTPServer struct {
 	app           *http.Server
 	router        *bunrouter.Router
 	running       bool
+	stopping      bool
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
@@ -104,14 +113,32 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	}
 
 	app := &http.Server{
-		Addr: addr.String(),
+		Addr:              addr.String(),
+		ReadTimeout:       cfg.ReadTimeout,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 	}
+	app.SetKeepAlivesEnabled(!cfg.DisableKeepAlive)
 
 	srv.app = app
+	var tr trace.Tracer
+	if tracer.Default() != nil {
+		tr = tracer.Default().Tracer(srv.Name())
+	}
 	srv.router = bunrouter.New(
-		bunrouter.Use(CORSMiddleware),
+		bunrouter.Use(NewRecoveryMiddleware(opts.Logger)),
+		bunrouter.Use(NewCORSMiddleware(cfg.CORS)),
+		bunrouter.Use(NewBodyLimitMiddleware(cfg.BodyLimit)),
 		bunrouter.Use(NewPropagationMiddleware()),
 		bunrouter.Use(NewMetadataMiddleware()),
+		bunrouter.Use(NewTracerMiddleware(
+			TracerConfig{
+				Tracer: tr,
+			},
+		)),
+		bunrouter.Use(NewStatusMiddleware()),
 		bunrouter.Use(NewAccessLoggerMiddleware(
 			AccessLoggerMiddlewareConfig{
 				AccessLoggerConfig: cfg.AccessLogger,
@@ -163,16 +190,29 @@ func (srv *HTTPServer) Start() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if srv.running {
+	if srv.running || srv.stopping {
 		// running
 		return nil
 	}
 
 	srv.options.RunBeforeStart()
 
+	// A half-configured TLS must never silently fall back to plaintext.
+	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"TLS configuration incomplete",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+		)
+
+		return ErrIncompleteTLSConfig
+	}
+
 	// Try TLS
-	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPem != "" {
-		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPem))
+	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
+		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -182,6 +222,8 @@ func (srv *HTTPServer) Start() error {
 				"name", srv.options.Name,
 				"error", err.Error(),
 			)
+
+			return err
 		}
 
 		listener, err = tls.Listen(
@@ -232,7 +274,9 @@ func (srv *HTTPServer) Start() error {
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Add(1)
 	srv.app.Handler = srv.router
-	go func() error {
+	go func() {
+		defer srv.wg.Done()
+
 		err := srv.app.Serve(listener)
 		if err != nil && err != http.ErrServerClosed {
 			srv.options.Logger.ErrorContext(
@@ -253,10 +297,6 @@ func (srv *HTTPServer) Start() error {
 				"addr", srv.addr.String(),
 			)
 		}
-
-		srv.wg.Done()
-
-		return err
 	}()
 
 	srv.options.Logger.InfoContext(
@@ -274,18 +314,42 @@ func (srv *HTTPServer) Start() error {
 }
 
 func (srv *HTTPServer) Stop() error {
+	// Check-and-flag under lock, then release: holding Lock across
+	// Shutdown/Wait would starve all RLock readers for the whole drain.
 	srv.Lock()
-	defer srv.Unlock()
-
-	if !srv.running {
+	if !srv.running || srv.stopping {
 		// Not running
+		srv.Unlock()
+
 		return nil
 	}
-
+	srv.stopping = true
 	srv.options.RunBeforeStop()
+	app := srv.app
+	timeout := srv.config.ShutdownTimeout
+	srv.Unlock()
 
-	srv.app.Shutdown(srv.ctx)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var errs error
+	if err := app.Shutdown(ctx); err != nil {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"HTTP server shutdown failed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"error", err.Error(),
+		)
+		errs = errors.Join(errs, err)
+	}
 	srv.wg.Wait()
+
+	srv.Lock()
+	srv.running = false
+	srv.stopping = false
+	srv.Unlock()
+
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"HTTP server shutdown",
@@ -294,22 +358,27 @@ func (srv *HTTPServer) Stop() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.running = false
 	srv.options.RunAfterStop()
 
-	return nil
+	return errs
 }
 
 func (srv *HTTPServer) Running() bool {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.running
 }
 
 func (srv *HTTPServer) Addr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.addr
 }
 
 func (srv *HTTPServer) IP() net.IP {
-	try := utils.AddrToIP(srv.addr)
+	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -318,15 +387,18 @@ func (srv *HTTPServer) IP() net.IP {
 }
 
 func (srv *HTTPServer) Port() int {
-	return utils.AddrToPort(srv.addr)
+	return utils.AddrToPort(srv.Addr())
 }
 
 func (srv *HTTPServer) AdvertiseAddr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.advertiseAddr
 }
 
 func (srv *HTTPServer) AdvertiseIP() net.IP {
-	try := utils.AddrToIP(srv.advertiseAddr)
+	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -335,11 +407,17 @@ func (srv *HTTPServer) AdvertiseIP() net.IP {
 }
 
 func (srv *HTTPServer) AdvertisePort() int {
-	return utils.AddrToPort(srv.advertiseAddr)
+	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
 func (srv *HTTPServer) Metadata() utils.Metadata {
-	return srv.metadata
+	// Snapshot: the map is written during Start while handlers may read
+	// it concurrently; returning the live map would race.
+	if srv.metadata == nil {
+		return utils.NewMetadata()
+	}
+
+	return srv.metadata.Clone()
 }
 
 func (srv *HTTPServer) App() *http.Server {

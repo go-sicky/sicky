@@ -32,6 +32,11 @@ package infra
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v9"
 	"github.com/go-sicky/sicky/logger"
@@ -41,7 +46,37 @@ type ElasticConfig struct {
 	Addresses []string `json:"addresses" yaml:"addresses" mapstructure:"addresses"`
 	Username  string   `json:"username" yaml:"username" mapstructure:"username"`
 	Password  string   `json:"password" yaml:"password" mapstructure:"password"`
+	// CloudID targets Elastic Cloud; when set it takes precedence over
+	// Addresses (following client semantics).
+	CloudID string `json:"cloud_id" yaml:"cloud_id" mapstructure:"cloud_id"`
+	// APIKey (base64) overrides Username/Password and ServiceToken.
+	APIKey string `json:"api_key" yaml:"api_key" mapstructure:"api_key"`
+	// ServiceToken overrides Username/Password.
+	ServiceToken string `json:"service_token" yaml:"service_token" mapstructure:"service_token"`
+	// CertificateFingerprint pins the server certificate (SHA256 hex).
+	CertificateFingerprint string `json:"certificate_fingerprint" yaml:"certificate_fingerprint" mapstructure:"certificate_fingerprint"`
+	// CACertFile loads a custom CA bundle (PEM file path).
+	CACertFile string `json:"ca_cert_file" yaml:"ca_cert_file" mapstructure:"ca_cert_file"`
+	// TimeoutSec bounds the startup Info() check. Seconds.
+	TimeoutSec int `json:"timeout_sec" yaml:"timeout_sec" mapstructure:"timeout_sec"`
 }
+
+// ErrElasticNoEndpoint aborts startup: a non-nil ElasticConfig means
+// "enable elasticsearch", and with neither Addresses nor CloudID the
+// client would silently fall back to localhost:9200.
+// ErrElasticAddressesEmpty is kept for compatibility; prefer
+// ErrElasticNoEndpoint for new errors.Is checks.
+// ErrElasticCACertUnreadable / ErrElasticTimeoutInvalid abort startup.
+var (
+	ErrElasticAddressesEmpty   = errors.New("infra: elastic addresses is empty")
+	ErrElasticNoEndpoint       = errors.New("infra: elastic needs addresses or cloud_id")
+	ErrElasticCACertUnreadable = errors.New("infra: elastic ca_cert_file unreadable")
+	ErrElasticTimeoutInvalid   = errors.New("infra: elastic timeout_sec is negative")
+	ErrElasticUnhealthy        = errors.New("infra: elastic cluster info check failed")
+)
+
+// DefaultElasticTimeoutSec bounds the startup Info() check.
+const DefaultElasticTimeoutSec = 5
 
 var Elastic *elasticsearch.Client
 
@@ -50,26 +85,187 @@ func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		return nil, nil
 	}
 
-	client, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: cfg.Addresses,
-		Username:  cfg.Username,
-		Password:  cfg.Password,
-	})
-	if err != nil {
+	cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Elasticsearch config invalid",
+			"error", err.Error(),
+		)
+
 		return nil, err
 	}
 
-	if Elastic == nil {
-		Elastic = client
+	esCfg := elasticsearch.Config{
+		Addresses:              cfg.Addresses,
+		Username:               cfg.Username,
+		Password:               cfg.Password,
+		CloudID:                cfg.CloudID,
+		APIKey:                 cfg.APIKey,
+		ServiceToken:           cfg.ServiceToken,
+		CertificateFingerprint: cfg.CertificateFingerprint,
 	}
+	if strings.TrimSpace(cfg.CACertFile) != "" {
+		pem, err := os.ReadFile(cfg.CACertFile)
+		if err != nil {
+			logger.Logger.Error(
+				"Elasticsearch CA cert unreadable",
+				"ca_cert_file", cfg.CACertFile,
+				"error", err.Error(),
+			)
+
+			return nil, fmt.Errorf("%w: %s", ErrElasticCACertUnreadable, cfg.CACertFile)
+		}
+		esCfg.CACert = pem
+	}
+
+	client, err := elasticsearch.NewClient(esCfg)
+	if err != nil {
+		logger.Logger.Error(
+			"Elasticsearch initialize failed",
+			"endpoint", cfg.endpoint(),
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	// Fail-fast cluster check: without it a wrong address/auth would only
+	// surface at first query time (and /health would lie).
+	ictx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.TimeoutSec)*time.Second)
+	defer cancel()
+
+	if err := pingElastic(ictx, client); err != nil {
+		logger.Logger.Error(
+			"Elasticsearch cluster check failed",
+			"endpoint", cfg.endpoint(),
+			"error", err.Error(),
+		)
+
+		cctx, ccancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
+		defer ccancel()
+		if cerr := client.Close(cctx); cerr != nil {
+			logger.Logger.Error(
+				"Elasticsearch close after failed check failed",
+				"error", cerr.Error(),
+			)
+		}
+
+		return nil, err
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if Elastic != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking its transport.
+		logger.Logger.Warn("Elasticsearch already initialized, closing duplicate client")
+		cctx, ccancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
+		defer ccancel()
+		if cerr := client.Close(cctx); cerr != nil {
+			logger.Logger.Error(
+				"Elasticsearch duplicate close failed",
+				"error", cerr.Error(),
+			)
+		}
+
+		return Elastic, nil
+	}
+	Elastic = client
 
 	logger.Logger.InfoContext(
 		context.Background(),
 		"Init Elasticsearch successful",
-		"addresses", cfg.Addresses,
+		"endpoint", cfg.endpoint(),
 	)
 
 	return client, nil
+}
+
+// endpoint renders a log-safe endpoint label: never credentials.
+func (c *ElasticConfig) endpoint() string {
+	if c == nil {
+		return ""
+	}
+
+	if strings.TrimSpace(c.CloudID) != "" {
+		return "cloud:***redacted***"
+	}
+
+	safe := make([]string, 0, len(c.Addresses))
+	for _, a := range c.Addresses {
+		safe = append(safe, redactDSN(strings.TrimSpace(a)))
+	}
+	return strings.Join(safe, ",")
+}
+
+// pingElastic runs a cluster Info check; shared by Init and /health.
+func pingElastic(ctx context.Context, client *elasticsearch.Client) error {
+	res, err := client.Info(client.Info.WithContext(ctx))
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrElasticUnhealthy, err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return fmt.Errorf("%w: %s", ErrElasticUnhealthy, res.Status())
+	}
+
+	return nil
+}
+
+// PingElastic checks the shared singleton; nil means not configured.
+func PingElastic(ctx context.Context) error {
+	c := GetElastic()
+	if c == nil {
+		return nil
+	}
+
+	return pingElastic(ctx, c)
+}
+
+func (c *ElasticConfig) Ensure() *ElasticConfig {
+	if c == nil {
+		c = new(ElasticConfig)
+	}
+
+	// Zero fills the default; negative stays negative so Validate aborts.
+	if c.TimeoutSec == 0 {
+		c.TimeoutSec = DefaultElasticTimeoutSec
+	}
+
+	return c
+}
+
+func (c *ElasticConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.CloudID) == "" {
+		empty := true
+		for _, a := range c.Addresses {
+			if strings.TrimSpace(a) != "" {
+				empty = false
+
+				break
+			}
+		}
+		if empty {
+			return ErrElasticNoEndpoint
+		}
+	}
+
+	if c.TimeoutSec < 0 {
+		return ErrElasticTimeoutInvalid
+	}
+
+	if strings.TrimSpace(c.CACertFile) != "" {
+		if _, err := os.Stat(c.CACertFile); err != nil {
+			return fmt.Errorf("%w: %s", ErrElasticCACertUnreadable, c.CACertFile)
+		}
+	}
+
+	return nil
 }
 
 /*

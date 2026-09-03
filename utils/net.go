@@ -92,6 +92,9 @@ func ObtainPreferIP(ipv4Only bool) (net.IP, error) {
 				ip = v.IP
 			}
 
+			if ip == nil {
+				continue
+			}
 			if ipv4Only && ip.To4() == nil {
 				continue
 			}

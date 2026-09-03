@@ -34,6 +34,7 @@ import (
 	"context"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 	"google.golang.org/grpc"
 )
 
@@ -55,6 +56,33 @@ func NewClientLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryClientIntercep
 		l.LogContext(ctx, lv, msg, args...)
 
 		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
+func NewClientStreamLoggerInterceptor(l logger.GeneralLogger) grpc.StreamClientInterceptor {
+	if l == nil {
+		l = logger.Logger
+	}
+
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		metrics.NumGRPCClientCallCounter.Inc()
+
+		cs, err := streamer(ctx, desc, cc, method, opts...)
+		l.LogContext(ctx, logger.DebugLevel, "grpc.stream",
+			"method", method,
+			"target", cc.Target(),
+			"client_stream", desc.ClientStreams,
+			"server_stream", desc.ServerStreams,
+		)
+		if err != nil {
+			l.LogContext(ctx, logger.ErrorLevel, "grpc.stream",
+				"method", method,
+				"target", cc.Target(),
+				"error", err.Error(),
+			)
+		}
+
+		return cs, err
 	}
 }
 

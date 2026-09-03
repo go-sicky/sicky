@@ -42,6 +42,9 @@ import (
 	"github.com/uptrace/bunrouter"
 )
 
+// serverPID is cached: a syscall per request is pure overhead.
+var serverPID = os.Getpid()
+
 type AccessLoggerMiddlewareConfig struct {
 	AccessLoggerConfig *AccessLoggerConfig
 	Next               func(c context.Context) bool
@@ -106,32 +109,34 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 			}
 
 			end := time.Now()
-			status, _ := strconv.Atoi(w.Header().Get("Status"))
+			// Prefer the status captured by the status middleware; fall
+			// back to the legacy "Status" header for handlers that answer
+			// through a path bypassing the middleware.
+			status := StatusFromContext(r.Context())
+			if status == 0 {
+				status, _ = strconv.Atoi(w.Header().Get("Status"))
+			}
 			if status == 0 {
 				status = http.StatusOK
 			}
-			attributes := map[string]any{
-				"pid":            os.Getpid(),
-				"status":         status,
-				"latency":        end.Sub(start),
-				"route":          r.Route(),
-				"method":         r.Method,
-				"Host":           r.Host,
-				"path":           r.URL.Path,
-				"ip":             r.RemoteAddr,
-				"user-agent":     r.UserAgent(),
-				"referer":        r.Referer(),
-				"request-id":     requestID,
-				"trace-id":       traceID,
-				"span-id":        spanID,
-				"parent-span-id": parentSpanID,
-				"sampled":        sampled,
-			}
-
-			// Extract attributes
-			var args []any
-			for k, v := range attributes {
-				args = append(args, k, v)
+			// Fixed-order slice: one alloc, stable field order for log
+			// indexing (a map here costs an extra alloc plus random order).
+			args := []any{
+				"pid", serverPID,
+				"status", status,
+				"latency", end.Sub(start),
+				"route", r.Route(),
+				"method", r.Method,
+				"Host", r.Host,
+				"path", r.URL.Path,
+				"ip", r.RemoteAddr,
+				"user-agent", r.UserAgent(),
+				"referer", r.Referer(),
+				"request-id", requestID,
+				"trace-id", traceID,
+				"span-id", spanID,
+				"parent-span-id", parentSpanID,
+				"sampled", sampled,
 			}
 
 			l := cfg.AccessLoggerConfig.AccessLevel

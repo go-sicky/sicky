@@ -88,7 +88,6 @@ func TestAddrToIP(t *testing.T) {
 		}
 	})
 
-
 }
 
 func TestAddrToPort(t *testing.T) {
@@ -115,7 +114,6 @@ func TestAddrToPort(t *testing.T) {
 			t.Errorf("expected port 0 for unsupported network type, got %d", port)
 		}
 	})
-
 
 }
 

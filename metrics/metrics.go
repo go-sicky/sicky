@@ -138,11 +138,22 @@ func UnregisterAll() {
 }
 
 func Get(name string) prometheus.Collector {
+	lock.RLock()
+	defer lock.RUnlock()
+
 	return pool[name]
 }
 
 func GetAll() map[string]prometheus.Collector {
-	return pool
+	lock.RLock()
+	defer lock.RUnlock()
+
+	out := make(map[string]prometheus.Collector, len(pool))
+	for k, v := range pool {
+		out[k] = v
+	}
+
+	return out
 }
 
 func init() {

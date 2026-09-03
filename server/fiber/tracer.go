@@ -35,10 +35,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/fiber/v2"
 	futils "github.com/gofiber/fiber/v2/utils"
-	"go.opentelemetry.io/contrib/propagators/b3"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -48,13 +48,21 @@ type TracerConfig struct {
 	Tracer            trace.Tracer
 	SpanIDContextKey  string
 	TraceIDContextKey string
+	// SkipPaths bypasses span creation (probe traffic would otherwise
+	// burn trace-backend budget). Nil selects the default probe list;
+	// set an explicit empty slice to trace everything.
+	SkipPaths []string
 }
+
+// DefaultTracerSkipPaths covers the conventional probe endpoints.
+var DefaultTracerSkipPaths = []string{"/health", "/metrics", "/docs"}
 
 var TracerConfigDefault = TracerConfig{
 	Next:              nil,
 	Tracer:            nil,
 	SpanIDContextKey:  "spanid",
 	TraceIDContextKey: "traceid",
+	SkipPaths:         DefaultTracerSkipPaths,
 }
 
 func tracerConfigDefault(config ...TracerConfig) TracerConfig {
@@ -65,6 +73,10 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 	cfg := config[0]
 	if cfg.Next == nil {
 		cfg.Next = TracerConfigDefault.Next
+	}
+
+	if cfg.SkipPaths == nil {
+		cfg.SkipPaths = append([]string(nil), TracerConfigDefault.SkipPaths...)
 	}
 
 	if cfg.SpanIDContextKey == "" {
@@ -80,11 +92,16 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 
 func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 	cfg := tracerConfigDefault(config...)
-	pg := b3.New()
 
 	return func(c *fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
+		}
+
+		for _, p := range cfg.SkipPaths {
+			if c.Path() == p {
+				return c.Next()
+			}
 		}
 
 		if cfg.Tracer == nil {
@@ -94,17 +111,31 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		}
 
 		savedCtx, cancel := context.WithCancel(c.UserContext())
-		// Dump HTTP request header from fiber
-		reqHeader := make(http.Header)
-		c.Request().Header.VisitAll(func(k, v []byte) {
-			reqHeader.Add(string(k), string(v))
-		})
+		// Extract only the propagation headers instead of copying the
+		// whole header set: full copies cost a string alloc per header
+		// on every request. W3C (traceparent/tracestate/baggage) + B3
+		// dual-extract via the shared propagator.
+		reqHeader := make(http.Header, 9)
+		for _, k := range []string{"traceparent", "tracestate", "baggage", "B3", "X-Request-Id", "X-B3-Traceid", "X-B3-Spanid", "X-B3-Parentspanid", "X-B3-Sampled"} {
+			if v := c.Get(k); v != "" {
+				reqHeader.Set(k, v)
+			}
+		}
 
-		newCtx := pg.Extract(savedCtx, propagation.HeaderCarrier(reqHeader))
-		spanedCtx, span := cfg.Tracer.Start(newCtx, futils.CopyString(c.Path()))
+		newCtx := tracer.Extract(savedCtx, propagation.HeaderCarrier(reqHeader))
+		// Prefer the route template; fall back to a low-cardinality
+		// method label (never the raw path: /users/123 would explode
+		// the tracing backend index).
+		spanName := "HTTP " + c.Method()
+		if route := c.Route().Path; route != "" {
+			spanName = futils.CopyString(route)
+		}
+		spanedCtx, span := cfg.Tracer.Start(newCtx, spanName)
 		defer func() {
-			cancel()
+			// End the span before cancelling its parent context so
+			// the export is never cut off mid-flight.
 			span.End()
+			cancel()
 		}()
 
 		self := span.SpanContext()

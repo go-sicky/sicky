@@ -98,6 +98,8 @@ func LogLevel(l string) Level {
 		return ErrorLevel
 	case "fatal":
 		return FatalLevel
+	case "silence":
+		return SilenceLevel
 	default:
 		return InfoLevel
 	}

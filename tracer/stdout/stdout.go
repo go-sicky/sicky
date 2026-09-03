@@ -32,14 +32,13 @@ package stdout
 
 import (
 	"context"
-	"os"
+	"time"
 
 	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/tracer/internal"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
@@ -87,12 +86,8 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 
 	tc.exporter = exporter
 
-	// Resource
-	cn, _ := os.Hostname()
-
-	// Validate configuration parameters
-	if cfg.SampleRate < 0 || cfg.SampleRate > 1 {
-		cfg.SampleRate = 1.0 // Reset to full sampling when rate is out of range
+	if clamped := internal.ClampSampleRate(cfg.SampleRate); clamped != cfg.SampleRate {
+		cfg.SampleRate = clamped
 		tc.options.Logger.WarnContext(
 			tc.ctx,
 			"Invalid sample rate, reset to 1.0",
@@ -105,17 +100,9 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 		)
 	}
 
-	baseResource := resource.NewWithAttributes(
-		semconv.SchemaURL,
-		semconv.ServiceName(cfg.ServiceName),
-		semconv.ServiceVersion(cfg.ServiceVersion),
-		semconv.ServiceInstanceID(opts.ID.String()),
-		semconv.ContainerName(cn),
-	)
-
-	r, err := resource.Merge(
-		resource.Default(),
-		baseResource,
+	// Create TracerProvider with batching configuration (shared helper).
+	provider, err := internal.NewOTLPProvider(
+		cfg.ServiceName, cfg.ServiceVersion, opts.ID.String(), cfg.SampleRate, exporter,
 	)
 	if err != nil {
 		tc.options.Logger.ErrorContext(
@@ -131,18 +118,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 
 		return nil // Return directly if resource creation fails
 	}
-
-	// Configure sampling strategy
-	sampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(cfg.SampleRate), // Get sample rate from config
-	)
-
-	// Create TracerProvider with batching configuration
-	tc.provider = sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter), // Improve performance with batching
-		sdktrace.WithResource(r),
-		sdktrace.WithSampler(sampler), // Add sampling strategy
-	)
+	tc.provider = provider
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -194,11 +170,13 @@ func (tc *StdoutTracer) Start() error {
 
 func (tc *StdoutTracer) Stop() error {
 	if tc.provider != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		// Add shutdown logic to gracefully terminate the tracer
-		if err := tc.provider.Shutdown(tc.ctx); err != nil {
+		if err := tc.provider.Shutdown(ctx); err != nil {
 			// Add additional cleanup for exporter
 			if tc.exporter != nil {
-				if shutdownErr := tc.exporter.Shutdown(tc.ctx); shutdownErr != nil {
+				if shutdownErr := tc.exporter.Shutdown(ctx); shutdownErr != nil {
 					tc.options.Logger.WarnContext(
 						tc.ctx,
 						"Failed to shutdown tracer exporter",

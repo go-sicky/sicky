@@ -32,6 +32,14 @@ package client
 
 type Config struct{}
 
+func (c *Config) Ensure() *Config {
+	if c == nil {
+		c = new(Config)
+	}
+
+	return c
+}
+
 /*
  * Local variables:
  * tab-width: 4

@@ -36,7 +36,6 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"fmt"
-	"math/big"
 	"runtime"
 	"strconv"
 
@@ -47,18 +46,40 @@ import (
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 func RandomString(length int) string {
-	b := make([]byte, length)
-	for i := range b {
-		num, _ := crand.Int(crand.Reader, big.NewInt(int64(len(letterBytes))))
-		b[i] = letterBytes[num.Int64()]
+	if length <= 0 {
+		return ""
+	}
+	// Rejection-sample uniformly without per-byte big.Int allocs.
+	max := 256 - (256 % len(letterBytes))
+	b := make([]byte, 0, length)
+	raw := make([]byte, length*2)
+	for len(b) < length {
+		if _, err := crand.Read(raw); err != nil {
+			// crypto/rand must never silently degrade; fail fast.
+			panic(fmt.Sprintf("crypto/rand unavailable: %s", err.Error()))
+		}
+		for _, v := range raw {
+			if int(v) >= max {
+				continue
+			}
+			b = append(b, letterBytes[int(v)%len(letterBytes)])
+			if len(b) == length {
+				break
+			}
+		}
 	}
 
 	return string(b)
 }
 
 func RandomHex(length int) []byte {
+	if length <= 0 {
+		return nil
+	}
 	b := make([]byte, length)
-	crand.Read(b)
+	if _, err := crand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand unavailable: %s", err.Error()))
+	}
 
 	return b
 }

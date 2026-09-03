@@ -34,8 +34,15 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/google/uuid"
 	"github.com/uptrace/bunrouter"
 )
+
+// sanitizePropagatedValue delegates to the shared tracer sanitizer.
+func sanitizePropagatedValue(v string) string {
+	return tracer.Sanitize(v)
+}
 
 type PropagationConfig struct {
 	Next                   func(c context.Context) bool
@@ -133,11 +140,15 @@ func NewPropagationMiddleware(config ...PropagationConfig) bunrouter.MiddlewareF
 			}
 
 			ctx := r.Context()
-			requestID := r.Header.Get(cfg.RequestIDHeader)
-			traceID := r.Header.Get(cfg.TraceIDHeader)
-			spanID := r.Header.Get(cfg.SpanIDHeader)
-			parentSpanID := r.Header.Get(cfg.ParentSpanIDHeader)
-			sampled := r.Header.Get(cfg.SampledHeader)
+			requestID := sanitizePropagatedValue(r.Header.Get(cfg.RequestIDHeader))
+			traceID := sanitizePropagatedValue(r.Header.Get(cfg.TraceIDHeader))
+			spanID := sanitizePropagatedValue(r.Header.Get(cfg.SpanIDHeader))
+			parentSpanID := sanitizePropagatedValue(r.Header.Get(cfg.ParentSpanIDHeader))
+			sampled := sanitizePropagatedValue(r.Header.Get(cfg.SampledHeader))
+
+			if requestID == "" {
+				requestID = uuid.New().String()
+			}
 
 			ctx = context.WithValue(ctx, cfg.RequestIDContextKey, requestID)
 			ctx = context.WithValue(ctx, cfg.TraceIDContextKey, traceID)

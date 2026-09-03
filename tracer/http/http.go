@@ -32,15 +32,14 @@ package http
 
 import (
 	"context"
-	"os"
+	"time"
 
 	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/tracer/internal"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 )
@@ -69,8 +68,21 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 		oo = append(oo, otlptracehttp.WithEndpoint(cfg.Endpoint))
 	}
 
-	// Insecure default
-	oo = append(oo, otlptracehttp.WithInsecure())
+	if cfg.Compress {
+		oo = append(oo, otlptracehttp.WithCompression(otlptracehttp.GzipCompression))
+	}
+
+	if cfg.Timeout > 0 {
+		oo = append(oo, otlptracehttp.WithTimeout(time.Duration(cfg.Timeout)*time.Second))
+	}
+
+	if len(cfg.Headers) > 0 {
+		oo = append(oo, otlptracehttp.WithHeaders(cfg.Headers))
+	}
+
+	if cfg.Insecure {
+		oo = append(oo, otlptracehttp.WithInsecure())
+	}
 
 	// Exporter
 	e, err := otlptracehttp.New(tc.ctx, oo...)
@@ -93,12 +105,8 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 
 	tc.exporter = e
 
-	// Resource
-	cn, _ := os.Hostname()
-
-	// Validate configuration parameters
-	if cfg.SampleRate < 0 || cfg.SampleRate > 1 {
-		cfg.SampleRate = 1.0 // Reset to full sampling when rate is out of range
+	if clamped := internal.ClampSampleRate(cfg.SampleRate); clamped != cfg.SampleRate {
+		cfg.SampleRate = clamped
 		tc.options.Logger.WarnContext(
 			tc.ctx,
 			"Invalid sample rate, reset to 1.0",
@@ -112,15 +120,9 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 		)
 	}
 
-	r, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion(cfg.ServiceVersion),
-			semconv.ServiceInstanceID(opts.ID.String()),
-			semconv.ContainerName(cn),
-		),
+	// Provider (shared standard-OTLP construction).
+	provider, err := internal.NewOTLPProvider(
+		cfg.ServiceName, cfg.ServiceVersion, opts.ID.String(), cfg.SampleRate, e,
 	)
 	if err != nil {
 		tc.options.Logger.ErrorContext(
@@ -138,18 +140,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 
 		return nil
 	}
-
-	// Configure sampling strategy
-	sampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(cfg.SampleRate), // Get sample rate from config
-	)
-
-	// Provider
-	tc.provider = sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(e),
-		sdktrace.WithResource(r),
-		sdktrace.WithSampler(sampler),
-	)
+	tc.provider = provider
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -205,9 +196,11 @@ func (tc *HTTPTracer) Start() error {
 
 func (tc *HTTPTracer) Stop() error {
 	if tc.provider != nil {
-		if err := tc.provider.Shutdown(tc.ctx); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tc.provider.Shutdown(ctx); err != nil {
 			if tc.exporter != nil {
-				if shutdownErr := tc.exporter.Shutdown(tc.ctx); shutdownErr != nil {
+				if shutdownErr := tc.exporter.Shutdown(ctx); shutdownErr != nil {
 					tc.options.Logger.WarnContext(
 						tc.ctx,
 						"Failed to shutdown tracer exporter",

@@ -32,18 +32,49 @@ package grpc
 
 import (
 	"context"
+	"strings"
 
+	sickytracer "github.com/go-sicky/sicky/tracer"
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
+
+// injectSpanContext merges the span context into the outgoing gRPC
+// metadata (W3C traceparent/tracestate/baggage + B3, per the shared
+// propagator) and ensures an X-Request-ID exists for correlation.
+func injectSpanContext(ctx context.Context) context.Context {
+	carrier := propagation.MapCarrier{}
+	sickytracer.Inject(ctx, carrier)
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	if !ok {
+		md = metadata.MD{}
+	} else {
+		md = md.Copy()
+	}
+	for k, v := range carrier {
+		if v == "" {
+			continue
+		}
+		md.Set(strings.ToLower(k), v)
+	}
+	if vals := md.Get("x-request-id"); len(vals) == 0 || vals[0] == "" {
+		md.Set("x-request-id", uuid.New().String())
+	}
+
+	return metadata.NewOutgoingContext(ctx, md)
+}
 
 func NewClientTracingInterceptor(tracer trace.Tracer) grpc.UnaryClientInterceptor {
 	if tracer != nil {
 		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			_, span := tracer.Start(ctx, method)
+			spanCtx, span := tracer.Start(ctx, method)
 			defer span.End()
 
-			err := invoker(ctx, method, req, reply, cc, opts...)
+			err := invoker(injectSpanContext(spanCtx), method, req, reply, cc, opts...)
 			if err != nil {
 				span.RecordError(err)
 			}
@@ -52,8 +83,40 @@ func NewClientTracingInterceptor(tracer trace.Tracer) grpc.UnaryClientIntercepto
 		}
 	} else {
 		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			return nil
+			return invoker(ctx, method, req, reply, cc, opts...)
 		}
+	}
+}
+
+// tracingClientStream ends the span when the stream's context finishes.
+type tracingClientStream struct {
+	grpc.ClientStream
+	span trace.Span
+}
+
+func NewClientStreamTracingInterceptor(tracer trace.Tracer) grpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		if tracer == nil {
+			return streamer(ctx, desc, cc, method, opts...)
+		}
+
+		streamCtx, span := tracer.Start(ctx, method)
+		streamCtx = injectSpanContext(streamCtx)
+		cs, err := streamer(streamCtx, desc, cc, method, opts...)
+		if err != nil {
+			span.RecordError(err)
+			span.End()
+
+			return nil, err
+		}
+
+		wrapped := &tracingClientStream{ClientStream: cs, span: span}
+		go func() {
+			<-streamCtx.Done()
+			span.End()
+		}()
+
+		return wrapped, nil
 	}
 }
 

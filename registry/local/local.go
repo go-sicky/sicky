@@ -101,7 +101,7 @@ func (rg *Local) Name() string {
 func (rg *Local) Register(ins *registry.Instance) error {
 	dir := rg.config.RegistryFilePath
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.ctx,
 				"Register instance to local file failed",
@@ -116,7 +116,7 @@ func (rg *Local) Register(ins *registry.Instance) error {
 
 	file := filepath.Join(dir, ins.ID.String()+".json")
 	data := utils.JSONAnyBytes(ins)
-	err := os.WriteFile(file, data, 0644)
+	err := os.WriteFile(file, data, 0o600)
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,

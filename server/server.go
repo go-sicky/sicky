@@ -33,6 +33,7 @@ package server
 import (
 	"context"
 	"net"
+	"sync"
 
 	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
@@ -72,15 +73,24 @@ type Server interface {
 	Metadata() utils.Metadata
 }
 
-var servers = make(map[uuid.UUID]Server)
+var (
+	servers = make(map[uuid.UUID]Server)
+	srvMu   sync.RWMutex
+)
 
 func Set(srvs ...Server) {
+	srvMu.Lock()
+	defer srvMu.Unlock()
+
 	for _, srv := range srvs {
 		servers[srv.ID()] = srv
 	}
 }
 
 func Get(id uuid.UUID) Server {
+	srvMu.RLock()
+	defer srvMu.RUnlock()
+
 	return servers[id]
 }
 

@@ -40,11 +40,11 @@ import (
 const JSONRPCVersion = "2.0"
 
 var (
-	ErrInvalidRequest    = errors.New("invalid request")
-	ErrParseError        = errors.New("parse error")
-	ErrMethodNotFound    = errors.New("method not found")
-	ErrInvalidParams     = errors.New("invalid params")
-	ErrInternalError     = errors.New("internal error")
+	ErrInvalidRequest       = errors.New("invalid request")
+	ErrParseError           = errors.New("parse error")
+	ErrMethodNotFound       = errors.New("method not found")
+	ErrInvalidParams        = errors.New("invalid params")
+	ErrInternalError        = errors.New("internal error")
 	ErrServerNotInitialized = errors.New("server not initialized")
 )
 
@@ -69,8 +69,8 @@ type RequestID struct {
 	isNum bool
 }
 
-func NewStringID(s string) *RequestID   { return &RequestID{value: s} }
-func NewNumberID(n int64) *RequestID    { return &RequestID{value: strconv.FormatInt(n, 10), isNum: true} }
+func NewStringID(s string) *RequestID { return &RequestID{value: s} }
+func NewNumberID(n int64) *RequestID  { return &RequestID{value: strconv.FormatInt(n, 10), isNum: true} }
 
 func (r *RequestID) MarshalJSON() ([]byte, error) {
 	if r.isNum {
@@ -111,9 +111,9 @@ func (r *RequestID) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("RequestID must be string or number, got %s", string(data))
 }
 
-func (r *RequestID) String() string   { return r.value }
-func (r *RequestID) Int64() int64     { n, _ := strconv.ParseInt(r.value, 10, 64); return n }
-func (r *RequestID) IsNum() bool      { return r.isNum }
+func (r *RequestID) String() string { return r.value }
+func (r *RequestID) Int64() int64   { n, _ := strconv.ParseInt(r.value, 10, 64); return n }
+func (r *RequestID) IsNum() bool    { return r.isNum }
 
 type Response struct {
 	JSONRPC string          `json:"jsonrpc"`

@@ -51,7 +51,7 @@ type Envelope struct {
 	Data       any         `json:"data,omitempty" yaml:"data,omitempty" xml:"data,omitempty"`
 }
 
-func WrapHTTPResponse(data interface{}) *Envelope {
+func WrapHTTPResponse(data any) *Envelope {
 	e := &Envelope{
 		Code:      CodeOK,
 		Status:    fiber.StatusOK,
@@ -87,7 +87,7 @@ func (e *Envelope) SetRequestID(requestID string) *Envelope {
 	return e
 }
 
-func (e *Envelope) SetData(data interface{}) *Envelope {
+func (e *Envelope) SetData(data any) *Envelope {
 	e.Data = data
 
 	return e

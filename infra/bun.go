@@ -31,8 +31,11 @@
 package infra
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"strings"
+	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/go-sicky/sicky/logger"
@@ -50,13 +53,36 @@ import (
 )
 
 type BunConfig struct {
-	Driver       string `json:"driver" yaml:"driver" mapstructure:"driver"`
-	DSN          string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
-	Debug        bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
-	SlowDuration int    `json:"slow_duration" yaml:"slow_duration" mapstructure:"slow_duration"`
+	Driver string `json:"driver" yaml:"driver" mapstructure:"driver"`
+	DSN    string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	Debug  bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
+	// Verbose enables full query logging including bound arguments.
+	// Arguments may contain secrets: keep false in production.
+	Verbose bool `json:"verbose" yaml:"verbose" mapstructure:"verbose"`
+	// SlowDuration enables the query hook when >0, in milliseconds.
+	// Reserved for threshold filtering; bundebug v1.2.x exposes no
+	// threshold option, so the value itself only gates the hook.
+	SlowDuration int `json:"slow_duration" yaml:"slow_duration" mapstructure:"slow_duration"`
+	// Connection pool. Zero means driver default (unlimited open
+	// connections); negative aborts startup.
+	MaxOpenConns       int `json:"max_open_conns" yaml:"max_open_conns" mapstructure:"max_open_conns"`
+	MaxIdleConns       int `json:"max_idle_conns" yaml:"max_idle_conns" mapstructure:"max_idle_conns"`
+	ConnMaxLifetimeSec int `json:"conn_max_lifetime_sec" yaml:"conn_max_lifetime_sec" mapstructure:"conn_max_lifetime_sec"`
+	ConnMaxIdleTimeSec int `json:"conn_max_idle_time_sec" yaml:"conn_max_idle_time_sec" mapstructure:"conn_max_idle_time_sec"`
 }
 
 var Bun *bun.DB
+
+// ErrBunDSNEmpty aborts startup: a non-nil BunConfig means "enable SQL"
+// and an empty DSN would otherwise dial nowhere and fail late.
+// ErrBunUnsupportedDriver aborts startup instead of silently falling back
+// to PostgreSQL on a typo'd driver name.
+// ErrBunPoolInvalid aborts startup on negative pool/lifetime settings.
+var (
+	ErrBunDSNEmpty          = errors.New("infra: bun dsn is empty")
+	ErrBunUnsupportedDriver = errors.New("infra: bun unsupported driver")
+	ErrBunPoolInvalid       = errors.New("infra: bun pool setting is negative")
+)
 
 func InitBun(cfg *BunConfig) (*bun.DB, error) {
 	var (
@@ -67,6 +93,17 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 
 	if cfg == nil {
 		return nil, nil
+	}
+
+	cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Database config invalid",
+			"driver", cfg.Driver,
+			"error", err.Error(),
+		)
+
+		return nil, err
 	}
 
 	switch strings.ToLower(cfg.Driver) {
@@ -95,34 +132,68 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 
 		db = bun.NewDB(sqldb, sqlitedialect.New())
 	case "dm":
-		// DaMeng
+		// DaMeng (uses Oracle dialect as fallback)
 		sqldb, err = sql.Open("dm", cfg.DSN)
 		if err != nil {
 			return nil, err
 		}
 
 		db = bun.NewDB(sqldb, oracledialect.New())
-	default:
+	case "postgres", "postgresql", "pg":
 		// PostgreSQL
 		sqldb = sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(cfg.DSN)))
 		db = bun.NewDB(sqldb, pgdialect.New())
+	default:
+		// Unreachable after Validate, kept as defense in depth.
+		return nil, ErrBunUnsupportedDriver
 	}
 
-	err = db.Ping()
+	// Ping with a timeout: database/sql dials lazily and Ping without a
+	// deadline could hang startup indefinitely.
+	pctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
+	defer cancel()
+
+	err = db.PingContext(pctx)
 	if err != nil {
 		logger.Logger.Error(
 			"Database initialize failed",
+			"driver", cfg.Driver,
 			"error", err.Error(),
 		)
+
+		// Close the handle opened above instead of leaking it.
+		if cerr := db.Close(); cerr != nil {
+			logger.Logger.Error(
+				"Database close after failed ping failed",
+				"driver", cfg.Driver,
+				"error", cerr.Error(),
+			)
+		}
 
 		return nil, err
 	}
 
-	// Debug logger
+	// Connection pool: database/sql defaults to unlimited open
+	// connections, which can overwhelm the DB under load.
+	if cfg.MaxOpenConns > 0 {
+		sqldb.SetMaxOpenConns(cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns > 0 {
+		sqldb.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	if cfg.ConnMaxLifetimeSec > 0 {
+		sqldb.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeSec) * time.Second)
+	}
+	if cfg.ConnMaxIdleTimeSec > 0 {
+		sqldb.SetConnMaxIdleTime(time.Duration(cfg.ConnMaxIdleTimeSec) * time.Second)
+	}
+
+	// Debug logger. Verbose logs bound query arguments, which may contain
+	// secrets — keep Verbose false in production.
 	if cfg.Debug {
 		db.AddQueryHook(bundebug.NewQueryHook(
 			bundebug.WithEnabled(true),
-			bundebug.WithVerbose(true),
+			bundebug.WithVerbose(cfg.Verbose),
 		))
 	} else if cfg.SlowDuration > 0 {
 		db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithEnabled(true)))
@@ -132,13 +203,59 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		"Database initialized",
 		"driver", cfg.Driver,
 		"debug", cfg.Debug,
+		"max_open_conns", cfg.MaxOpenConns,
 	)
 
-	if Bun == nil {
-		Bun = db
+	mu.Lock()
+	defer mu.Unlock()
+	if Bun != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("Database already initialized, closing duplicate connection")
+		if cerr := db.Close(); cerr != nil {
+			logger.Logger.Error(
+				"Database duplicate close failed",
+				"driver", cfg.Driver,
+				"error", cerr.Error(),
+			)
+		}
+
+		return Bun, nil
 	}
+	Bun = db
 
 	return db, nil
+}
+
+func (c *BunConfig) Ensure() *BunConfig {
+	if c == nil {
+		c = new(BunConfig)
+	}
+
+	return c
+}
+
+func (c *BunConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.DSN) == "" {
+		return ErrBunDSNEmpty
+	}
+
+	switch strings.ToLower(strings.TrimSpace(c.Driver)) {
+	case "postgres", "postgresql", "pg", "mysql", "mssql", "sqlite", "dm":
+		// Pool/lifetime settings: negative aborts, zero keeps driver default.
+		if c.MaxOpenConns < 0 || c.MaxIdleConns < 0 ||
+			c.ConnMaxLifetimeSec < 0 || c.ConnMaxIdleTimeSec < 0 {
+			return ErrBunPoolInvalid
+		}
+
+		return nil
+	default:
+		return ErrBunUnsupportedDriver
+	}
 }
 
 /*

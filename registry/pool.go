@@ -102,6 +102,9 @@ type Topic struct {
 
 // Init pool
 func InitPool() *Pool {
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
 	currentPool = &Pool{
 		Services: make(map[string]*Service),
 		Notify:   make(chan PoolEvent, 1),
@@ -118,10 +121,19 @@ func NewPool() *Pool {
 }
 
 func GetPool() *Pool {
-	poolLock.Lock()
-	defer poolLock.Unlock()
+	poolLock.RLock()
+	defer poolLock.RUnlock()
 
-	return currentPool
+	if currentPool == nil {
+		return nil
+	}
+
+	// Return a deep-copy snapshot so readers (e.g. /services handler)
+	// never race with pool writers.
+	currentPool.RLock()
+	defer currentPool.RUnlock()
+
+	return currentPool.clone()
 }
 
 func SetPool(p *Pool) {
@@ -202,7 +214,11 @@ func (p *Pool) GetInstances(service string) map[uuid.UUID]*Instance {
 
 	s, ok := p.Services[service]
 	if ok && s.Instances != nil {
-		return s.Instances
+		out := make(map[uuid.UUID]*Instance, len(s.Instances))
+		for id, in := range s.Instances {
+			out[id] = cloneInstance(in)
+		}
+		return out
 	}
 
 	return nil
@@ -222,7 +238,7 @@ func RegisterInstance(ins *Instance) {
 
 func GetInstance(service string, id uuid.UUID) *Instance {
 	poolLock.RLock()
-	defer poolLock.Unlock()
+	defer poolLock.RUnlock()
 
 	if currentPool == nil {
 		return nil
@@ -254,8 +270,8 @@ func GetInstances(service string) map[uuid.UUID]*Instance {
 }
 
 func RegisterService(svc *Service) {
-	poolLock.RLock()
-	defer poolLock.RUnlock()
+	poolLock.Lock()
+	defer poolLock.Unlock()
 
 	if currentPool == nil {
 		return
@@ -278,22 +294,126 @@ func GetService(service string) *Service {
 /* }}} */
 
 func PurgePool(ins []*Instance) {
-	p := NewPool()
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		currentPool = NewPool()
+	}
+
+	// Rebuild the services map in place so the *Pool pointer (and its
+	// Notify channel) stays stable for existing holders.
+	services := make(map[string]*Service, len(ins))
 	for _, in := range ins {
-		svc := p.GetService(in.ServiceName)
+		if in == nil {
+			continue
+		}
+		svc := services[in.ServiceName]
 		if svc == nil {
 			svc = &Service{
 				Service:   in.ServiceName,
 				Instances: make(map[uuid.UUID]*Instance),
 			}
-			p.RegisterService(svc)
+			services[in.ServiceName] = svc
 		}
-
-		p.RegisterInstance(in)
+		if svc.Instances == nil {
+			svc.Instances = make(map[uuid.UUID]*Instance)
+		}
+		svc.Instances[in.ID] = in
 	}
 
-	SetPool(p)
-	// utils.JSONAny(GetPool())
+	currentPool.Lock()
+	currentPool.Services = services
+	notify := currentPool.Notify
+	currentPool.Unlock()
+
+	select {
+	case notify <- PoolEvent{Changed: true}:
+	default:
+		// No listener or buffer full: never block the purge path.
+	}
+}
+
+// clone deep-copies the pool for race-free snapshots.
+// Caller must hold at least p.RLock().
+func (p *Pool) clone() *Pool {
+	if p == nil {
+		return nil
+	}
+
+	out := &Pool{
+		Services: make(map[string]*Service, len(p.Services)),
+	}
+
+	for name, svc := range p.Services {
+		if svc == nil {
+			continue
+		}
+		dup := &Service{
+			Service:   svc.Service,
+			Kind:      svc.Kind,
+			Self:      svc.Self,
+			Tags:      append([]string(nil), svc.Tags...),
+			Metadata:  cloneMetadata(svc.Metadata),
+			Instances: make(map[uuid.UUID]*Instance, len(svc.Instances)),
+		}
+		for id, in := range svc.Instances {
+			dup.Instances[id] = cloneInstance(in)
+		}
+		out.Services[name] = dup
+	}
+
+	return out
+}
+
+func cloneMetadata(md utils.Metadata) utils.Metadata {
+	if md == nil {
+		return nil
+	}
+
+	return md.Copy()
+}
+
+func cloneInstance(in *Instance) *Instance {
+	if in == nil {
+		return nil
+	}
+
+	out := &Instance{
+		ID:               in.ID,
+		ServiceName:      in.ServiceName,
+		Type:             in.Type,
+		AdvertiseAddress: in.AdvertiseAddress,
+		ManagerPort:      in.ManagerPort,
+		ManagerAddress:   in.ManagerAddress,
+		Tags:             append([]string(nil), in.Tags...),
+		Metadata:         cloneMetadata(in.Metadata),
+		Weight:           in.Weight,
+		Status:           in.Status,
+		CheckEntryPoint:  in.CheckEntryPoint,
+		TTL:              in.TTL,
+		Servers:          make(map[string]*Server, len(in.Servers)),
+		Topics:           make(map[string]*Topic, len(in.Topics)),
+	}
+
+	for name, srv := range in.Servers {
+		if srv == nil {
+			continue
+		}
+		dup := *srv
+		out.Servers[name] = &dup
+	}
+
+	for name, tp := range in.Topics {
+		if tp == nil {
+			continue
+		}
+		dup := *tp
+		dup.Instance = out
+		out.Topics[name] = &dup
+	}
+
+	return out
 }
 
 // func GetInstances(service string) map[string]*Instance {

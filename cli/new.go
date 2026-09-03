@@ -38,6 +38,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"unicode"
 
 	"github.com/spf13/pflag"
 )
@@ -57,18 +58,21 @@ type newContext struct {
 	OutputDir    string
 }
 
-func newRun(args []string) {
-	fs := pflag.NewFlagSet("new", pflag.ExitOnError)
+func newRun(args []string) int {
+	fs := pflag.NewFlagSet("new", pflag.ContinueOnError)
 	typeFlag := fs.String("type", "", "Service type: standard, mcp, interactive")
 	moduleFlag := fs.String("module", "", "Go module path")
 	outputFlag := fs.StringP("output", "o", ".", "Output directory")
 	noGrpcFlag := fs.Bool("no-grpc", false, "Skip gRPC server")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky new: %s\n", err.Error())
+		return 1
+	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "sicky new: missing project name")
 		fmt.Fprintln(os.Stderr, "Usage: sicky new <project-name> [flags]")
-		os.Exit(1)
+		return 1
 	}
 
 	nc := &newContext{
@@ -82,7 +86,7 @@ func newRun(args []string) {
 
 	if nc.Name == "" {
 		fmt.Fprintln(os.Stderr, "sicky new: project name cannot be empty")
-		os.Exit(1)
+		return 1
 	}
 
 	interactivePrompt(nc)
@@ -93,7 +97,7 @@ func newRun(args []string) {
 	projectDir := filepath.Join(nc.OutputDir, nc.Name)
 	if err := scaffoldProject(projectDir, nc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky new: failed to create project: %s\n", err.Error())
-		os.Exit(1)
+		return 1
 	}
 
 	fmt.Println()
@@ -104,6 +108,7 @@ func newRun(args []string) {
 	fmt.Println("    make build")
 	fmt.Println("    make run")
 	fmt.Println()
+	return 0
 }
 
 func interactivePrompt(nc *newContext) {
@@ -189,16 +194,16 @@ func interactivePrompt(nc *newContext) {
 }
 
 func scaffoldProject(dir string, nc *newContext) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, "handler"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "handler"), 0o755); err != nil {
 		return err
 	}
 
 	if nc.WithProto {
-		if err := os.MkdirAll(filepath.Join(dir, "proto"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, "proto"), 0o755); err != nil {
 			return err
 		}
 	}
@@ -226,7 +231,7 @@ func scaffoldProject(dir string, nc *newContext) error {
 			return fmt.Errorf("template %s: %w", f.template, err)
 		}
 
-		if err := os.WriteFile(f.path, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(f.path, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", f.path, err)
 		}
 	}
@@ -234,7 +239,7 @@ func scaffoldProject(dir string, nc *newContext) error {
 	return nil
 }
 
-func renderProjectTemplate(name string, data interface{}) (string, error) {
+func renderProjectTemplate(name string, data any) (string, error) {
 	tmplBytes, err := projectTemplates.ReadFile(name)
 	if err != nil {
 		return "", fmt.Errorf("template %q: %w", name, err)
@@ -268,9 +273,7 @@ func exportName(name string) string {
 		}
 
 		runes := []rune(part)
-		if runes[0] >= 'a' && runes[0] <= 'z' {
-			runes[0] = runes[0] - 32
-		}
+		runes[0] = unicode.ToUpper(runes[0])
 
 		parts[i] = string(runes)
 	}

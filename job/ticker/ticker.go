@@ -32,6 +32,7 @@ package ticker
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,6 +101,9 @@ func (job *Ticker) Name() string {
 }
 
 func (job *Ticker) Add(task *Task) error {
+	if task == nil {
+		return errors.New("ticker task is nil")
+	}
 	job.Lock()
 	defer job.Unlock()
 
@@ -107,7 +111,7 @@ func (job *Ticker) Add(task *Task) error {
 		task.ID = uuid.New()
 	}
 
-	if task.Inteval == 0 {
+	if task.Inteval <= 0 {
 		task.Inteval = 1
 	}
 
@@ -133,26 +137,28 @@ func (job *Ticker) Start() error {
 				if !ok {
 					return
 				}
-				for _, hdl := range job.tasks {
-					if job.counter.Load()%hdl.Inteval == 0 {
-						err := hdl.Handler(t, job.counter.Load())
-						if err != nil {
-							job.options.Logger.ErrorContext(
-								job.ctx,
-								"Ticker handler failed",
-								"error", err.Error(),
-							)
-						} else {
-							job.options.Logger.DebugContext(
-								job.ctx,
-								"Ticker handler success",
-								"job", job.String(),
-								"handler", hdl.ID,
-								"id", job.options.ID,
-								"name", job.options.Name,
-								"counter", job.counter.Load(),
-							)
-						}
+				job.RLock()
+				snapshot := append([]*Task(nil), job.tasks...)
+				job.RUnlock()
+				count := job.counter.Load()
+				for _, hdl := range snapshot {
+					if hdl == nil || hdl.Handler == nil || hdl.Inteval <= 0 {
+						continue
+					}
+					if count%hdl.Inteval == 0 {
+						func() {
+							defer func() {
+								_ = recover()
+							}()
+							err := hdl.Handler(t, count)
+							if err != nil {
+								job.options.Logger.ErrorContext(
+									job.ctx,
+									"Ticker handler failed",
+									"error", err.Error(),
+								)
+							}
+						}()
 					}
 				}
 

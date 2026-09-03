@@ -34,7 +34,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/contrib/websocket"
@@ -95,14 +94,13 @@ func (s *Session) Conn() *websocket.Conn {
 
 func (s *Session) SetKey(key string) {
 	if s.pool != nil {
-		// Refresh pool
+		s.pool.Lock()
 		if s.Key != "" {
-			s.pool.Lock()
 			delete(s.pool.keys, s.Key)
-			s.pool.Unlock()
 		}
-
+		// Last writer wins; migration path will replace keying entirely.
 		s.pool.keys[key] = s
+		s.pool.Unlock()
 	}
 
 	s.Key = key
@@ -165,6 +163,8 @@ func (p *Pool) Put(sess *Session) {
 }
 
 func (p *Pool) GetByID(id uuid.UUID) *Session {
+	p.RLock()
+	defer p.RUnlock()
 	sess, ok := p.sessions[id]
 	if !ok {
 		return nil
@@ -174,6 +174,8 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 }
 
 func (p *Pool) GetByConn(conn *websocket.Conn) *Session {
+	p.RLock()
+	defer p.RUnlock()
 	sess, ok := p.conns[conn]
 	if !ok {
 		return nil
@@ -183,6 +185,8 @@ func (p *Pool) GetByConn(conn *websocket.Conn) *Session {
 }
 
 func (p *Pool) GetByKey(key string) *Session {
+	p.RLock()
+	defer p.RUnlock()
 	sess, ok := p.keys[key]
 	if !ok {
 		return nil
@@ -192,6 +196,8 @@ func (p *Pool) GetByKey(key string) *Session {
 }
 
 func (p *Pool) RemoveByID(id uuid.UUID) bool {
+	p.Lock()
+	defer p.Unlock()
 	sess, ok := p.sessions[id]
 	if !ok {
 		return false
@@ -209,6 +215,8 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 }
 
 func (p *Pool) RemoveByConn(conn *websocket.Conn) bool {
+	p.Lock()
+	defer p.Unlock()
 	sess, ok := p.conns[conn]
 	if !ok {
 		return false
@@ -226,6 +234,8 @@ func (p *Pool) RemoveByConn(conn *websocket.Conn) bool {
 }
 
 func (p *Pool) RemoveByKey(key string) bool {
+	p.Lock()
+	defer p.Unlock()
 	sess, ok := p.keys[key]
 	if !ok {
 		return false
@@ -252,47 +262,37 @@ func (p *Pool) Purge() {
 		return
 	}
 
-	p.Lock()
-	defer p.Unlock()
+	// Snapshot under lock, do blocking I/O outside lock (migration to
+	// gobwas/ws will replace this entirely; minimal fix only).
+	p.RLock()
+	snapshot := make([]*Session, 0, len(p.sessions))
+	for _, sess := range p.sessions {
+		snapshot = append(snapshot, sess)
+	}
+	p.RUnlock()
 
 	now := time.Now()
-	for _, sess := range p.sessions {
+	for _, sess := range snapshot {
 		if now.Sub(sess.LastActive) > p.pingDuration {
 			// Write ping
-			err := sess.conn.WriteMessage(websocket.PingMessage, nil)
-			if err != nil {
-				logger.Logger.Error(
-					"Websocket write ping message failed",
-					"session", sess.ID,
-					"error", err.Error(),
-				)
-			}
+			_ = sess.conn.WriteMessage(websocket.PingMessage, nil)
 		}
 
 		if now.Sub(sess.LastActive) > p.maxIdleDuration {
-			logger.Logger.Debug(
-				"Websocket connection idle for a long time",
-				"session", sess.ID,
-				"remote_address", sess.conn.RemoteAddr().String(),
-			)
-
-			err := sess.Close()
-			if err != nil {
-				logger.Logger.Error(
-					"Websocket connection close failed",
-					"session", sess.ID,
-					"error", err.Error(),
-				)
-			}
+			_ = sess.Close()
 		}
 	}
 }
 
 func (p *Pool) Foreach(f func(sess *Session)) {
 	p.RLock()
-	defer p.RUnlock()
-
+	snapshot := make([]*Session, 0, len(p.sessions))
 	for _, sess := range p.sessions {
+		snapshot = append(snapshot, sess)
+	}
+	p.RUnlock()
+
+	for _, sess := range snapshot {
 		f(sess)
 	}
 }

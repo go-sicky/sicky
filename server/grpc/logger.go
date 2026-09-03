@@ -41,6 +41,9 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// serverPID is cached: a syscall per RPC is pure overhead.
+var serverPID = os.Getpid()
+
 type LoggerConfig struct {
 	Logger logger.GeneralLogger
 }
@@ -94,20 +97,17 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		resp, err := handler(ctx, req)
 		end := time.Now()
 
-		attributes := map[string]any{
-			"pid":            os.Getpid(),
-			"status":         200,
-			"latency":        end.Sub(start),
-			"method":         info.FullMethod,
-			"user-agent":     userAgent,
-			"request-id":     requestID,
-			"trace-id":       traceID,
-			"parent-span-id": spanID,
-		}
-
-		var args []any
-		for k, v := range attributes {
-			args = append(args, k, v)
+		// Fixed-order slice: one alloc, stable field order for log
+		// indexing (a map here costs an extra alloc plus random order).
+		args := []any{
+			"pid", serverPID,
+			"status", 200,
+			"latency", end.Sub(start),
+			"method", info.FullMethod,
+			"user-agent", userAgent,
+			"request-id", requestID,
+			"trace-id", traceID,
+			"parent-span-id", spanID,
 		}
 
 		ll := logger.DebugLevel
@@ -121,6 +121,41 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		cfg.Logger.LogContext(ctx, ll, msg, args...)
 
 		return resp, err
+	}
+}
+
+func NewStreamAccessLoggerInterceptor(config ...LoggerConfig) grpc.StreamServerInterceptor {
+	cfg := loggerConfigDefault(config...)
+	if cfg.Logger == nil {
+		cfg.Logger = logger.Logger
+	}
+
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		start := time.Now()
+		metrics.NumGRPCServerAccessCounter.Inc()
+		err := handler(srv, ss)
+		end := time.Now()
+
+		args := []any{
+			"pid", serverPID,
+			"status", 200,
+			"latency", end.Sub(start),
+			"method", info.FullMethod,
+			"client_stream", info.IsClientStream,
+			"server_stream", info.IsServerStream,
+		}
+
+		ll := logger.DebugLevel
+		msg := "grpc.stream"
+		if err != nil {
+			ll = logger.ErrorLevel
+
+			args = append(args, "error", err.Error())
+		}
+
+		cfg.Logger.LogContext(ss.Context(), ll, msg, args...)
+
+		return err
 	}
 }
 

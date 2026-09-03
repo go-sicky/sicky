@@ -32,10 +32,14 @@ package http
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTPClient : Client definition
@@ -44,7 +48,7 @@ type HTTPClient struct {
 	options *client.Options
 	ctx     context.Context
 
-	// tracer trace.Tracer
+	tracer trace.Tracer
 }
 
 // var (
@@ -105,6 +109,11 @@ func New(opts *client.Options, cfg *Config) *HTTPClient {
 		"name", clt.options.Name,
 	)
 
+	// Snapshot the global tracer (may be nil when tracing disabled).
+	if tracer.Default() != nil {
+		clt.tracer = tracer.Default().Tracer(clt.Name())
+	}
+
 	client.Set(clt)
 
 	return clt
@@ -129,6 +138,57 @@ func (clt *HTTPClient) Disconnect() error {
 func (clt *HTTPClient) Call() error {
 	metrics.NumHTTPClientCallCounter.Inc()
 	return nil
+}
+
+// StartSpan starts a client span for an outbound request. The caller must
+// propagate the returned ctx via InjectHTTP (or Do, which does both).
+func (clt *HTTPClient) StartSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	if clt.tracer == nil {
+		return ctx, trace.SpanFromContext(ctx)
+	}
+
+	return clt.tracer.Start(ctx, name)
+}
+
+// InjectHTTP writes the span context from ctx into outgoing request
+// headers (W3C traceparent/tracestate/baggage + B3) and ensures an
+// X-Request-ID exists for end-to-end correlation.
+func InjectHTTP(ctx context.Context, h http.Header) {
+	carrier := propagation.MapCarrier{}
+	tracer.Inject(ctx, carrier)
+	for k, v := range carrier {
+		if v == "" {
+			continue
+		}
+		h.Set(k, v)
+	}
+	if h.Get("X-Request-ID") == "" {
+		h.Set("X-Request-ID", uuid.New().String())
+	}
+}
+
+// Do sends an outbound HTTP request with tracing. It starts a span named
+// "<method> <host>", injects propagation headers, records errors, and
+// bumps the client call counter.
+func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
+	metrics.NumHTTPClientCallCounter.Inc()
+
+	ctx := req.Context()
+	var span trace.Span
+	if clt.tracer != nil {
+		spanName := req.Method + " " + req.URL.Host
+		ctx, span = clt.tracer.Start(ctx, spanName)
+		defer span.End()
+		req = req.WithContext(ctx)
+	}
+	InjectHTTP(ctx, req.Header)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil && span != nil {
+		span.RecordError(err)
+	}
+
+	return resp, err
 }
 
 func (clt *HTTPClient) String() string {

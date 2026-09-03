@@ -35,6 +35,7 @@ import (
 	"errors"
 	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sicky/sicky/broker"
@@ -55,6 +56,7 @@ type Nsq struct {
 	nsqCfg    *nsq.Config
 	nsqLogger *nsqLogger
 
+	mu            sync.RWMutex
 	subscriptions map[string]*nsq.Consumer
 	handlers      map[string]broker.Handler
 }
@@ -160,7 +162,13 @@ func (brk *Nsq) Connect() error {
 	brk.producer = p
 
 	// Handlers
+	brk.mu.RLock()
+	snapshot := make(map[string]broker.Handler, len(brk.handlers))
 	for topic, hdl := range brk.handlers {
+		snapshot[topic] = hdl
+	}
+	brk.mu.RUnlock()
+	for topic, hdl := range snapshot {
 		err := brk.Subscribe(topic, hdl)
 		if err != nil {
 			brk.options.Logger.ErrorContext(
@@ -228,7 +236,10 @@ func (brk *Nsq) Publish(topic string, m *broker.Message) error {
 }
 
 func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
-	if brk.subscriptions[topic] != nil {
+	brk.mu.RLock()
+	_, dup := brk.subscriptions[topic]
+	brk.mu.RUnlock()
+	if dup {
 		brk.options.Logger.DebugContext(
 			brk.ctx,
 			"Nsq broker duplicated subscription",
@@ -259,6 +270,12 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 	}
 
 	consummer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
+	// Register handler before dialing so Connect() replay sees it.
+	if h != nil {
+		brk.mu.Lock()
+		brk.handlers[topic] = h
+		brk.mu.Unlock()
+	}
 	consummer.AddHandler(&nsqHandler{
 		Topic:   topic,
 		Channel: brk.config.Channel,
@@ -280,7 +297,9 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 		return err
 	}
 
+	brk.mu.Lock()
 	brk.subscriptions[topic] = consummer
+	brk.mu.Unlock()
 	brk.options.Logger.DebugContext(
 		brk.ctx,
 		"Nsq broker subscribed",
@@ -295,6 +314,8 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 }
 
 func (brk *Nsq) Unsubscribe(topic string) error {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	consummer := brk.subscriptions[topic]
 	if consummer != nil {
 		consummer.Stop()
@@ -314,7 +335,12 @@ func (brk *Nsq) Unsubscribe(topic string) error {
 }
 
 func (brk *Nsq) Handle(hdls ...Handler) {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	for _, hdl := range hdls {
+		if hdl == nil {
+			continue
+		}
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
@@ -336,6 +362,9 @@ type nsqHandler struct {
 }
 
 func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
+	defer func() {
+		_ = recover()
+	}()
 	h.Broker.options.Logger.DebugContext(
 		h.Broker.ctx,
 		"Nsq message received",
@@ -346,7 +375,9 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 		"channel", h.Channel,
 	)
 
+	h.Broker.mu.RLock()
 	hdl := h.Broker.handlers[h.Topic]
+	h.Broker.mu.RUnlock()
 	if hdl != nil {
 		msg := broker.NewMessage(m.Body)
 		err := hdl(msg)

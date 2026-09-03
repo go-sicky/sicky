@@ -30,10 +30,14 @@
 
 package main
 
-import "github.com/go-sicky/sicky/cli"
+import (
+	"os"
+
+	"github.com/go-sicky/sicky/cli"
+)
 
 func main() {
-	cli.Run()
+	os.Exit(cli.Run())
 }
 
 /*

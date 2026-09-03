@@ -40,7 +40,7 @@ type Config struct {
 	ServiceName    string  `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
 	ServiceVersion string  `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
 	PrettyPrint    bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
-	Timestamps     bool    `json:"timestamp" yaml:"timestamp" mapstructure:"timestamps"`
+	Timestamps     bool    `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
 	SampleRate     float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
 }
 

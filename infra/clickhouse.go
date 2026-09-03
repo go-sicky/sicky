@@ -32,6 +32,8 @@ package infra
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
@@ -42,11 +44,26 @@ type ClickhouseConfig struct {
 	DSN string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
 }
 
+// ErrClickhouseDSNEmpty aborts startup: a non-nil ClickhouseConfig means
+// "enable clickhouse", and an empty DSN would otherwise fail late after a
+// 5s ping timeout.
+var ErrClickhouseDSNEmpty = errors.New("infra: clickhouse dsn is empty")
+
 var Clickhouse *ch.DB
 
 func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
 	if cfg == nil {
 		return nil, nil
+	}
+
+	cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Clickhouse config invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
 	}
 
 	db := ch.Connect(ch.WithDSN(cfg.DSN))
@@ -58,23 +75,64 @@ func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
 	if err := db.Ping(ctx); err != nil {
 		logger.Logger.Error(
 			"Clickhouse ping failed",
-			"dsn", cfg.DSN,
+			"dsn", redactDSN(cfg.DSN),
 			"error", err.Error(),
 		)
+
+		// Close the handle opened above instead of leaking it.
+		if cerr := db.Close(); cerr != nil {
+			logger.Logger.Error(
+				"Clickhouse close after failed ping failed",
+				"error", cerr.Error(),
+			)
+		}
 
 		return nil, err
 	}
 
 	logger.Logger.Info(
 		"Clickhouse initialized",
-		"dsn", cfg.DSN,
+		"dsn", redactDSN(cfg.DSN),
 	)
 
-	if Clickhouse == nil {
-		Clickhouse = db
+	mu.Lock()
+	defer mu.Unlock()
+	if Clickhouse != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("Clickhouse already initialized, closing duplicate connection")
+		if cerr := db.Close(); cerr != nil {
+			logger.Logger.Error(
+				"Clickhouse duplicate close failed",
+				"error", cerr.Error(),
+			)
+		}
+
+		return Clickhouse, nil
 	}
+	Clickhouse = db
 
 	return db, nil
+}
+
+func (c *ClickhouseConfig) Ensure() *ClickhouseConfig {
+	if c == nil {
+		c = new(ClickhouseConfig)
+	}
+
+	return c
+}
+
+func (c *ClickhouseConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.DSN) == "" {
+		return ErrClickhouseDSNEmpty
+	}
+
+	return nil
 }
 
 /*

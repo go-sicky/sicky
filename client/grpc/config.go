@@ -31,9 +31,12 @@
 package grpc
 
 import (
+	"errors"
 	"strings"
 	"time"
 )
+
+var ErrIncompleteTLSConfig = errors.New("grpc client: tls_cert_pem and tls_key_pem must both be set or both empty")
 
 const (
 	DefaultService  = "sicky"
@@ -117,6 +120,19 @@ func (c *Config) Ensure() *Config {
 	}
 
 	return c
+}
+
+// Validate rejects half-TLS (BREAKING: previously silently downgraded to insecure).
+func (c *Config) Validate() error {
+	if c == nil {
+		return nil
+	}
+	certEmpty := strings.TrimSpace(c.TLSCertPEM) == ""
+	keyEmpty := strings.TrimSpace(c.TLSKeyPEM) == ""
+	if certEmpty != keyEmpty {
+		return ErrIncompleteTLSConfig
+	}
+	return nil
 }
 
 /*

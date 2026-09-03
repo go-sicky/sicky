@@ -32,6 +32,9 @@ package infra
 
 import (
 	"context"
+	"errors"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-sicky/sicky/logger"
@@ -45,6 +48,11 @@ type MongoConfig struct {
 	DB  string `json:"db" yaml:"db" mapstructure:"db"`
 }
 
+// ErrMongoURIEmpty aborts startup: a non-nil MongoConfig means "enable
+// mongo", and an empty URI would otherwise fail late after a 5s ping
+// timeout.
+var ErrMongoURIEmpty = errors.New("infra: mongo uri is empty")
+
 var Mongo *mongo.Client
 
 func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
@@ -52,11 +60,21 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		return nil, nil
 	}
 
+	cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Mongo config invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
 	client, err := mongo.Connect(options.Client().ApplyURI(cfg.URI))
 	if err != nil {
 		logger.Logger.Error(
 			"Mongo connect failed",
-			"uri", cfg.URI,
+			"uri", redactDSN(cfg.URI),
 			"error", err.Error(),
 		)
 
@@ -70,24 +88,116 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		logger.Logger.Error(
 			"Mongo ping failed",
-			"uri", cfg.URI,
+			"uri", redactDSN(cfg.URI),
 			"error", err.Error(),
 		)
+
+		// Disconnect the handle opened above instead of leaking it.
+		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer dcancel()
+		if derr := client.Disconnect(dctx); derr != nil {
+			logger.Logger.Error(
+				"Mongo disconnect after failed ping failed",
+				"error", derr.Error(),
+			)
+		}
 
 		return nil, err
 	}
 
 	logger.Logger.Info(
 		"Mongo initialized",
-		"uri", cfg.URI,
+		"uri", redactDSN(cfg.URI),
 		"db", cfg.DB,
 	)
 
-	if Mongo == nil {
-		Mongo = client
+	mu.Lock()
+	defer mu.Unlock()
+	if Mongo != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("Mongo already initialized, closing duplicate connection")
+		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer dcancel()
+		if derr := client.Disconnect(dctx); derr != nil {
+			logger.Logger.Error(
+				"Mongo duplicate disconnect failed",
+				"error", derr.Error(),
+			)
+		}
+
+		return Mongo, nil
 	}
+	Mongo = client
+	mongoDBName = effectiveMongoDB(cfg)
 
 	return client, nil
+}
+
+func (c *MongoConfig) Ensure() *MongoConfig {
+	if c == nil {
+		c = new(MongoConfig)
+	}
+
+	return c
+}
+
+func (c *MongoConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.URI) == "" {
+		return ErrMongoURIEmpty
+	}
+
+	return nil
+}
+
+// mongoDBName remembers the effective database for GetMongoDB: the
+// configured DB wins, else the database embedded in the URI path.
+// Guarded by mu.
+var mongoDBName string
+
+// GetMongoDB returns a database handle: the explicit name wins, then the
+// effective configured name (MongoConfig.DB, else the URI path database).
+// It returns nil when mongo is not initialized or no name resolves.
+func GetMongoDB(name ...string) *mongo.Database {
+	mu.RLock()
+	client := Mongo
+	configured := mongoDBName
+	mu.RUnlock()
+
+	if client == nil {
+		return nil
+	}
+
+	if len(name) > 0 && strings.TrimSpace(name[0]) != "" {
+		return client.Database(strings.TrimSpace(name[0]))
+	}
+
+	if configured != "" {
+		return client.Database(configured)
+	}
+
+	return nil
+}
+
+// effectiveMongoDB resolves cfg.DB, falling back to the URI path database.
+func effectiveMongoDB(cfg *MongoConfig) string {
+	if cfg == nil {
+		return ""
+	}
+
+	if db := strings.TrimSpace(cfg.DB); db != "" {
+		return db
+	}
+
+	if u, err := url.Parse(strings.TrimSpace(cfg.URI)); err == nil {
+		return strings.Trim(u.Path, "/")
+	}
+
+	return ""
 }
 
 /*

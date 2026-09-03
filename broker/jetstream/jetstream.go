@@ -34,6 +34,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"sync"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/google/uuid"
@@ -53,6 +54,7 @@ type Jetstream struct {
 	streamer   nats.JetStreamContext
 	streamInfo *nats.StreamInfo
 
+	mu            sync.RWMutex
 	subscriptions map[string]*nats.Subscription
 	handlers      map[string]broker.Handler
 }
@@ -145,7 +147,7 @@ func (brk *Jetstream) Connect() error {
 	si, err := jc.AddStream(&nats.StreamConfig{
 		Name:         brk.config.Stream.Name,
 		Subjects:     brk.config.Stream.Subjects,
-		MaxConsumers: brk.config.Stream.MaxConsummers,
+		MaxConsumers: brk.config.Stream.MaxConsumers,
 	})
 	if err != nil {
 		brk.options.Logger.ErrorContext(
@@ -165,7 +167,13 @@ func (brk *Jetstream) Connect() error {
 	brk.streamInfo = si
 
 	// Handlers
+	brk.mu.RLock()
+	snapshot := make(map[string]broker.Handler, len(brk.handlers))
 	for topic, hdl := range brk.handlers {
+		snapshot[topic] = hdl
+	}
+	brk.mu.RUnlock()
+	for topic, hdl := range snapshot {
 		err := brk.Subscribe(topic, hdl)
 		if err != nil {
 			brk.options.Logger.ErrorContext(
@@ -185,7 +193,13 @@ func (brk *Jetstream) Connect() error {
 
 func (brk *Jetstream) Disconnect() error {
 	if brk.conn != nil && !brk.conn.IsClosed() {
+		brk.mu.RLock()
+		topics := make([]string, 0, len(brk.handlers))
 		for topic := range brk.handlers {
+			topics = append(topics, topic)
+		}
+		brk.mu.RUnlock()
+		for _, topic := range topics {
 			brk.Unsubscribe(topic)
 		}
 
@@ -252,11 +266,17 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 		return ErrBrokerNotConnected
 	}
 
-	if brk.subscriptions[topic] != nil {
+	brk.mu.RLock()
+	_, exists := brk.subscriptions[topic]
+	brk.mu.RUnlock()
+	if exists {
 		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.streamer.Subscribe(topic, func(msg *nats.Msg) {
+		defer func() {
+			_ = recover()
+		}()
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
 			err := h(m)
@@ -270,6 +290,7 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 					"topic", topic,
 					"error", err.Error(),
 				)
+				_ = msg.Nak()
 			} else {
 				brk.options.Logger.DebugContext(
 					brk.ctx,
@@ -279,9 +300,12 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 					"name", brk.options.Name,
 					"topic", topic,
 				)
+				_ = msg.Ack()
 			}
+		} else {
+			_ = msg.Ack()
 		}
-	})
+	}, nats.ManualAck())
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -305,12 +329,16 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 		"topic", topic,
 	)
 
+	brk.mu.Lock()
 	brk.subscriptions[topic] = sub
+	brk.mu.Unlock()
 
 	return nil
 }
 
 func (brk *Jetstream) Unsubscribe(topic string) error {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	sub := brk.subscriptions[topic]
 	if sub != nil {
 		sub.Unsubscribe()
@@ -321,7 +349,12 @@ func (brk *Jetstream) Unsubscribe(topic string) error {
 }
 
 func (brk *Jetstream) Handle(hdls ...Handler) {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	for _, hdl := range hdls {
+		if hdl == nil {
+			continue
+		}
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(

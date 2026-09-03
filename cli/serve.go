@@ -32,27 +32,32 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/go-sicky/sicky"
+	"github.com/go-sicky/sicky/service"
 	mcp "github.com/go-sicky/sicky/service/mcp"
 	prtcl "github.com/go-sicky/sicky/service/mcp/protocol"
-	"github.com/go-sicky/sicky/service"
 	"github.com/spf13/pflag"
 )
 
-func serveRun(args []string) {
-	fs := pflag.NewFlagSet("serve", pflag.ExitOnError)
+func serveRun(args []string) int {
+	fs := pflag.NewFlagSet("serve", pflag.ContinueOnError)
 	transport := fs.String("transport", "stdio", "Transport: stdio, http")
 	listen := fs.String("listen", ":3000", "HTTP listen address")
 	name := fs.String("name", "sicky-mcp-server", "MCP server name")
 	version := fs.String("version", Version, "MCP server version")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky serve: %s\n", err.Error())
+		return 1
+	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	sicky.Init(
+	if err := sicky.Init(
 		&sicky.Options{
 			AppName:   "sicky.mcp",
 			Version:   Version,
@@ -61,7 +66,13 @@ func serveRun(args []string) {
 			BuildTime: BuildTime,
 			Context:   ctx,
 		},
-	)
+	); err != nil {
+		if errors.Is(err, sicky.ErrVersionShown) {
+			return 0
+		}
+		fmt.Fprintf(os.Stderr, "Init failed: %s\n", err.Error())
+		return 1
+	}
 
 	svc := mcp.New(
 		&service.Options{
@@ -77,6 +88,7 @@ func serveRun(args []string) {
 
 	mcpServer := svc.MCPServer()
 
+	serveErr := make(chan error, 1)
 	go func() {
 		var trans prtcl.Transport
 
@@ -87,24 +99,40 @@ func serveRun(args []string) {
 		case "http":
 			trans = prtcl.NewHTTPTransport(*listen)
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown transport: %s\n", *transport)
-			os.Exit(1)
+			serveErr <- fmt.Errorf("unknown transport: %s", *transport)
+			cancel()
+			return
 		}
 
 		if trans == nil {
-			fmt.Fprintf(os.Stderr, "Failed to create transport\n")
-			os.Exit(1)
+			serveErr <- fmt.Errorf("failed to create transport")
+			cancel()
+			return
 		}
 
 		if err := mcpServer.Serve(ctx, trans); err != nil && err != context.Canceled {
-			fmt.Fprintf(os.Stderr, "MCP server error: %s\n", err.Error())
-			os.Exit(1)
+			serveErr <- err
+			cancel()
+			return
 		}
+		serveErr <- nil
 	}()
 
-	sicky.Run(&sicky.Config{
+	if err := sicky.Run(&sicky.Config{
 		LogLevel: "info",
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Run failed: %s\n", err.Error())
+		return 1
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "MCP server error: %s\n", err.Error())
+			return 1
+		}
+	default:
+	}
+	return 0
 }
 
 /*

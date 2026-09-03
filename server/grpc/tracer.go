@@ -34,7 +34,7 @@ import (
 	"context"
 	"net/http"
 
-	"go.opentelemetry.io/contrib/propagators/b3"
+	"github.com/go-sicky/sicky/tracer"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -75,7 +75,6 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 
 func NewTracingInterceptor(config ...TracerConfig) grpc.UnaryServerInterceptor {
 	cfg := tracerConfigDefault(config...)
-	pg := b3.New()
 
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if cfg.Tracer == nil {
@@ -88,28 +87,40 @@ func NewTracingInterceptor(config ...TracerConfig) grpc.UnaryServerInterceptor {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
 			for k, v := range md {
+				if len(v) == 0 {
+					continue
+				}
 				reqHeader.Set(k, v[0])
 			}
 		}
 
-		newCtx := pg.Extract(ctx, propagation.HeaderCarrier(reqHeader))
+		newCtx := tracer.Extract(ctx, propagation.HeaderCarrier(reqHeader))
 		spanedCtx, span := cfg.Tracer.Start(newCtx, info.FullMethod)
 		defer span.End()
 
 		self := span.SpanContext()
 		spanID := self.SpanID().String()
 		traceID := self.TraceID().String()
+		// Inject the new span context (W3C + B3) so downstream
+		// handlers/clients see traceparent as well as X-B3-*.
+		w3c := propagation.MapCarrier{}
+		tracer.Inject(spanedCtx, w3c)
 		nmd := metadata.Pairs(
 			"X-B3-Traceid", traceID,
 			"X-B3-Spanid", spanID,
-			"X-B3-Parentspanid", reqHeader.Get("X-B3-Spanid"),
-			"X-B3-Sampled", reqHeader.Get("X-B3-Sampled"),
-			"X-Request-ID", reqHeader.Get("X-Request-ID"),
+			"X-B3-Parentspanid", sanitizePropagatedValue(reqHeader.Get("X-B3-Spanid")),
+			"X-B3-Sampled", sanitizePropagatedValue(reqHeader.Get("X-B3-Sampled")),
+			"X-Request-ID", sanitizePropagatedValue(reqHeader.Get("X-Request-ID")),
+			"traceparent", w3c.Get("traceparent"),
+			"tracestate", w3c.Get("tracestate"),
+			"baggage", w3c.Get("baggage"),
 		)
 		//savedCtx := metadata.NewOutgoingContext(spanedCtx, nmd)
 		//savedCtx = context.WithValue(savedCtx, cfg.SpanIDContextKey, spanID)
 		//savedCtx = context.WithValue(savedCtx, cfg.TraceIDContextKey, traceID)
-		joined := metadata.Join(md, nmd)
+		// New span values go first: downstream readers take index 0,
+		// so client-supplied (spoofable) values must not shadow them.
+		joined := metadata.Join(nmd, md)
 		savedCtx := metadata.NewIncomingContext(spanedCtx, joined)
 		resp, err := handler(savedCtx, req)
 		if err != nil {
@@ -117,6 +128,66 @@ func NewTracingInterceptor(config ...TracerConfig) grpc.UnaryServerInterceptor {
 		}
 
 		return resp, err
+	}
+}
+
+// wrappedServerStream carries the span context into the stream handler.
+type wrappedServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *wrappedServerStream) Context() context.Context {
+	return w.ctx
+}
+
+func NewStreamTracingInterceptor(config ...TracerConfig) grpc.StreamServerInterceptor {
+	cfg := tracerConfigDefault(config...)
+
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		ctx := ss.Context()
+		if cfg.Tracer == nil {
+			return handler(srv, ss)
+		}
+
+		reqHeader := make(http.Header)
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			for k, v := range md {
+				if len(v) == 0 {
+					continue
+				}
+				reqHeader.Set(k, v[0])
+			}
+		}
+
+		newCtx := tracer.Extract(ctx, propagation.HeaderCarrier(reqHeader))
+		spanedCtx, span := cfg.Tracer.Start(newCtx, info.FullMethod)
+		defer span.End()
+
+		self := span.SpanContext()
+		w3c := propagation.MapCarrier{}
+		tracer.Inject(spanedCtx, w3c)
+		nmd := metadata.Pairs(
+			"X-B3-Traceid", self.TraceID().String(),
+			"X-B3-Spanid", self.SpanID().String(),
+			"X-B3-Parentspanid", sanitizePropagatedValue(reqHeader.Get("X-B3-Spanid")),
+			"X-B3-Sampled", sanitizePropagatedValue(reqHeader.Get("X-B3-Sampled")),
+			"X-Request-ID", sanitizePropagatedValue(reqHeader.Get("X-Request-ID")),
+			"traceparent", w3c.Get("traceparent"),
+			"tracestate", w3c.Get("tracestate"),
+			"baggage", w3c.Get("baggage"),
+		)
+		// Mirror the unary interceptor: the span context plus the new
+		// span values (first, so they shadow client-supplied ones).
+		spanedCtx = metadata.NewIncomingContext(spanedCtx, metadata.Join(nmd, md))
+
+		err := handler(srv, &wrappedServerStream{ServerStream: ss, ctx: spanedCtx})
+		if err != nil {
+			span.RecordError(err)
+		}
+
+		return err
 	}
 }
 

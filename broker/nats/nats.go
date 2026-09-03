@@ -34,6 +34,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"sync"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/google/uuid"
@@ -41,7 +42,7 @@ import (
 )
 
 var (
-	ErrBrokerNotConnected    = errors.New("broker not connected")
+	ErrBrokerNotConnected     = errors.New("broker not connected")
 	ErrTopicAlreadySubscribed = errors.New("topic already subscribed")
 )
 
@@ -51,6 +52,7 @@ type Nats struct {
 	options *broker.Options
 	conn    *nats.Conn
 
+	mu            sync.RWMutex
 	subscriptions map[string]*nats.Subscription
 	handlers      map[string]broker.Handler
 }
@@ -215,11 +217,17 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		return ErrBrokerNotConnected
 	}
 
-	if brk.subscriptions[topic] != nil {
+	brk.mu.RLock()
+	_, exists := brk.subscriptions[topic]
+	brk.mu.RUnlock()
+	if exists {
 		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {
+		defer func() {
+			_ = recover()
+		}()
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
 			err := h(m)
@@ -268,12 +276,16 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		"topic", topic,
 	)
 
+	brk.mu.Lock()
 	brk.subscriptions[topic] = sub
+	brk.mu.Unlock()
 
 	return nil
 }
 
 func (brk *Nats) Unsubscribe(topic string) error {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	sub := brk.subscriptions[topic]
 	if sub != nil {
 		sub.Unsubscribe()
@@ -284,7 +296,12 @@ func (brk *Nats) Unsubscribe(topic string) error {
 }
 
 func (brk *Nats) Handle(hdls ...Handler) {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	for _, hdl := range hdls {
+		if hdl == nil {
+			continue
+		}
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(

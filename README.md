@@ -12,14 +12,14 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 ## Features
 
 ### Multi-Protocol Servers
-| Protocol | Implementation | Default Port |
-|---|---|---|
-| HTTP | Fiber (gofiber/v2) | `:9990` |
-| gRPC | google.golang.org/grpc | `:0` (random) |
-| TCP | Raw socket | `:9981` |
-| UDP | Raw socket | `:9980` |
-| WebSocket | Fiber + gorilla/websocket | `:9991` |
-| net/http | Standard library | `:9980` |
+| Protocol | Implementation | Network | Default Address | Notes |
+|---|---|---|---|---|
+| HTTP (Fiber) | Fiber (gofiber/v2) | `tcp` | `:9990` | |
+| gRPC | google.golang.org/grpc | `tcp` | `:0` (random) | OS-assigned ephemeral port; actual port registered via `listener.Addr()` |
+| TCP | Raw socket | `tcp` | `:9981` | |
+| UDP | Raw socket | `udp` | `:9980` | Same numeric port as net/http but different network — can coexist |
+| WebSocket | Fiber + gorilla/websocket | `tcp` | `:9991` | Path `/conn` by default |
+| net/http | Standard library (bunrouter) | `tcp` | `:9980` | Same numeric port as UDP but different network — can coexist |
 
 ### Pluggable Infrastructure
 | Component | Library | Purpose |
@@ -48,9 +48,9 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 ### Observability
 - **OpenTelemetry tracing** — OTLP/gRPC, OTLP/HTTP, Stdout exporters; B3 propagation
 - **Uptrace** — Managed tracing via Uptrace SaaS
-- **Prometheus metrics** — Built-in counters for all server/client access
+- **Prometheus metrics** — 11 counters (6 server + 5 client) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
 - **Structured logging** — slog-based logger with Fiber/gRPC adapters
-- **Health checks** / **Version** / **Info** endpoints via built-in Manager
+- **Manager endpoints** — 6 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` (10 infra; only `unhealthy` degrades overall status), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only.
 
 ### Background Jobs & Concurrency
 - **Cron** — gocron/v2-based cron job scheduler
@@ -60,7 +60,7 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 ### MCP (Model Context Protocol)
 - Built-in MCP server implementation (JSON-RPC 2.0)
 - Supports Tools, Resources, Prompts
-- Pluggable transport: stdio or HTTP
+- Pluggable transport: stdio or HTTP (SSE at `/mcp` + POST at `/mcp/message`)
 
 ### CLI
 - `sicky new` — Scaffold new projects (Standard / MCP / Interactive)
@@ -110,27 +110,30 @@ go get github.com/go-sicky/sicky
 package main
 
 import (
+    "errors"
+    "log"
+
     "github.com/go-sicky/sicky"
-    "github.com/go-sicky/sicky/logger"
     "github.com/go-sicky/sicky/server"
+    "github.com/go-sicky/sicky/service"
     svcStandard "github.com/go-sicky/sicky/service/standard"
     srvFiber "github.com/go-sicky/sicky/server/fiber"
     "github.com/gofiber/fiber/v2"
 )
 
-type AppService struct {
-    *svcStandard.Standard
-}
-
 func main() {
-    sicky.Init(&sicky.Options{
+    if err := sicky.Init(&sicky.Options{
         AppName: "myapp",
         Version: "1.0.0",
-    })
-    defer sicky.Run(sicky.Viper())
+    }); err != nil {
+        if errors.Is(err, sicky.ErrVersionShown) {
+            return // --version: version already printed
+        }
+        log.Fatalf("init failed: %v", err)
+    }
 
-    // Create service
-    svc := svcStandard.New(&service.Options{Name: "myapp"})
+    // Create service — New() auto-registers via service.Set()
+    svc := svcStandard.New(&service.Options{Name: "myapp"}, nil)
 
     // Create HTTP server
     srv := srvFiber.New(&server.Options{Name: "http-server"}, &srvFiber.Config{
@@ -144,10 +147,15 @@ func main() {
 
     // Attach server to service
     svc.Servers(srv)
-}
 
-func init() {
-    sicky.RegisterService(&AppService{})
+    // Load config (Viper → struct) and run — Run() blocks until signal
+    cfg := &sicky.Config{}
+    if err := sicky.ConfigUnmarshal(cfg); err != nil {
+        log.Fatalf("config unmarshal failed: %v", err)
+    }
+    if err := sicky.Run(cfg); err != nil {
+        log.Fatalf("run failed: %v", err)
+    }
 }
 ```
 
@@ -164,25 +172,38 @@ Access the health endpoint at `http://localhost:8888/health` and your API at `ht
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                     sicky (Orchestrator)             │
-│  Init() → Config → Infra → Tracer → Registry → Run  │
-├─────────────────────────────────────────────────────┤
-│                 service.Service                      │
-│  ┌──────────┐  ┌─────────────┐  ┌─────┐            │
-│  │ Standard │  │ Interactive │  │ MCP │            │
-│  └──────────┘  └─────────────┘  └─────┘            │
-├─────────────────────────────────────────────────────┤
-│   server.Server  ←→  broker.Broker  ←→  client.Client │
-│   job.Job        ←→  runner.Runner                  │
-├─────────────────────────────────────────────────────┤
-│   registry.Registry    tracer.Tracer                │
-├─────────────────────────────────────────────────────┤
-│                      infra                          │
-│  Redis Bun Ristretto Badger Elastic Clickhouse      │
-│  Mongo MQTT NATS S3                                  │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    sicky (Orchestrator)                       │
+│  Init(): flags(--config/-C, --config-type, --version)          │
+│        → Viper load (local /etc, /etc/<app>, $HOME/.<app>, . │
+│          or remote consul://) + env SICKY_ + Must* checks     │
+│        → returns error (never os.Exit; ErrVersionShown for -V)│
+│  Run(): beforeStart → Infra(10) → Tracer(4) → Registry(3)     │
+│        → Broker(3) → Flag callbacks → Manager(6 endpoints)    │
+│        → Services.Start + Registry.Register → afterStart       │
+│        → wait (TERM/INT/QUIT/ABRT shutdown, HUP reloads,      │
+│          or Context cancel) → beforeStop → Services.Stop      │
+│        → Broker.Disconnect → Registry.Stop → Tracer.Stop       │
+│        → Manager.Stop → Infra.Close → afterStop               │
+├──────────────────────────────────────────────────────────────┤
+│                  service.Service                              │
+│  ┌──────────┐  ┌─────────────┐  ┌─────┐                       │
+│  │ Standard │  │ Interactive │  │ MCP │ (+ protocol)          │
+│  └──────────┘  └─────────────┘  └─────┘                       │
+├──────────────────────────────────────────────────────────────┤
+│   server.Server  ←→  broker.Broker  ←→  client.Client        │
+│   job.Job        ←→  runner.Runner                            │
+├──────────────────────────────────────────────────────────────┤
+│   registry.Registry    tracer.Tracer (OTLP/gRPC|HTTP, Stdout, │
+│                                      Uptrace + B3)            │
+├──────────────────────────────────────────────────────────────┤
+│                       infra (10)                              │
+│  Redis Bun Ristretto Badger Elastic Clickhouse                │
+│  Mongo MQTT NATS S3                                           │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+> Full lifecycle order: `sicky.go:253-870`. See `AGENTS.md §2.1` for detailed phase breakdown.
 
 ### Self-Registration Pattern
 
@@ -204,11 +225,13 @@ Go-Sicky uses [Viper](https://github.com/spf13/viper) for configuration, support
 
 ### Config File Locations
 
-Config files are searched in order:
+Config files are searched in order (`sicky.go:140-143`):
 1. `/etc/<config>.json`
 2. `/etc/<app_name>/<config>.json`
 3. `$HOME/.<app_name>/<config>.json`
 4. `./<config>.json`
+
+`<config>` defaults to `config` (`--config/-C` flag, `sicky.go:99`) and extension defaults to `json` (`--config-type` flag, `sicky.go:100`).
 
 ### Remote Config
 
@@ -240,34 +263,44 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "advertise_address": "",
     "enable_swagger": false,
     "expose_config": false,
+    "auth_token": "",
+    "read_timeout": 10,
+    "write_timeout": 10,
+    "idle_timeout": 60,
     "shutdown_timeout": 5,
     "metrics_path": "/metrics",
     "health_path": "/health",
     "version_path": "/version",
     "info_path": "/info",
+    "swagger_path": "/swagger.json",
     "config_path": "/config",
     "service_pool_path": "/services"
   },
 
   "infra": {
-    "redis":     { "addr": "localhost:6379", "password": "", "db": 0 },
-    "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false },
+    // A present section means "enable it": missing required fields abort
+    // startup (e.g. empty dsn/url/addr/broker, unknown bun driver).
+    "redis":     { "addr": "localhost:6379", "username": "", "password": "", "db": 0, "enable_tls": false, "dial_timeout_sec": 5, "read_timeout_sec": 3, "write_timeout_sec": 3, "pool_size": 0, "min_idle_conns": 0 },
+    "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false, "verbose": false, "slow_duration": 0, "max_open_conns": 0, "max_idle_conns": 0, "conn_max_lifetime_sec": 0, "conn_max_idle_time_sec": 0 },
     "badger":    { "path": "/tmp/badger" },
     "ristretto": { "num_counters": 10000000, "max_cost": 100000000, "buffer_items": 64 },
-    "nats":      { "url": "nats://localhost:4222" },
-    "mqtt":      { "broker": "tcp://localhost:1883", "client_id": "" },
-    "elastic":   { "addresses": ["http://localhost:9200"], "username": "", "password": "" },
+    "nats":      { "url": "nats://localhost:4222", "token": "", "username": "", "password": "", "creds_file": "", "nkey_file": "", "enable_tls": false, "root_ca_file": "", "timeout_sec": 5, "reconnect_wait_sec": 2, "max_reconnects": 60 },
+    "mqtt":      { "broker": "tcp://localhost:1883", "client_id": "", "username": "", "password": "", "enable_tls": false, "ca_file": "", "keep_alive_sec": 30, "connect_timeout_sec": 5 },
+    "elastic":   { "addresses": ["http://localhost:9200"], "username": "", "password": "", "cloud_id": "", "api_key": "", "service_token": "", "ca_cert_file": "", "timeout_sec": 5 },
     "clickhouse":{ "dsn": "clickhouse://..." },
     "mongo":     { "uri": "mongodb://localhost:27017", "db": "mydb" },
-    "s3":        {}
+    "s3":        { "region": "us-east-1", "endpoint": "", "bucket": "", "use_path_style": false, "timeout": 5 } // region required; bucket optional; endpoint for MinIO/LocalStack
   },
 
   "tracer": {
-    "type": "grpc",
+    "type": "grpc",          // none | grpc | http | stdout | uptrace
     "endpoint": "localhost:4317",
     "sample_rate": 1.0,
     "compress": false,
-    "timeout": 30
+    "timeout": 30,
+    "dsn": "",                // uptrace only
+    "pretty_print": false,    // stdout only
+    "timestamps": false       // stdout only
   },
 
   "registry": {
@@ -278,10 +311,9 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
   },
 
   "broker": {
-    "pool_purge_interval": 60,
     "nats":      { "url": "nats://localhost:4222" },
     "nsq":       { "endpoint": "127.0.0.1:4150", "channel": "sicky" },
-    "jetstream": { "url": "nats://localhost:4222", "stream": { "name": "sicky", "subjects": ["*"], "max_consummers": 256 } }
+    "jetstream": { "url": "nats://localhost:4222", "stream": { "name": "sicky", "subjects": ["*"], "max_consumers": 256 } }
   }
 }
 ```
@@ -301,7 +333,7 @@ import (
 svc := svcStandard.New(&service.Options{
     Name:    "user-service",
     Version: "1.0.0",
-})
+}, nil) // second arg *service.Config may be nil
 ```
 
 ### Fiber HTTP Server
@@ -447,6 +479,9 @@ val, _ := infra.Ristretto.Get("token:123")
 infra.Badger.Update(func(txn *badger.Txn) error {
     return txn.Set([]byte("key"), []byte("value"))
 })
+
+// Race-free reads via getters (recommended in handlers):
+// infra.GetRedis(), infra.GetBun(), infra.GetMongoDB("mydb")
 ```
 
 ### Lifecycle Hooks
@@ -461,6 +496,12 @@ sicky.AfterStop(func(ctx context.Context) error {
     logger.Info("All services stopped, cleaning up")
     return nil
 })
+
+// SIGHUP reload (process keeps serving; errors are logged, never fatal)
+sicky.OnReload(func(ctx context.Context) error {
+    logger.Info("Reloading on SIGHUP")
+    return nil
+})
 ```
 
 ---
@@ -468,23 +509,26 @@ sicky.AfterStop(func(ctx context.Context) error {
 ## CLI
 
 ```bash
-# Scaffold a new standard microservice
-sicky new --type standard --module github.com/myorg/myapp
+# Scaffold a new standard microservice (project name is required positional arg)
+sicky new myapp --type standard --module github.com/myorg/myapp
+# Optional: --output/-o <dir> (default "."), --no-grpc
 
 # Scaffold an MCP server
-sicky new --type mcp --module github.com/myorg/my-mcp
+sicky new my-mcp --type mcp --module github.com/myorg/my-mcp
 
-# Generate handler code
-sicky generate handler --name User
+# Generate handler/tool/resource (name is positional, no --name flag)
+sicky generate handler User
+sicky generate tool Search
+sicky generate resource Article
+sicky generate doc
 
-# Generate MCP tool
-sicky generate tool --name Search
-
-# Run as MCP server
+# Run as MCP server (transport: stdio or http)
 sicky serve --transport stdio --name my-mcp
+sicky serve --transport http --listen :3000
 
-# Print version
+# Print version / help
 sicky version
+sicky help        # also: sicky serve -h, sicky new -h
 ```
 
 ---
@@ -493,20 +537,21 @@ sicky version
 
 | Package | Description |
 |---|---|
-| `sicky` | Core orchestrator — `Init()`, `Run()`, lifecycle hooks, config loading |
-| `server` | Server interface + Fiber, gRPC, net/http, TCP, UDP, WebSocket implementations |
+| `sicky` | Core orchestrator — `Init()` (returns error; `ErrVersionShown`/`ErrAlreadyInitialized` sentinels), `Run()` (returns joined error, graceful shutdown), `Viper()`, `ConfigUnmarshal()`, lifecycle hooks (`Before/AfterStart/Stop`, `OnReload` on SIGHUP), `FlagSwitch`, Manager |
+| `server` | Server interface + Fiber, gRPC, net/http (bunrouter), TCP, UDP, WebSocket implementations |
 | `broker` | Broker interface + NATS, JetStream, NSQ implementations |
 | `client` | Client interface + gRPC, HTTP, TCP, UDP, WebSocket implementations |
-| `service` | Service interface + Standard (background), Interactive (CLI), MCP implementations |
-| `registry` | Registry interface + Consul, Redis, Local implementations |
-| `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace implementations |
-| `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) |
+| `service` | Service interface + Standard (background), Interactive (CLI), MCP (+ `mcp/protocol`) |
+| `registry` | Registry interface + Consul, Redis, Local (file JSON) — `mdns` 100% commented |
+| `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace (+ `tracer/fiber.go` B3 helper) |
+| `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 10 files, no interface |
 | `job` | Job interface + Cron (gocron), Ticker implementations |
 | `runner` | Runner interface + Static goroutine pool implementation |
 | `logger` | Structured logger (slog-based), Fiber/gRPC adapters |
-| `metrics` | Prometheus counters for server access and client calls |
-| `utils` | Helpers — metadata, networking, HTTP envelopes, debugging |
-| `cli` | CLI entry point — scaffolding, code generation, MCP serve |
+| `metrics` | Prometheus 11 counters (6 server + 5 client) + 3 collectors (`build_info`, `go`, `process`) |
+| `utils` | Helpers — `metadata`, `net` (IP/`Net2fd`), `http` envelopes, `debug`, `misc` |
+| `internal` | Internal request `Context` (ID, AppName, broker/registry/tracer/logger carriers) |
+| `cli` | CLI entry point — `sicky new/generate/serve/version/help` (`cli/sicky.go`) |
 | `cmd` | Binary entry point (`cmd/sicky/main.go`) |
 
 ---

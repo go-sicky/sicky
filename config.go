@@ -31,6 +31,9 @@
 package sicky
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/broker/jetstream"
 	"github.com/go-sicky/sicky/broker/nats"
@@ -52,6 +55,10 @@ const (
 	DefaultConfigPath      = "/config"
 	DefaultServicePoolPath = "/services"
 	DefaultShutdownTimeout = 5 // seconds
+
+	DefaultManagerReadTimeout  = 10 // seconds
+	DefaultManagerWriteTimeout = 10 // seconds
+	DefaultManagerIdleTimeout  = 60 // seconds
 )
 
 type ManagerConfig struct {
@@ -60,14 +67,23 @@ type ManagerConfig struct {
 	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
 	EnableSwagger    bool   `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
 	ExposeConfig     bool   `json:"expose_config" yaml:"expose_config" mapstructure:"expose_config"`
-	ShutdownTimeout  int    `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
-	MetricsPath      string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
-	HealthPath       string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
-	VersionPath      string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
-	InfoPath         string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
-	SwaggerPath      string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
-	ConfigPath       string `json:"config_path" yaml:"config_path" mapstructure:"config_path"`
-	ServicePoolPath  string `json:"service_pool_path" yaml:"service_pool_path" mapstructure:"service_pool_path"`
+	// AuthToken guards debug/topology endpoints (/config, /services)
+	// with `Authorization: Bearer <token>`. Empty means no token auth, in
+	// which case /config and /services only accept loopback clients.
+	// /metrics stays public for Prometheus scraping.
+	AuthToken string `json:"auth_token" yaml:"auth_token" mapstructure:"auth_token"`
+	// HTTP server timeouts in seconds (Slowloris mitigation).
+	ReadTimeout     int    `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
+	WriteTimeout    int    `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
+	IdleTimeout     int    `json:"idle_timeout" yaml:"idle_timeout" mapstructure:"idle_timeout"`
+	ShutdownTimeout int    `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+	MetricsPath     string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
+	HealthPath      string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
+	VersionPath     string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
+	InfoPath        string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
+	SwaggerPath     string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
+	ConfigPath      string `json:"config_path" yaml:"config_path" mapstructure:"config_path"`
+	ServicePoolPath string `json:"service_pool_path" yaml:"service_pool_path" mapstructure:"service_pool_path"`
 }
 
 func DefaultManagerConfig() *ManagerConfig {
@@ -81,6 +97,11 @@ func DefaultManagerConfig() *ManagerConfig {
 		SwaggerPath:     DefaultSwaggerPath,
 		ConfigPath:      DefaultConfigPath,
 		ServicePoolPath: DefaultServicePoolPath,
+		// ExposeConfig stays false by default: /config dumps secrets.
+		ReadTimeout:     DefaultManagerReadTimeout,
+		WriteTimeout:    DefaultManagerWriteTimeout,
+		IdleTimeout:     DefaultManagerIdleTimeout,
+		ShutdownTimeout: DefaultShutdownTimeout,
 	}
 }
 
@@ -125,6 +146,18 @@ func (c *ManagerConfig) Ensure() *ManagerConfig {
 		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 
+	if c.ReadTimeout == 0 {
+		c.ReadTimeout = DefaultManagerReadTimeout
+	}
+
+	if c.WriteTimeout == 0 {
+		c.WriteTimeout = DefaultManagerWriteTimeout
+	}
+
+	if c.IdleTimeout == 0 {
+		c.IdleTimeout = DefaultManagerIdleTimeout
+	}
+
 	return c
 }
 
@@ -142,14 +175,60 @@ type InfraConfig struct {
 }
 
 type TracerConfig struct {
-	Type        string  `json:"type" yaml:"type" mapstructure:"type"`
-	DSN         string  `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
-	Endpoint    string  `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
-	Compress    bool    `json:"compress" yaml:"compress" mapstructure:"compress"`
-	Timeout     int     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
-	PrettyPrint bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
-	Timestamps  bool    `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
-	SampleRate  float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+	Type           string            `json:"type" yaml:"type" mapstructure:"type"`
+	DSN            string            `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	Endpoint       string            `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+	ServiceName    string            `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
+	ServiceVersion string            `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
+	Compress       bool              `json:"compress" yaml:"compress" mapstructure:"compress"`
+	Timeout        int               `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	Insecure       bool              `json:"insecure" yaml:"insecure" mapstructure:"insecure"`
+	Headers        map[string]string `json:"headers" yaml:"headers" mapstructure:"headers"`
+	PrettyPrint    bool              `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
+	Timestamps     bool              `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
+	SampleRate     float64           `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+}
+
+// Tracer validation sentinels (presence-means-enabled aborts like infra).
+var (
+	ErrTracerUnknownType = errors.New("unknown tracer type")
+	ErrTracerNoDSN       = errors.New("uptrace tracer DSN is required")
+	ErrTracerNoEndpoint  = errors.New("otlp tracer endpoint is required")
+)
+
+// Validate checks the tracer selection. Uptrace requires DSN (abort);
+// OTLP grpc/http fall back to defaults with endpoint required after Ensure.
+func (c *TracerConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	switch c.Type {
+	case "", "none", "grpc", "http", "stdout", "uptrace":
+	default:
+		return fmt.Errorf("%w: %s", ErrTracerUnknownType, c.Type)
+	}
+	if c.Type == "uptrace" && c.DSN == "" {
+		return ErrTracerNoDSN
+	}
+
+	return nil
+}
+
+// Ensure fills tracer defaults: empty type -> "none", out-of-range
+// sample rate -> 1.0. ServiceName/Version stay empty here so the
+// orchestrator can fall back to AppName/Version at runtime.
+func (c *TracerConfig) Ensure() *TracerConfig {
+	if c == nil {
+		c = &TracerConfig{Type: DefaultTracerType}
+	}
+	if c.Type == "" {
+		c.Type = DefaultTracerType
+	}
+	if c.SampleRate < 0.0 || c.SampleRate > 1.0 {
+		c.SampleRate = 1.0
+	}
+
+	return c
 }
 
 const (
@@ -163,6 +242,8 @@ type Config struct {
 	Infra    *InfraConfig   `json:"infra" yaml:"infra" mapstructure:"infra"`
 	Tracer   *TracerConfig  `json:"tracer" yaml:"tracer" mapstructure:"tracer"`
 	Registry struct {
+		// Squashed for viper/mapstructure only; encoding/json+yaml keep the
+		// outer "registry" envelope (no inline support), which is intended.
 		registry.Config `mapstructure:",squash"`
 
 		Consul *consul.Config `json:"consul" yaml:"consul" mapstructure:"consul"`
@@ -170,6 +251,7 @@ type Config struct {
 		Local  *local.Config  `json:"local" yaml:"local" mapstructure:"local"`
 	} `json:"registry" yaml:"registry" mapstructure:"registry"`
 	Broker struct {
+		// Same squash note as Registry above.
 		broker.Config `mapstructure:",squash"`
 
 		Nats      *nats.Config      `json:"nats" yaml:"nats" mapstructure:"nats"`
@@ -198,13 +280,57 @@ func (c *Config) Ensure() *Config {
 		c.LogLevel = DefaultLogLevel
 	}
 
-	c.Manager = c.Manager.Ensure()
-	if c.Manager.AdvertiseAddress == "" {
-		c.Manager.AdvertiseAddress = c.Manager.Address
+	// nil Manager means disabled (BREAKING: previously nil became enabled).
+	// Only fill defaults when caller provided a non-nil Manager.
+	if c.Manager != nil {
+		c.Manager = c.Manager.Ensure()
+		if c.Manager.AdvertiseAddress == "" {
+			c.Manager.AdvertiseAddress = c.Manager.Address
+		}
 	}
 
 	if c.Infra == nil {
 		c.Infra = &InfraConfig{}
+	}
+
+	if c.Infra.Badger != nil {
+		c.Infra.Badger.Ensure()
+	}
+
+	if c.Infra.Bun != nil {
+		c.Infra.Bun.Ensure()
+	}
+
+	if c.Infra.Clickhouse != nil {
+		c.Infra.Clickhouse.Ensure()
+	}
+
+	if c.Infra.Elastic != nil {
+		c.Infra.Elastic.Ensure()
+	}
+
+	if c.Infra.Mongo != nil {
+		c.Infra.Mongo.Ensure()
+	}
+
+	if c.Infra.MQTT != nil {
+		c.Infra.MQTT.Ensure()
+	}
+
+	if c.Infra.Nats != nil {
+		c.Infra.Nats.Ensure()
+	}
+
+	if c.Infra.Redis != nil {
+		c.Infra.Redis.Ensure()
+	}
+
+	if c.Infra.Ristretto != nil {
+		c.Infra.Ristretto.Ensure()
+	}
+
+	if c.Infra.S3 != nil {
+		c.Infra.S3.Ensure()
 	}
 
 	if c.Tracer == nil {
@@ -212,6 +338,7 @@ func (c *Config) Ensure() *Config {
 			Type: DefaultTracerType,
 		}
 	}
+	c.Tracer.Ensure()
 
 	c.Registry.Ensure()
 	if c.Registry.Consul != nil {

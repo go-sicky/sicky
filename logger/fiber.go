@@ -95,21 +95,17 @@ func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddle
 		cfg.SampledContextKey = FiberMiddlewareConfigDefault.SampledContextKey
 	}
 
-	if cfg.DefaultLevel == 0 {
-		cfg.DefaultLevel = FiberMiddlewareConfigDefault.DefaultLevel
-	}
-
-	if cfg.ClientErrorLevel == 0 {
-		cfg.ClientErrorLevel = FiberMiddlewareConfigDefault.ClientErrorLevel
-	}
-
-	if cfg.ServerErrorLevel == 0 {
-		cfg.ServerErrorLevel = FiberMiddlewareConfigDefault.ServerErrorLevel
-	}
+	// NOTE: Level zero value is InfoLevel, which is valid. Do not treat 0
+	// as empty (previously Info was overwritten with Debug defaults).
 
 	return cfg
 }
 
+// Deprecated: legacy middleware, no longer maintained. The framework's
+// own Fiber server (server/fiber) mounts its access-log middleware
+// internally and owns the num_fiber_server_access counter — mounting this
+// on the same app double-counts. Prefer server/fiber's built-in chain;
+// tracer/fiber.go's middleware (tracing only, no counter) is safe to stack.
 func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 	cfg := fiberMiddlewareConfigDefault(config...)
 	if cfg.Logger == nil {

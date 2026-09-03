@@ -37,6 +37,9 @@ import (
 	"google.golang.org/grpc"
 )
 
+// NOTE: currently not wired into the server chain — the baggage it
+// extracts is discarded, so wiring it would only add overhead. Kept as a
+// placeholder for future baggage propagation.
 func NewMetadataInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md := propagation.HeaderCarrier{}

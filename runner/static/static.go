@@ -44,8 +44,11 @@ type Static struct {
 	ctx     context.Context
 	options *runner.Options
 
-	wg   sync.WaitGroup
-	task chan *runner.Task
+	mu      sync.Mutex
+	wg      sync.WaitGroup
+	task    chan *runner.Task
+	started bool
+	stopped bool
 }
 
 // New static runner (pool)
@@ -94,14 +97,20 @@ func (r *Static) Name() string {
 }
 
 func (r *Static) Start() error {
-	// Goroutines
-	go func() {
-		for idx := 0; idx < r.options.NThreads; idx++ {
-			go r._worker()
-		}
-
-		r.wg.Wait()
-	}()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.started {
+		return nil
+	}
+	n := r.options.NThreads
+	if n <= 0 {
+		n = 1
+	}
+	for idx := 0; idx < n; idx++ {
+		r.wg.Add(1)
+		go r._worker()
+	}
+	r.started = true
 
 	r.options.Logger.InfoContext(
 		r.ctx,
@@ -109,17 +118,22 @@ func (r *Static) Start() error {
 		"runner", r.String(),
 		"id", r.options.ID,
 		"name", r.options.Name,
-		"threads", r.options.NThreads,
+		"threads", n,
 	)
 	return nil
 }
 
 func (r *Static) Stop() error {
-	if r.task != nil {
-		close(r.task)
-
+	r.mu.Lock()
+	ch := r.task
+	if !r.stopped && ch != nil {
+		r.stopped = true
 		r.task = nil
+		close(ch)
 	}
+	r.mu.Unlock()
+
+	r.wg.Wait()
 
 	r.options.Logger.InfoContext(
 		r.ctx,
@@ -133,47 +147,59 @@ func (r *Static) Stop() error {
 }
 
 func (r *Static) Task(t *runner.Task) {
-	if r.task != nil {
-		if t.ID == uuid.Nil {
-			t.ID = uuid.New()
-		}
-
-		r.task <- t
+	if t == nil {
+		return
 	}
+	r.mu.Lock()
+	ch := r.task
+	stopped := r.stopped
+	r.mu.Unlock()
+	if ch == nil || stopped {
+		return
+	}
+	if t.ID == uuid.Nil {
+		t.ID = uuid.New()
+	}
+
+	r.task <- t
 }
 
-func (r *Static) _worker() error {
-	r.wg.Add(1)
+func (r *Static) _worker() {
 	defer r.wg.Done()
 	self := utils.GoroutineID()
 
 	for t := range r.task {
-		r.options.Logger.TraceContext(
-			r.ctx,
-			"Runner task created",
-			"runner", r.String(),
-			"id", r.options.ID,
-			"name", r.options.Name,
-			"worker", self,
-			"task", t.ID.String(),
-		)
+		func() {
+			defer func() {
+				_ = recover()
+			}()
+			r.options.Logger.TraceContext(
+				r.ctx,
+				"Runner task created",
+				"runner", r.String(),
+				"id", r.options.ID,
+				"name", r.options.Name,
+				"worker", self,
+				"task", t.ID.String(),
+			)
 
-		// Call handler
-		if r.options.Handler != nil {
-			err := r.options.Handler(t)
-			if err != nil {
-				r.options.Logger.ErrorContext(
-					r.ctx,
-					"Runner worker run failed",
-					"runner", r.String(),
-					"id", r.options.ID,
-					"name", r.options.Name,
-					"worker", self,
-					"task", t.ID.String(),
-					"error", err.Error(),
-				)
+			// Call handler
+			if r.options.Handler != nil {
+				err := r.options.Handler(t)
+				if err != nil {
+					r.options.Logger.ErrorContext(
+						r.ctx,
+						"Runner worker run failed",
+						"runner", r.String(),
+						"id", r.options.ID,
+						"name", r.options.Name,
+						"worker", self,
+						"task", t.ID.String(),
+						"error", err.Error(),
+					)
+				}
 			}
-		}
+		}()
 	}
 
 	r.options.Logger.DebugContext(
@@ -184,8 +210,6 @@ func (r *Static) _worker() error {
 		"name", r.options.Name,
 		"worker", self,
 	)
-
-	return nil
 }
 
 /*

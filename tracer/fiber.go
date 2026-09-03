@@ -74,6 +74,10 @@ func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddle
 	return cfg
 }
 
+// Deprecated: legacy middleware kept for compatibility. Use
+// server/fiber.NewTracerMiddleware instead: it supports SkipPaths,
+// route-template span names, and the shared W3C+B3 propagator.
+// Never mount both on the same app (double spans + double counting).
 func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 	cfg := fiberMiddlewareConfigDefault(config...)
 	pg := b3.New()

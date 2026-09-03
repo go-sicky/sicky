@@ -32,6 +32,7 @@ package uptrace
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
@@ -71,24 +72,45 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 		return nil
 	}
 
-	// Validate configuration parameters
+	// Sampling is controlled server-side by Uptrace; the client-side
+	// SampleRate field is deprecated and ignored (kept for config compat).
 	if cfg.SampleRate < 0 || cfg.SampleRate > 1 {
 		cfg.SampleRate = 1.0
+	}
+	if cfg.SampleRate != 1.0 {
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Invalid sample rate, reset to 1.0",
+			"Uptrace sample_rate is deprecated and ignored; sampling is server-side",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
-			"sample_rate", cfg.SampleRate,
 		)
+		cfg.SampleRate = 1.0
 	}
 
-	// Configure Uptrace
+	svcName := cfg.ServiceName
+	if svcName == "" {
+		svcName = opts.Name
+	}
+	svcVer := cfg.ServiceVersion
+	if svcVer == "" {
+		svcVer = "latest"
+	}
+
+	// Shut down any previous Uptrace-owned provider so re-New() calls
+	// (tests, config reload) don't leak the old global provider.
+	if prev, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok && prev != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = prev.Shutdown(shutdownCtx)
+		shutdownCancel()
+		uptrace.Shutdown(shutdownCtx)
+	}
+
+	// Configure Uptrace (SDK-owned track, independent from standard OTLP).
 	uptrace.ConfigureOpentelemetry(
 		uptrace.WithDSN(cfg.DSN),
-		uptrace.WithServiceName(opts.Name),
-		uptrace.WithServiceVersion("latest"),
+		uptrace.WithServiceName(svcName),
+		uptrace.WithServiceVersion(svcVer),
 	)
 
 	// Get the TracerProvider configured by Uptrace
@@ -113,8 +135,9 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
-		"dsn", cfg.DSN,
-		"sample_rate", cfg.SampleRate,
+		"dsn", tracer.RedactDSN(cfg.DSN),
+		"service", svcName,
+		"version", svcVer,
 	)
 	tracer.Set(tc)
 
@@ -148,23 +171,26 @@ func (tc *UptraceTracer) Start() error {
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
-		"dsn", tc.config.DSN,
-		"sample_rate", tc.config.SampleRate,
+		"dsn", tracer.RedactDSN(tc.config.DSN),
+		"service", tc.config.ServiceName,
+		"version", tc.config.ServiceVersion,
 	)
 
 	return nil
 }
 
 func (tc *UptraceTracer) Stop() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	if tc.provider != nil {
-		if err := tc.provider.Shutdown(tc.ctx); err != nil {
+		if err := tc.provider.Shutdown(ctx); err != nil {
 			tc.options.Logger.ErrorContext(
 				tc.ctx,
 				"Tracer provider shutdown failed",
 				"tracer", tc.String(),
 				"id", tc.options.ID,
 				"name", tc.options.Name,
-				"dsn", tc.config.DSN,
+				"dsn", tracer.RedactDSN(tc.config.DSN),
 				"error", err.Error(),
 			)
 
@@ -173,7 +199,7 @@ func (tc *UptraceTracer) Stop() error {
 	}
 
 	// Shutdown Uptrace
-	uptrace.Shutdown(tc.ctx)
+	uptrace.Shutdown(ctx)
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -181,7 +207,7 @@ func (tc *UptraceTracer) Stop() error {
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
-		"dsn", tc.config.DSN,
+		"dsn", tracer.RedactDSN(tc.config.DSN),
 	)
 
 	return nil
@@ -199,7 +225,7 @@ func (tc *UptraceTracer) Tracer(name string) trace.Tracer {
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
-			"dsn", tc.config.DSN,
+			"dsn", tracer.RedactDSN(tc.config.DSN),
 		)
 
 		return noop.NewTracerProvider().Tracer(name)
@@ -211,7 +237,7 @@ func (tc *UptraceTracer) Tracer(name string) trace.Tracer {
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
-		"dsn", tc.config.DSN,
+		"dsn", tracer.RedactDSN(tc.config.DSN),
 		"request", name,
 	)
 

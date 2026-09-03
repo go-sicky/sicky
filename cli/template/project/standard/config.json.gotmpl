@@ -1,20 +1,49 @@
 {
 {{if .WithGRPC}}    "server": {
         "grpc": {
-            "addr": ":44945"
+            "address": ":44945",
+            "connection_timeout": "300s",
+            "disable_reflection": false
         }
     },
 {{end}}{{if .WithFiber}}{{if not .WithGRPC}}    "server": {
         "fiber": {
-            "listen": ":3000"
+            "address": ":3000",
+            "body_limit": 4194304,
+            "read_timeout": "10s",
+            "write_timeout": "10s",
+            "idle_timeout": "60s",
+            "cors": {
+                "allowed_origins": [],
+                "allow_credentials": false,
+                "max_age": 86400
+            }
         }
     },
 {{else}}        "fiber": {
-            "listen": ":3000"
+            "address": ":3000",
+            "body_limit": 4194304,
+            "read_timeout": "10s",
+            "write_timeout": "10s",
+            "idle_timeout": "60s",
+            "cors": {
+                "allowed_origins": [],
+                "allow_credentials": false,
+                "max_age": 86400
+            }
         }
     },
 {{end}}{{end}}    "sicky": {
         "log_level": "debug",
+        "tracer": {
+            "type": "none",
+            "service_name": "",
+            "service_version": "",
+            "endpoint": "127.0.0.1:4317",
+            "dsn": "",
+            "insecure": true,
+            "sample_rate": 1.0
+        },
         "registry": {
             "local": {
                 "registry_file_path": "/tmp/sicky/registry/"

@@ -54,7 +54,7 @@ type Service interface {
 	// Stop service
 	Stop() []error
 
-	// Subdinates
+	// Subordinates
 	Servers(...server.Server) []server.Server
 	Brokers(...broker.Broker) []broker.Broker
 	Jobs(...job.Job) []job.Job
@@ -73,6 +73,12 @@ func Set(svcs ...Service) {
 	defer svcMu.Unlock()
 
 	for _, svc := range svcs {
+		if svc == nil || svc.Options() == nil {
+			continue
+		}
+		if _, exists := services[svc.Options().ID]; exists {
+			continue
+		}
 		services[svc.Options().ID] = svc
 		if defaultService == nil {
 			defaultService = svc
@@ -98,7 +104,20 @@ func Services() map[uuid.UUID]Service {
 	svcMu.RLock()
 	defer svcMu.RUnlock()
 
-	return services
+	out := make(map[uuid.UUID]Service, len(services))
+	for id, svc := range services {
+		out[id] = svc
+	}
+	return out
+}
+
+// Clear resets the global registry. Intended for tests and restart flows.
+func Clear() {
+	svcMu.Lock()
+	defer svcMu.Unlock()
+
+	services = make(map[uuid.UUID]Service)
+	defaultService = nil
 }
 
 // func Run() error {

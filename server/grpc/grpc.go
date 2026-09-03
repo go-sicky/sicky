@@ -33,8 +33,10 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/tracer"
@@ -42,8 +44,18 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
+
+// ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
+// is set. Falling back to plaintext silently would be a security hole, so
+// startup fails fast instead.
+var ErrIncompleteTLSConfig = errors.New("incomplete TLS configuration: both tls_cert_pem and tls_key_pem must be set")
+
+// ErrShutdownTimeout is returned when GracefulStop exceeds
+// ShutdownTimeout and the server is force-stopped instead.
+var ErrShutdownTimeout = errors.New("graceful stop timed out")
 
 /* {{{ [Server] */
 
@@ -54,6 +66,7 @@ type GRPCServer struct {
 	options       *server.Options
 	app           *grpc.Server
 	running       bool
+	stopping      bool
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
@@ -114,6 +127,24 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	}
 
 	gopts := make([]grpc.ServerOption, 0)
+	// ConnectionTimeout reuses the legacy field as the max connection
+	// age (forced recycle incl. long-lived streams); zero disables it.
+	if cfg.ConnectionTimeout > 0 || cfg.MaxConnectionIdle > 0 ||
+		cfg.KeepaliveTime > 0 || cfg.KeepaliveTimeout > 0 {
+		gopts = append(gopts, grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     cfg.MaxConnectionIdle,
+			MaxConnectionAge:      cfg.ConnectionTimeout,
+			MaxConnectionAgeGrace: cfg.MaxConnectionAgeGrace,
+			Time:                  cfg.KeepaliveTime,
+			Timeout:               cfg.KeepaliveTimeout,
+		}))
+	}
+	if cfg.MinPingInterval > 0 {
+		gopts = append(gopts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             cfg.MinPingInterval,
+			PermitWithoutStream: false,
+		}))
+	}
 	if cfg.MaxConcurrentStreams > 0 {
 		gopts = append(gopts, grpc.MaxConcurrentStreams(cfg.MaxConcurrentStreams))
 	}
@@ -138,17 +169,18 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 		gopts = append(gopts, grpc.WriteBufferSize(cfg.WriteBufferSize))
 	}
 
-	// Tracing
+	// Tracing (outer) + access logger (inner). The logger reads the
+	// X-B3-* headers injected by the tracing interceptor, so this order
+	// matters. A single ChainUnaryInterceptor call holds the whole chain.
+	// Recovery stays outermost so panics from any inner interceptor or
+	// the handler never crash the Serve loop.
 	gopts = append(gopts, grpc.ChainUnaryInterceptor(
+		NewRecoveryInterceptor(),
 		NewTracingInterceptor(
 			TracerConfig{
 				Tracer: tr,
 			},
 		),
-	))
-
-	// Access logger
-	gopts = append(gopts, grpc.ChainUnaryInterceptor(
 		NewAccessLoggerInterceptor(
 			LoggerConfig{
 				Logger: opts.Logger,
@@ -156,8 +188,26 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 		),
 	))
 
+	gopts = append(gopts, grpc.ChainStreamInterceptor(
+		NewStreamRecoveryInterceptor(),
+		NewStreamTracingInterceptor(
+			TracerConfig{
+				Tracer: tr,
+			},
+		),
+		NewStreamAccessLoggerInterceptor(
+			LoggerConfig{
+				Logger: opts.Logger,
+			},
+		),
+	))
+
 	app := grpc.NewServer(gopts...)
-	reflection.Register(app)
+	// BREAKING: reflection is opt-in (default off). Legacy DisableReflection=false
+	// no longer enables it; set EnableReflection=true to expose descriptors.
+	if cfg.EnableReflection && !cfg.DisableReflection {
+		reflection.Register(app)
+	}
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -203,12 +253,25 @@ func (srv *GRPCServer) Start() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if srv.running {
+	if srv.running || srv.stopping {
 		// running
 		return nil
 	}
 
 	srv.options.RunBeforeStart()
+
+	// A half-configured TLS must never silently fall back to plaintext.
+	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"TLS configuration incomplete",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+		)
+
+		return ErrIncompleteTLSConfig
+	}
 
 	// Try TLS first
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
@@ -231,6 +294,7 @@ func (srv *GRPCServer) Start() error {
 			srv.addr.String(),
 			&tls.Config{
 				MinVersion:   tls.VersionTLS12,
+				NextProtos:   []string{"h2"},
 				Certificates: []tls.Certificate{cert},
 			},
 		)
@@ -247,6 +311,15 @@ func (srv *GRPCServer) Start() error {
 			return err
 		}
 	} else {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"GRPC serving without TLS (insecure mode)",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"network", srv.addr.Network(),
+			"address", srv.addr.String(),
+		)
 		listener, err = net.Listen(
 			srv.addr.Network(),
 			srv.addr.String(),
@@ -320,18 +393,55 @@ func (srv *GRPCServer) Start() error {
 }
 
 func (srv *GRPCServer) Stop() error {
+	// Check-and-flag under lock, then release: holding Lock across
+	// GracefulStop/Wait would starve all RLock readers for the whole drain.
 	srv.Lock()
-	defer srv.Unlock()
-
-	if !srv.running {
+	if !srv.running || srv.stopping {
 		// Not running
+		srv.Unlock()
+
 		return nil
 	}
-
+	srv.stopping = true
 	srv.options.RunBeforeStop()
+	app := srv.app
+	timeout := srv.config.ShutdownTimeout
+	srv.Unlock()
 
-	srv.app.GracefulStop()
+	// GracefulStop has no deadline: bound it, then force-stop so a
+	// hung stream cannot hang Stop forever.
+	var errs error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		app.GracefulStop()
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		app.Stop()
+		<-done
+		err := ErrShutdownTimeout
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"GRPC graceful stop timed out, connections force-stopped",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"timeout", timeout.String(),
+			"error", err.Error(),
+		)
+		errs = errors.Join(errs, err)
+	}
 	srv.wg.Wait()
+
+	srv.Lock()
+	srv.running = false
+	srv.stopping = false
+	srv.Unlock()
+
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"GRPC server shutdown",
@@ -340,22 +450,27 @@ func (srv *GRPCServer) Stop() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.running = false
 	srv.options.RunAfterStop()
 
-	return nil
+	return errs
 }
 
 func (srv *GRPCServer) Running() bool {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.running
 }
 
 func (srv *GRPCServer) Addr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.addr
 }
 
 func (srv *GRPCServer) IP() net.IP {
-	try := utils.AddrToIP(srv.addr)
+	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -364,15 +479,18 @@ func (srv *GRPCServer) IP() net.IP {
 }
 
 func (srv *GRPCServer) Port() int {
-	return utils.AddrToPort(srv.addr)
+	return utils.AddrToPort(srv.Addr())
 }
 
 func (srv *GRPCServer) AdvertiseAddr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.advertiseAddr
 }
 
 func (srv *GRPCServer) AdvertiseIP() net.IP {
-	try := utils.AddrToIP(srv.advertiseAddr)
+	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -381,11 +499,17 @@ func (srv *GRPCServer) AdvertiseIP() net.IP {
 }
 
 func (srv *GRPCServer) AdvertisePort() int {
-	return utils.AddrToPort(srv.advertiseAddr)
+	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
 func (srv *GRPCServer) Metadata() utils.Metadata {
-	return srv.metadata
+	// Snapshot: the map is written during Start while handlers may read
+	// it concurrently; returning the live map would race.
+	if srv.metadata == nil {
+		return utils.NewMetadata()
+	}
+
+	return srv.metadata.Clone()
 }
 
 func (srv *GRPCServer) App() *grpc.Server {

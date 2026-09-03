@@ -31,6 +31,9 @@
 package infra
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/dgraph-io/badger/v4"
 	"github.com/go-sicky/sicky/logger"
 )
@@ -39,11 +42,25 @@ type BadgerConfig struct {
 	Path string `json:"path" yaml:"path" mapstructure:"path"`
 }
 
+// ErrBadgerPathEmpty aborts startup: a non-nil BadgerConfig means "enable
+// badger", and an empty path would otherwise open in the CWD or fail late.
+var ErrBadgerPathEmpty = errors.New("infra: badger path is empty")
+
 var Badger *badger.DB
 
 func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	if cfg == nil {
 		return nil, nil
+	}
+
+	cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Badger config invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
 	}
 
 	kv, err := badger.Open(badger.DefaultOptions(cfg.Path))
@@ -61,11 +78,44 @@ func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
 		"path", cfg.Path,
 	)
 
-	if Badger == nil {
-		Badger = kv
+	mu.Lock()
+	defer mu.Unlock()
+	if Badger != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("Badger already initialized, closing duplicate connection")
+		if cerr := kv.Close(); cerr != nil {
+			logger.Logger.Error(
+				"Badger duplicate close failed",
+				"error", cerr.Error(),
+			)
+		}
+
+		return Badger, nil
 	}
+	Badger = kv
 
 	return kv, nil
+}
+
+func (c *BadgerConfig) Ensure() *BadgerConfig {
+	if c == nil {
+		c = new(BadgerConfig)
+	}
+
+	return c
+}
+
+func (c *BadgerConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.Path) == "" {
+		return ErrBadgerPathEmpty
+	}
+
+	return nil
 }
 
 /*

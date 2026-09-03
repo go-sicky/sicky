@@ -94,14 +94,22 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	var tr trace.Tracer
 	if tracer.Default() != nil {
 		tr = tracer.Default().Tracer(clt.Name())
-		gopts = append(gopts, grpc.WithChainUnaryInterceptor(
-			NewClientTracingInterceptor(tr),
-		))
 	}
 
-	gopts = append(gopts, grpc.WithChainUnaryInterceptor(
-		NewClientLoggerInterceptor(clt.options.Logger),
-	))
+	// Tracing (outer) + logger (inner), single chain each. The tracing
+	// entry is only appended when a tracer exists; the logger always runs.
+	unaryChain := make([]grpc.UnaryClientInterceptor, 0, 2)
+	streamChain := make([]grpc.StreamClientInterceptor, 0, 2)
+	if tr != nil {
+		unaryChain = append(unaryChain, NewClientTracingInterceptor(tr))
+		streamChain = append(streamChain, NewClientStreamTracingInterceptor(tr))
+	}
+	unaryChain = append(unaryChain, NewClientLoggerInterceptor(clt.options.Logger))
+	streamChain = append(streamChain, NewClientStreamLoggerInterceptor(clt.options.Logger))
+	gopts = append(gopts,
+		grpc.WithChainUnaryInterceptor(unaryChain...),
+		grpc.WithChainStreamInterceptor(streamChain...),
+	)
 
 	// Resolver
 	r := manual.NewBuilderWithScheme("sicky")

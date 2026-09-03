@@ -31,23 +31,39 @@
 package uptrace
 
 const (
-	DefaultSampleRate = 1.0
+	DefaultServiceName    = "sicky"
+	DefaultServiceVersion = "latest"
+	DefaultSampleRate     = 1.0
 )
 
 type Config struct {
-	DSN        string  `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	DSN            string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+	ServiceName    string `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
+	ServiceVersion string `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
+	// SampleRate is deprecated: sampling is controlled server-side by
+	// Uptrace. Kept for config compatibility; New() warns and ignores it.
 	SampleRate float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		SampleRate: DefaultSampleRate,
+		ServiceName:    DefaultServiceName,
+		ServiceVersion: DefaultServiceVersion,
+		SampleRate:     DefaultSampleRate,
 	}
 }
 
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
+	}
+
+	if c.ServiceName == "" {
+		c.ServiceName = DefaultServiceName
+	}
+
+	if c.ServiceVersion == "" {
+		c.ServiceVersion = DefaultServiceVersion
 	}
 
 	if c.SampleRate > 1.0 || c.SampleRate < 0.0 {

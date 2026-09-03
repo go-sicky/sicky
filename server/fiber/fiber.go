@@ -33,8 +33,11 @@ package fiber
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/tracer"
@@ -46,6 +49,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
+// is set. Falling back to plaintext silently would be a security hole, so
+// startup fails fast instead.
+var ErrIncompleteTLSConfig = errors.New("incomplete TLS configuration: both tls_cert_pem and tls_key_pem must be set")
+
+// ErrShutdownTimeout is returned when graceful shutdown exceeds
+// ShutdownTimeout; draining continues in the background.
+var ErrShutdownTimeout = errors.New("graceful shutdown timed out")
+
 /* {{{ [Server] */
 
 // FiberServer : Server definition
@@ -55,6 +67,7 @@ type FiberServer struct {
 	options       *server.Options
 	app           *fiber.App
 	running       bool
+	stopping      bool
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
@@ -128,6 +141,9 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 			Concurrency:           cfg.Concurrency,
 			ReadBufferSize:        cfg.ReadBufferSize,
 			WriteBufferSize:       cfg.WriteBufferSize,
+			ReadTimeout:           cfg.ReadTimeout,
+			WriteTimeout:          cfg.WriteTimeout,
+			IdleTimeout:           cfg.IdleTimeout,
 		},
 	)
 
@@ -145,8 +161,21 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 
 	// The order of middlewares is important
 	// Issue was resolved at dawn on the first day of 2025, thanks to the remote class reunion >_<!
+	// CORS is deny-by-default: an empty whitelist skips the middleware
+	// entirely instead of falling back to AllowOrigins "*".
+	corsCfg := cfg.CORS.Ensure()
+	corsMiddleware := func(c *fiber.Ctx) error {
+		return c.Next()
+	}
+	if len(corsCfg.AllowedOrigins) > 0 {
+		corsMiddleware = cors.New(cors.Config{
+			AllowOrigins:     strings.Join(corsCfg.AllowedOrigins, ", "),
+			AllowCredentials: corsCfg.AllowCredentials,
+			MaxAge:           corsCfg.MaxAge,
+		})
+	}
 	app.Use(
-		cors.New(),
+		corsMiddleware,
 		NewPropagationMiddleware(),
 		NewTracerMiddleware(
 			TracerConfig{
@@ -216,12 +245,25 @@ func (srv *FiberServer) Start() error {
 	srv.Lock()
 	defer srv.Unlock()
 
-	if srv.running {
+	if srv.running || srv.stopping {
 		// running
 		return nil
 	}
 
 	srv.options.RunBeforeStart()
+
+	// A half-configured TLS must never silently fall back to plaintext.
+	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"TLS configuration incomplete",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+		)
+
+		return ErrIncompleteTLSConfig
+	}
 
 	// Try TLS first
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
@@ -332,18 +374,63 @@ func (srv *FiberServer) Start() error {
 }
 
 func (srv *FiberServer) Stop() error {
+	// Check-and-flag under lock, then release: holding Lock across
+	// Shutdown/Wait would starve all RLock readers for the whole drain.
 	srv.Lock()
-	defer srv.Unlock()
-
-	if !srv.running {
+	if !srv.running || srv.stopping {
 		// Not running
+		srv.Unlock()
+
 		return nil
 	}
-
+	srv.stopping = true
 	srv.options.RunBeforeStop()
+	app := srv.app
+	timeout := srv.config.ShutdownTimeout
+	srv.Unlock()
 
-	srv.app.Server().Shutdown()
+	// fasthttp Shutdown has no context: bound it with a timer so a
+	// lingering connection cannot hang Stop forever.
+	var errs error
+	done := make(chan error, 1)
+	go func() {
+		done <- app.Server().Shutdown()
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Fiber server shutdown failed",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
+			errs = errors.Join(errs, err)
+		}
+	case <-timer.C:
+		err := ErrShutdownTimeout
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Fiber server shutdown timed out, connections draining in background",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"timeout", timeout.String(),
+			"error", err.Error(),
+		)
+		errs = errors.Join(errs, err)
+	}
 	srv.wg.Wait()
+
+	srv.Lock()
+	srv.running = false
+	srv.stopping = false
+	srv.Unlock()
+
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"HTTP server shutdown",
@@ -352,22 +439,27 @@ func (srv *FiberServer) Stop() error {
 		"name", srv.options.Name,
 		"addr", srv.addr.String(),
 	)
-	srv.running = false
 	srv.options.RunAfterStop()
 
-	return nil
+	return errs
 }
 
 func (srv *FiberServer) Running() bool {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.running
 }
 
 func (srv *FiberServer) Addr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.addr
 }
 
 func (srv *FiberServer) IP() net.IP {
-	try := utils.AddrToIP(srv.addr)
+	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -376,15 +468,18 @@ func (srv *FiberServer) IP() net.IP {
 }
 
 func (srv *FiberServer) Port() int {
-	return utils.AddrToPort(srv.addr)
+	return utils.AddrToPort(srv.Addr())
 }
 
 func (srv *FiberServer) AdvertiseAddr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.advertiseAddr
 }
 
 func (srv *FiberServer) AdvertiseIP() net.IP {
-	try := utils.AddrToIP(srv.advertiseAddr)
+	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -393,11 +488,17 @@ func (srv *FiberServer) AdvertiseIP() net.IP {
 }
 
 func (srv *FiberServer) AdvertisePort() int {
-	return utils.AddrToPort(srv.advertiseAddr)
+	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
 func (srv *FiberServer) Metadata() utils.Metadata {
-	return srv.metadata
+	// Snapshot: the map is written during Start while handlers may read
+	// it concurrently; returning the live map would race.
+	if srv.metadata == nil {
+		return utils.NewMetadata()
+	}
+
+	return srv.metadata.Clone()
 }
 
 func (srv *FiberServer) App() *fiber.App {

@@ -131,11 +131,11 @@ func NewMetadataMiddleware(config ...MetadataConfig) bunrouter.MiddlewareFunc {
 
 			ctx := r.Context()
 
-			requestID := r.Header.Get(cfg.RequestIDHeader)
-			traceID := r.Header.Get(cfg.TraceIDHeader)
-			spanID := r.Header.Get(cfg.SpanIDHeader)
-			parentSpanID := r.Header.Get(cfg.ParentSpanIDHeader)
-			sampled := r.Header.Get(cfg.SampledHeader)
+			requestID := sanitizePropagatedValue(r.Header.Get(cfg.RequestIDHeader))
+			traceID := sanitizePropagatedValue(r.Header.Get(cfg.TraceIDHeader))
+			spanID := sanitizePropagatedValue(r.Header.Get(cfg.SpanIDHeader))
+			parentSpanID := sanitizePropagatedValue(r.Header.Get(cfg.ParentSpanIDHeader))
+			sampled := sanitizePropagatedValue(r.Header.Get(cfg.SampledHeader))
 
 			ctx = context.WithValue(ctx, cfg.RequestIDContextKey, requestID)
 			ctx = context.WithValue(ctx, cfg.TraceIDContextKey, traceID)

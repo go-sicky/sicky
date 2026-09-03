@@ -54,16 +54,19 @@ func (h *Swagger) Register(app *fiber.App) {
 	if h.validatorURL != "" {
 		cfg.ValidatorUrl = h.validatorURL
 	} else {
-		cfg.ValidatorUrl = "localhost"
+		// Empty disables the validator instead of pointing clients at
+		// a localhost validator that never exists in production.
+		cfg.ValidatorUrl = ""
 	}
 
 	if h.pageTitle != "" {
 		cfg.Title = h.pageTitle
 	} else {
-		cfg.Title = "Sicky.Swagger.UI"
+		cfg.Title = "API Documentation"
 	}
 
-	app.All("/docs/*", swagger.New(cfg))
+	// Docs are read-only: expose GET only, never All().
+	app.Get("/docs/*", swagger.New(cfg))
 }
 
 func (h *Swagger) Name() string {

@@ -36,6 +36,8 @@ const (
 	DefaultNetwork = "tcp"
 	DefaultAddress = ":0"
 
+	DefaultShutdownTimeout = 10 * time.Second
+
 	// AccessLogger
 	DefaultRequestIDContextKey    = "requestid"
 	DefaultTraceIDContextKey      = "traceid"
@@ -72,19 +74,42 @@ type AccessLoggerConfig struct {
 }
 
 type Config struct {
-	Network              string              `json:"network" yaml:"network" mapstructure:"network"`
-	Address              string              `json:"address" yaml:"address" mapstructure:"address"`
-	AdvertiseAddress     string              `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
-	TLSCertPEM           string              `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM            string              `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	ConnectionTimeout    time.Duration       `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
-	MaxConcurrentStreams uint32              `json:"max_concurrent_streams" yaml:"max_concurrent_streams" mapstructures:"max_concurrent_streams"`
-	MaxHeaderListSize    uint32              `json:"max_header_list_size" yaml:"max_header_list_size" mapstructure:"max_header_list_size"`
-	MaxRecvMsgSize       int                 `json:"max_recv_msg_size" yaml:"max_recv_msg_size" mapstructure:"max_recv_msg_size"`
-	MaxSendMsgSize       int                 `json:"max_send_msg_size" yaml:"max_send_msg_size" mapstructure:"max_send_msg_size"`
-	ReadBufferSize       int                 `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
-	WriteBufferSize      int                 `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
-	AccessLogger         *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
+	Network           string        `json:"network" yaml:"network" mapstructure:"network"`
+	Address           string        `json:"address" yaml:"address" mapstructure:"address"`
+	AdvertiseAddress  string        `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
+	TLSCertPEM        string        `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM         string        `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
+	ConnectionTimeout time.Duration `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
+	// MaxConnectionAgeGrace is the drain grace after ConnectionTimeout
+	// fires. Only meaningful together with ConnectionTimeout.
+	MaxConnectionAgeGrace time.Duration `json:"max_connection_age_grace" yaml:"max_connection_age_grace" mapstructure:"max_connection_age_grace"`
+	// Keepalive probes idle connections; all three must be positive to
+	// take effect. Zero keeps the gRPC defaults.
+	KeepaliveTime    time.Duration `json:"keepalive_time" yaml:"keepalive_time" mapstructure:"keepalive_time"`
+	KeepaliveTimeout time.Duration `json:"keepalive_timeout" yaml:"keepalive_timeout" mapstructure:"keepalive_timeout"`
+	// MaxConnectionIdle closes connections idle longer than this.
+	// Zero keeps the gRPC default (never).
+	MaxConnectionIdle time.Duration `json:"max_connection_idle" yaml:"max_connection_idle" mapstructure:"max_connection_idle"`
+	// MinPingInterval is the minimum interval for client pings without
+	// data (abuse guard; gRPC default is 5 minutes). Zero keeps default.
+	MinPingInterval      time.Duration `json:"min_ping_interval" yaml:"min_ping_interval" mapstructure:"min_ping_interval"`
+	MaxConcurrentStreams uint32        `json:"max_concurrent_streams" yaml:"max_concurrent_streams" mapstructure:"max_concurrent_streams"`
+	MaxHeaderListSize    uint32        `json:"max_header_list_size" yaml:"max_header_list_size" mapstructure:"max_header_list_size"`
+	MaxRecvMsgSize       int           `json:"max_recv_msg_size" yaml:"max_recv_msg_size" mapstructure:"max_recv_msg_size"`
+	MaxSendMsgSize       int           `json:"max_send_msg_size" yaml:"max_send_msg_size" mapstructure:"max_send_msg_size"`
+	ReadBufferSize       int           `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
+	WriteBufferSize      int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
+	// ShutdownTimeout bounds GracefulStop; past the deadline the server
+	// is force-stopped instead of hanging Stop forever.
+	ShutdownTimeout time.Duration `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+	// DisableReflection hides service descriptors (grpcurl). The zero
+	// value keeps reflection enabled to preserve existing behavior.
+	// Deprecated: use EnableReflection instead. Reflection is now opt-in
+	// (default off); DisableReflection is only honored for compatibility.
+	DisableReflection bool `json:"disable_reflection" yaml:"disable_reflection" mapstructure:"disable_reflection"`
+	// EnableReflection explicitly opts into grpc reflection. Default false.
+	EnableReflection bool                `json:"enable_reflection" yaml:"enable_reflection" mapstructure:"enable_reflection"`
+	AccessLogger     *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" mapstructure:"access_logger"`
 }
 
 func DefaultConfig() *Config {
@@ -107,16 +132,51 @@ func (c *Config) Ensure() *Config {
 		c.Address = DefaultAddress
 	}
 
+	// Clamp negative limits: they would otherwise pass straight into
+	// grpc options with undefined behavior. Zero keeps the gRPC default.
+	// NOTE: MaxSendMsgSize intentionally has no framework default — the
+	// server only sends what local handlers produce (self-inflicted
+	// direction), while the dangerous inbound direction is already
+	// bounded by MaxRecvMsgSize (gRPC default 4MB).
+	if c.MaxRecvMsgSize < 0 {
+		c.MaxRecvMsgSize = 0
+	}
+
+	if c.MaxSendMsgSize < 0 {
+		c.MaxSendMsgSize = 0
+	}
+
+	if c.ReadBufferSize < 0 {
+		c.ReadBufferSize = 0
+	}
+
+	if c.WriteBufferSize < 0 {
+		c.WriteBufferSize = 0
+	}
+
+	if c.ShutdownTimeout < 0 {
+		c.ShutdownTimeout = 0
+	}
+	if c.ShutdownTimeout == 0 {
+		c.ShutdownTimeout = DefaultShutdownTimeout
+	}
+
+	for _, d := range []*time.Duration{
+		&c.ConnectionTimeout, &c.MaxConnectionAgeGrace,
+		&c.KeepaliveTime, &c.KeepaliveTimeout,
+		&c.MaxConnectionIdle, &c.MinPingInterval,
+	} {
+		if *d < 0 {
+			*d = 0
+		}
+	}
+
 	if c.AccessLogger == nil {
 		c.AccessLogger = &AccessLoggerConfig{}
 	}
 
 	if c.AccessLogger.RequestIDContextKey == "" {
 		c.AccessLogger.RequestIDContextKey = DefaultRequestIDContextKey
-	}
-
-	if c.AccessLogger.TraceIDContextKey == "" {
-		c.AccessLogger.TraceIDContextKey = DefaultTraceIDContextKey
 	}
 
 	if c.AccessLogger.TraceIDContextKey == "" {

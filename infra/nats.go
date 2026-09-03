@@ -32,6 +32,12 @@ package infra
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/nats-io/nats.go"
@@ -39,7 +45,46 @@ import (
 
 type NatsConfig struct {
 	URL string `json:"url" yaml:"url" mapstructure:"url"`
+	// Auth: set at most one of Token / Username+Password / CredsFile /
+	// NkeyFile. Credentials are never logged.
+	Token     string `json:"token" yaml:"token" mapstructure:"token"`
+	Username  string `json:"username" yaml:"username" mapstructure:"username"`
+	Password  string `json:"password" yaml:"password" mapstructure:"password"`
+	CredsFile string `json:"creds_file" yaml:"creds_file" mapstructure:"creds_file"`
+	NkeyFile  string `json:"nkey_file" yaml:"nkey_file" mapstructure:"nkey_file"`
+	// EnableTLS wraps the connection in TLS 1.2+. RootCAFile optionally
+	// pins a custom CA bundle (PEM path).
+	EnableTLS  bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
+	RootCAFile string `json:"root_ca_file" yaml:"root_ca_file" mapstructure:"root_ca_file"`
+	// TimeoutSec bounds the initial connect. Seconds.
+	TimeoutSec int `json:"timeout_sec" yaml:"timeout_sec" mapstructure:"timeout_sec"`
+	// ReconnectWaitSec is the delay between reconnect attempts. Seconds.
+	ReconnectWaitSec int `json:"reconnect_wait_sec" yaml:"reconnect_wait_sec" mapstructure:"reconnect_wait_sec"`
+	// MaxReconnects caps reconnect attempts. 0 fills 60 (the library
+	// default); negative aborts startup.
+	MaxReconnects int `json:"max_reconnects" yaml:"max_reconnects" mapstructure:"max_reconnects"`
 }
+
+// Defaults for NATS timing.
+const (
+	DefaultNatsTimeoutSec       = 5
+	DefaultNatsReconnectWaitSec = 2
+	DefaultNatsMaxReconnects    = 60
+)
+
+// ErrNatsURLEmpty aborts startup: a non-nil NatsConfig means "enable nats",
+// and an empty URL would otherwise silently connect to the client default
+// (nats://127.0.0.1:4222). ErrNatsFileUnreadable aborts on missing auth/CA
+// files. ErrNatsOptionInvalid aborts on negative timing.
+// ErrNatsAuthConflict aborts when more than one auth method is set.
+// ErrNatsCAWithoutTLS aborts when RootCAFile is set without EnableTLS.
+var (
+	ErrNatsURLEmpty       = errors.New("infra: nats url is empty")
+	ErrNatsFileUnreadable = errors.New("infra: nats file unreadable")
+	ErrNatsOptionInvalid  = errors.New("infra: nats option invalid")
+	ErrNatsAuthConflict   = errors.New("infra: nats at most one of token/username+password/creds_file/nkey_file")
+	ErrNatsCAWithoutTLS   = errors.New("infra: nats root_ca_file requires enable_tls")
+)
 
 var Nats *nats.Conn
 
@@ -48,22 +93,146 @@ func InitNats(cfg *NatsConfig) (*nats.Conn, error) {
 		return nil, nil
 	}
 
-	nc, err := nats.Connect(cfg.URL)
-	if err != nil {
+	cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Init NATS config invalid",
+			"error", err.Error(),
+		)
+
 		return nil, err
 	}
 
-	if Nats == nil {
-		Nats = nc
+	opts := []nats.Option{
+		nats.Timeout(time.Duration(cfg.TimeoutSec) * time.Second),
+		nats.ReconnectWait(time.Duration(cfg.ReconnectWaitSec) * time.Second),
+		nats.MaxReconnects(cfg.MaxReconnects),
 	}
+	if strings.TrimSpace(cfg.Token) != "" {
+		opts = append(opts, nats.Token(cfg.Token))
+	}
+	if strings.TrimSpace(cfg.Username) != "" {
+		opts = append(opts, nats.UserInfo(cfg.Username, cfg.Password))
+	}
+	if strings.TrimSpace(cfg.CredsFile) != "" {
+		opts = append(opts, nats.UserCredentials(cfg.CredsFile))
+	}
+	if strings.TrimSpace(cfg.NkeyFile) != "" {
+		nkeyOpt, err := nats.NkeyOptionFromSeed(cfg.NkeyFile)
+		if err != nil {
+			logger.Logger.Error(
+				"Init NATS nkey failed",
+				"nkey_file", cfg.NkeyFile,
+				"error", err.Error(),
+			)
+
+			return nil, fmt.Errorf("%w: %s", ErrNatsFileUnreadable, cfg.NkeyFile)
+		}
+		opts = append(opts, nkeyOpt)
+	}
+	if strings.TrimSpace(cfg.RootCAFile) != "" {
+		opts = append(opts, nats.RootCAs(cfg.RootCAFile))
+	}
+	if cfg.EnableTLS {
+		opts = append(opts, nats.Secure(&tls.Config{MinVersion: tls.VersionTLS12}))
+	}
+
+	nc, err := nats.Connect(cfg.URL, opts...)
+	if err != nil {
+		logger.Logger.Error(
+			"Init NATS failed",
+			"url", redactDSN(cfg.URL),
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if Nats != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("NATS already initialized, closing duplicate connection")
+		nc.Close()
+
+		return Nats, nil
+	}
+	Nats = nc
 
 	logger.Logger.InfoContext(
 		context.Background(),
 		"Init NATS successful",
-		"url", cfg.URL,
+		"url", redactDSN(cfg.URL),
 	)
 
 	return nc, nil
+}
+
+func (c *NatsConfig) Ensure() *NatsConfig {
+	if c == nil {
+		c = new(NatsConfig)
+	}
+
+	// Zero fills defaults; negative stays negative so Validate aborts.
+	if c.TimeoutSec == 0 {
+		c.TimeoutSec = DefaultNatsTimeoutSec
+	}
+
+	if c.ReconnectWaitSec == 0 {
+		c.ReconnectWaitSec = DefaultNatsReconnectWaitSec
+	}
+
+	if c.MaxReconnects == 0 {
+		c.MaxReconnects = DefaultNatsMaxReconnects
+	}
+
+	return c
+}
+
+func (c *NatsConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.URL) == "" {
+		return ErrNatsURLEmpty
+	}
+
+	if c.TimeoutSec < 0 || c.ReconnectWaitSec < 0 || c.MaxReconnects < 0 {
+		return ErrNatsOptionInvalid
+	}
+
+	set := 0
+	if strings.TrimSpace(c.Token) != "" {
+		set++
+	}
+	if strings.TrimSpace(c.Username) != "" || strings.TrimSpace(c.Password) != "" {
+		set++
+	}
+	if strings.TrimSpace(c.CredsFile) != "" {
+		set++
+	}
+	if strings.TrimSpace(c.NkeyFile) != "" {
+		set++
+	}
+	if set > 1 {
+		return ErrNatsAuthConflict
+	}
+
+	if strings.TrimSpace(c.RootCAFile) != "" && !c.EnableTLS {
+		return ErrNatsCAWithoutTLS
+	}
+
+	for _, f := range []string{c.CredsFile, c.NkeyFile, c.RootCAFile} {
+		if strings.TrimSpace(f) != "" {
+			if _, err := os.Stat(f); err != nil {
+				return fmt.Errorf("%w: %s", ErrNatsFileUnreadable, f)
+			}
+		}
+	}
+
+	return nil
 }
 
 /*

@@ -31,9 +31,18 @@
 package fiber
 
 import (
+	"github.com/go-sicky/sicky/tracer"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
+
+// maxPropagatedValueLen mirrors tracer's bound; kept for test/back-compat.
+const maxPropagatedValueLen = 128
+
+// sanitizePropagatedValue delegates to the shared tracer sanitizer.
+func sanitizePropagatedValue(v string) string {
+	return tracer.Sanitize(v)
+}
 
 type PropagationConfig struct {
 	Next                   func(c *fiber.Ctx) bool
@@ -124,11 +133,11 @@ func NewPropagationMiddleware(config ...PropagationConfig) fiber.Handler {
 			return c.Next()
 		}
 
-		requestID := c.Get(cfg.RequestIDHeader)
-		traceID := c.Get(cfg.TraceIDHeader)
-		spanID := c.Get(cfg.SpanIDHeader)
+		requestID := sanitizePropagatedValue(c.Get(cfg.RequestIDHeader))
+		traceID := sanitizePropagatedValue(c.Get(cfg.TraceIDHeader))
+		spanID := sanitizePropagatedValue(c.Get(cfg.SpanIDHeader))
 		//parentSpanID := c.Get(cfg.ParentSpanIDHeader)
-		sampled := c.Get(cfg.SampledHeader)
+		sampled := sanitizePropagatedValue(c.Get(cfg.SampledHeader))
 
 		if requestID == "" {
 			requestID = uuid.New().String()

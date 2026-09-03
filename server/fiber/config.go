@@ -30,9 +30,29 @@
 
 package fiber
 
+import (
+	"errors"
+	"time"
+)
+
 const (
 	DefaultNetwork = "tcp"
 	DefaultAddress = ":9990"
+
+	// Default server timeouts mirror the manager server precedents.
+	DefaultReadTimeout  = 10 * time.Second
+	DefaultWriteTimeout = 10 * time.Second
+	DefaultIdleTimeout  = 60 * time.Second
+
+	DefaultBodyLimit       = 4 << 20
+	DefaultConcurrency     = 256 * 1024
+	DefaultReadBufferSize  = 4096
+	DefaultWriteBufferSize = 4096
+
+	// DefaultCORSMaxAge is the preflight cache lifetime in seconds.
+	DefaultCORSMaxAge = 86400
+
+	DefaultShutdownTimeout = 10 * time.Second
 
 	// AccessLogger
 	DefaultRequestIDContextKey    = "requestid"
@@ -84,8 +104,55 @@ type Config struct {
 	EnableSwagger       bool                `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
 	SwaggerPageTitle    string              `json:"swagger_page_title" yaml:"swagger_page_title" mapstructure:"swagger_page_title"`
 	SwaggerValidatorURL string              `json:"swagger_validator_url" yaml:"swagger_validator_url" mapstructure:"swagger_validator_url"`
-	EnableStackTrace    bool                `json:"enable_stack_trace" yaml:"enable_trace_stack" mapstructure:"enable_stack_trace"`
-	AccessLogger        *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" maptructure:"access_logger"`
+	EnableStackTrace    bool                `json:"enable_stack_trace" yaml:"enable_stack_trace" mapstructure:"enable_stack_trace"`
+	AccessLogger        *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" mapstructure:"access_logger"`
+	CORS                *CORSConfig         `json:"cors" yaml:"cors" mapstructure:"cors"`
+	// Timeouts guard against Slowloris / slow-read / slow-write DoS.
+	// Zero values fall back to the defaults above; negatives are clamped.
+	ReadTimeout  time.Duration `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
+	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
+	IdleTimeout  time.Duration `json:"idle_timeout" yaml:"idle_timeout" mapstructure:"idle_timeout"`
+	// ShutdownTimeout bounds graceful shutdown; lingering connections
+	// are cut off past the deadline instead of hanging Stop forever.
+	ShutdownTimeout time.Duration `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+}
+
+// CORSConfig whitelists cross-origin access. An empty AllowedOrigins
+// disables the CORS middleware entirely (deny by default); use an
+// explicit "*" entry only for public APIs, never with AllowCredentials.
+type CORSConfig struct {
+	AllowedOrigins   []string `json:"allowed_origins" yaml:"allowed_origins" mapstructure:"allowed_origins"`
+	AllowCredentials bool     `json:"allow_credentials" yaml:"allow_credentials" mapstructure:"allow_credentials"`
+	MaxAge           int      `json:"max_age" yaml:"max_age" mapstructure:"max_age"`
+}
+
+func (c *CORSConfig) Ensure() *CORSConfig {
+	if c == nil {
+		c = new(CORSConfig)
+	}
+
+	if c.MaxAge <= 0 {
+		c.MaxAge = DefaultCORSMaxAge
+	}
+
+	return c
+}
+
+// Validate rejects wildcard-origin with credentials (browsers forbid it
+// and it leaks authenticated responses to any site).
+func (c *CORSConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if !c.AllowCredentials {
+		return nil
+	}
+	for _, o := range c.AllowedOrigins {
+		if o == "*" {
+			return errors.New("fiber: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
+		}
+	}
+	return nil
 }
 
 func DefaultConfig() *Config {
@@ -120,10 +187,6 @@ func (c *Config) Ensure() *Config {
 		c.AccessLogger.TraceIDContextKey = DefaultTraceIDContextKey
 	}
 
-	if c.AccessLogger.TraceIDContextKey == "" {
-		c.AccessLogger.TraceIDContextKey = DefaultTraceIDContextKey
-	}
-
 	if c.AccessLogger.SpanIDContextKey == "" {
 		c.AccessLogger.SpanIDContextKey = DefaultSpanIDContextKey
 	}
@@ -146,6 +209,61 @@ func (c *Config) Ensure() *Config {
 
 	if c.AccessLogger.ServerErrorLevel == "" {
 		c.AccessLogger.ServerErrorLevel = DefaultServerErrorLevel
+	}
+
+	if c.CORS == nil {
+		c.CORS = &CORSConfig{}
+	}
+	c.CORS.Ensure()
+
+	if c.BodyLimit < 0 {
+		c.BodyLimit = 0
+	}
+	if c.BodyLimit == 0 {
+		c.BodyLimit = DefaultBodyLimit
+	}
+
+	if c.Concurrency < 0 {
+		c.Concurrency = 0
+	}
+	if c.Concurrency == 0 {
+		c.Concurrency = DefaultConcurrency
+	}
+
+	if c.ReadBufferSize <= 0 {
+		c.ReadBufferSize = DefaultReadBufferSize
+	}
+
+	if c.WriteBufferSize <= 0 {
+		c.WriteBufferSize = DefaultWriteBufferSize
+	}
+
+	if c.ReadTimeout < 0 {
+		c.ReadTimeout = 0
+	}
+	if c.ReadTimeout == 0 {
+		c.ReadTimeout = DefaultReadTimeout
+	}
+
+	if c.WriteTimeout < 0 {
+		c.WriteTimeout = 0
+	}
+	if c.WriteTimeout == 0 {
+		c.WriteTimeout = DefaultWriteTimeout
+	}
+
+	if c.IdleTimeout < 0 {
+		c.IdleTimeout = 0
+	}
+	if c.IdleTimeout == 0 {
+		c.IdleTimeout = DefaultIdleTimeout
+	}
+
+	if c.ShutdownTimeout < 0 {
+		c.ShutdownTimeout = 0
+	}
+	if c.ShutdownTimeout == 0 {
+		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 
 	return c

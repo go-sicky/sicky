@@ -43,13 +43,11 @@ var (
 	BuildTime = ""
 )
 
-func Run() {
+func Run() int {
 	args := os.Args[1:]
 
 	if len(args) < 1 {
-		serveRun(args)
-
-		return
+		return serveRun(args)
 	}
 
 	cmd := strings.ToLower(args[0])
@@ -57,28 +55,29 @@ func Run() {
 
 	switch cmd {
 	case "serve", "s":
-		serveRun(cmdArgs)
+		return serveRun(cmdArgs)
 
 	case "new", "n":
-		newRun(cmdArgs)
+		return newRun(cmdArgs)
 
 	case "generate", "g":
-		generateRun(cmdArgs)
+		return generateRun(cmdArgs)
 
 	case "version", "v":
 		versionRun()
+		return 0
 
 	case "help", "-h", "--help":
 		helpRun()
+		return 0
 
 	default:
 		if strings.HasPrefix(cmd, "-") {
-			serveRun(args)
-		} else {
-			fmt.Fprintf(os.Stderr, "sicky: unknown command %q\n", cmd)
-			fmt.Fprintf(os.Stderr, "Run 'sicky help' for usage.\n")
-			os.Exit(1)
+			return serveRun(args)
 		}
+		fmt.Fprintf(os.Stderr, "sicky: unknown command %q\n", cmd)
+		fmt.Fprintf(os.Stderr, "Run 'sicky help' for usage.\n")
+		return 1
 	}
 }
 

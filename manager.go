@@ -32,6 +32,7 @@ package sicky
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -39,6 +40,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +51,7 @@ import (
 	"github.com/go-sicky/sicky/utils"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type componentHealth struct {
@@ -74,6 +77,11 @@ type Manager struct {
 }
 
 func NewManager(cfg *ManagerConfig, appName, appVersion string) *Manager {
+	if cfg == nil {
+		cfg = DefaultManagerConfig()
+	} else {
+		cfg = cfg.Ensure()
+	}
 	m := &Manager{
 		ctx:        context.Background(),
 		config:     cfg,
@@ -95,19 +103,26 @@ func (m *Manager) Server() *http.Server {
 }
 
 func (m *Manager) Addr() string {
-	if m.srv == nil {
+	m.RLock()
+	srv := m.srv
+	cfg := m.config
+	m.RUnlock()
+	if srv == nil {
 		return ""
 	}
 
-	return utils.Advertise(m.srv.Addr, m.config.AdvertiseAddress, "tcp").String()
+	return utils.Advertise(srv.Addr, cfg.AdvertiseAddress, "tcp").String()
 }
 
 func (m *Manager) Port() int {
-	if m.srv == nil {
+	m.RLock()
+	srv := m.srv
+	m.RUnlock()
+	if srv == nil {
 		return 0
 	}
 
-	_, port, _ := net.SplitHostPort(m.srv.Addr)
+	_, port, _ := net.SplitHostPort(srv.Addr)
 	portV, _ := strconv.Atoi(port)
 
 	return portV
@@ -115,26 +130,52 @@ func (m *Manager) Port() int {
 
 func (m *Manager) Start() error {
 	m.Lock()
-	defer m.Unlock()
-
 	if m.running {
+		m.Unlock()
 		return nil
 	}
+	// Reserve running flag before releasing lock so concurrent Start/Stop
+	// serialize. Real work (ListenAndServe, logging) happens unlocked.
+	m.running = true
+	if m.config == nil {
+		m.config = DefaultManagerConfig()
+	} else {
+		m.config = m.config.Ensure()
+	}
+	cfg := m.config
+	m.Unlock()
 
-	m.srv = &http.Server{Addr: m.config.Address}
+	srv := &http.Server{
+		Addr:              cfg.Address,
+		ReadTimeout:       time.Duration(cfg.ReadTimeout) * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      time.Duration(cfg.WriteTimeout) * time.Second,
+		IdleTimeout:       time.Duration(cfg.IdleTimeout) * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	mux := http.NewServeMux()
-	mux.Handle(m.config.MetricsPath, m.metrics())
-	mux.Handle(m.config.HealthPath, m.health())
-	mux.Handle(m.config.VersionPath, m.version())
-	mux.Handle(m.config.InfoPath, m.info())
-	mux.Handle(m.config.ConfigPath, m.cfg())
-	mux.Handle(m.config.ServicePoolPath, m.servicePool())
-	m.srv.Handler = mux
+	mux.Handle(cfg.MetricsPath, m.metrics())
+	mux.Handle(cfg.HealthPath, m.health())
+	mux.Handle(cfg.VersionPath, m.version())
+	mux.Handle(cfg.InfoPath, m.info())
+	mux.Handle(cfg.ConfigPath, m.guardSensitive(m.cfg()))
+	mux.Handle(cfg.ServicePoolPath, m.guardSensitive(m.servicePool()))
+	srv.Handler = mux
+	m.Lock()
+	m.srv = srv
+	m.Unlock()
+	if cfg.AuthToken == "" && isExternalListen(cfg.Address) {
+		logger.Logger.WarnContext(
+			m.ctx,
+			"Manager listens on external address without AuthToken; /config and /services are loopback-only",
+			"address", cfg.Address,
+		)
+	}
 	m.wg.Add(1)
-	go func() {
+	go func(s *http.Server) {
 		defer m.wg.Done()
 
-		err := m.srv.ListenAndServe()
+		err := s.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Logger.ErrorContext(
 				m.ctx,
@@ -152,7 +193,7 @@ func (m *Manager) Start() error {
 			m.ctx,
 			"Manager server closed",
 		)
-	}()
+	}(srv)
 
 	logger.Logger.InfoContext(
 		m.ctx,
@@ -161,25 +202,40 @@ func (m *Manager) Start() error {
 		"port", m.Port(),
 	)
 
-	m.running = true
-
 	return nil
 }
 
 func (m *Manager) Stop() error {
 	m.Lock()
-	defer m.Unlock()
-
 	if !m.running {
+		m.Unlock()
+		return nil
+	}
+	srv := m.srv
+	cfg := m.config
+	m.Unlock()
+
+	if srv == nil {
+		m.Lock()
+		m.running = false
+		m.Unlock()
 		return nil
 	}
 
-	if m.config.ShutdownTimeout > 0 {
-		ctx, cancel := context.WithTimeout(m.ctx, time.Duration(m.config.ShutdownTimeout)*time.Second)
-		defer cancel()
-		m.srv.Shutdown(ctx)
-	} else {
-		m.srv.Shutdown(m.ctx)
+	timeout := 5 * time.Second
+	if cfg != nil && cfg.ShutdownTimeout > 0 {
+		timeout = time.Duration(cfg.ShutdownTimeout) * time.Second
+	}
+	// Defensive: never block forever on a cancelless context.
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if serr := srv.Shutdown(ctx); serr != nil && !errors.Is(serr, http.ErrServerClosed) {
+		m.wg.Wait()
+		m.Lock()
+		m.running = false
+		m.Unlock()
+
+		return serr
 	}
 	m.wg.Wait()
 	logger.Logger.InfoContext(
@@ -187,12 +243,126 @@ func (m *Manager) Stop() error {
 		"Manager server shutdown",
 	)
 
+	m.Lock()
 	m.running = false
+	m.Unlock()
 
 	return nil
 }
 
 /* {{{ [Manager] */
+// guardSensitive enforces Bearer auth on debug/topology endpoints
+// (/config, /services) when AuthToken is set. Without a token, only
+// loopback clients may reach them, so a default external bind (:8888)
+// does not leak config or topology. /metrics stays public.
+func (m *Manager) guardSensitive(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.RLock()
+		token := ""
+		if m.config != nil {
+			token = m.config.AuthToken
+		}
+		m.RUnlock()
+		if token != "" {
+			got := r.Header.Get("Authorization")
+			want := "Bearer " + token
+			if len(got) != len(want) || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		ip := net.ParseIP(strings.TrimSpace(host))
+		if ip == nil || !ip.IsLoopback() {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isExternalListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		// ":8888" style or unparsable: treat bare ":port" as external.
+		return strings.HasPrefix(strings.TrimSpace(addr), ":")
+	}
+
+	host = strings.TrimSpace(host)
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
+}
+
+// sanitizeValue redacts secret-looking keys/values before /config exposure.
+func sanitizeValue(key string, val any) any {
+	lk := strings.ToLower(key)
+	for _, sub := range []string{"dsn", "password", "passwd", "pwd", "secret", "token", "apikey", "api_key", "auth", "private_key", "accesskey", "access_key"} {
+		if strings.Contains(lk, sub) {
+			if s, ok := val.(string); ok && s != "" {
+				return "***redacted***"
+			}
+
+			if val != nil {
+				return "***redacted***"
+			}
+
+			return val
+		}
+	}
+
+	switch v := val.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, vv := range v {
+			out[k] = sanitizeValue(k, vv)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, vv := range v {
+			out[i] = sanitizeValue(key, vv)
+		}
+
+		return out
+	default:
+		return val
+	}
+}
+
+func (m *Manager) sanitizedConfig() any {
+	if m.cfgVar == nil {
+		return nil
+	}
+
+	raw, err := json.Marshal(m.cfgVar)
+	if err != nil {
+		return map[string]any{"error": "config marshal failed"}
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return map[string]any{"error": "config unmarshal failed"}
+	}
+
+	return sanitizeValue("", decoded)
+}
+
 func (m *Manager) metrics() http.Handler {
 	return promhttp.HandlerFor(
 		m.metricsRegistry,
@@ -210,16 +380,22 @@ func (m *Manager) health() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		components := m.collectComponentHealth()
+		components := m.collectComponentHealth(r.Context())
+		// Only real failures degrade overall status. "not_configured"
+		// components are reported but do not fail readiness.
 		overall := "healthy"
 		for _, c := range components {
-			if c.Status != "healthy" {
+			if c.Status == "unhealthy" {
 				overall = "degraded"
+				break
 			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(
+		if overall == "degraded" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		_ = json.NewEncoder(w).Encode(
 			&status{
 				Status:     overall,
 				Version:    m.appVersion,
@@ -229,55 +405,117 @@ func (m *Manager) health() http.Handler {
 	})
 }
 
-func (m *Manager) collectComponentHealth() []componentHealth {
-	var cs []componentHealth
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHealth {
+	ctx, cancel := context.WithTimeout(reqCtx, 2*time.Second)
 	defer cancel()
 
-	check := func(name string, ok bool, err error) {
-		ch := componentHealth{Name: name, Status: "healthy"}
-		if !ok {
-			ch.Status = "not_configured"
-		}
-		if err != nil {
-			ch.Status = "unhealthy"
-			ch.Error = err.Error()
-		}
-		cs = append(cs, ch)
+	type checkDef struct {
+		name string
+		ping func(ctx context.Context) error
+		// local reports configured-but-local-only state (no remote ping).
+		local func() (configured bool, unhealthy bool)
 	}
 
-	check("redis", infra.Redis != nil, func() error {
-		if infra.Redis != nil {
-			return infra.Redis.Ping(ctx).Err()
-		}
-		return nil
-	}())
+	defs := []checkDef{
+		{name: "redis", ping: func(ctx context.Context) error {
+			if infra.GetRedis() == nil {
+				return nil
+			}
+			return infra.GetRedis().Ping(ctx).Err()
+		}},
+		{name: "bun", ping: func(ctx context.Context) error {
+			if infra.GetBun() == nil {
+				return nil
+			}
+			return infra.GetBun().PingContext(ctx)
+		}},
+		{name: "clickhouse", ping: func(ctx context.Context) error {
+			if infra.GetClickhouse() == nil {
+				return nil
+			}
+			return infra.GetClickhouse().Ping(ctx)
+		}},
+		{name: "mongo", ping: func(ctx context.Context) error {
+			if infra.GetMongo() == nil {
+				return nil
+			}
+			return infra.GetMongo().Ping(ctx, readpref.Primary())
+		}},
+		{name: "elastic", ping: func(ctx context.Context) error {
+			return infra.PingElastic(ctx)
+		}},
+		{name: "s3", ping: func(ctx context.Context) error {
+			return infra.PingS3(ctx)
+		}},
+		{name: "ristretto", local: func() (bool, bool) { return infra.GetRistretto() != nil, false }},
+		{name: "badger", local: func() (bool, bool) { return infra.GetBadger() != nil, false }},
+		{name: "nats", local: func() (bool, bool) {
+			if infra.GetNats() == nil {
+				return false, false
+			}
+			return true, !infra.GetNats().IsConnected()
+		}},
+		{name: "mqtt", local: func() (bool, bool) {
+			if infra.GetMQTT() == nil {
+				return false, false
+			}
+			return true, !infra.GetMQTT().IsConnected()
+		}},
+	}
 
-	check("bun", infra.Bun != nil, func() error {
-		if infra.Bun != nil {
-			return infra.Bun.Ping()
-		}
-		return nil
-	}())
-
-	check("ristretto", infra.Ristretto != nil, nil)
-	check("badger", infra.Badger != nil, nil)
-	check("nats", infra.Nats != nil && infra.Nats.IsConnected(), nil)
-	check("mqtt", infra.MQTT != nil && infra.MQTT.IsConnected(), nil)
-	check("elastic", infra.Elastic != nil, nil)
-	check("clickhouse", infra.Clickhouse != nil, func() error {
-		if infra.Clickhouse != nil {
-			return infra.Clickhouse.Ping(ctx)
-		}
-		return nil
-	}())
-	check("mongo", infra.Mongo != nil, func() error {
-		if infra.Mongo != nil {
-			return infra.Mongo.Ping(ctx, nil)
-		}
-		return nil
-	}())
-	check("s3", infra.S3 != nil, nil)
+	cs := make([]componentHealth, len(defs))
+	var wg sync.WaitGroup
+	for i, d := range defs {
+		wg.Add(1)
+		go func(i int, d checkDef) {
+			defer wg.Done()
+			ch := componentHealth{Name: d.name, Status: "not_configured"}
+			if d.ping != nil {
+				// Determine configured state first without blocking.
+				configured := true
+				switch d.name {
+				case "redis":
+					configured = infra.GetRedis() != nil
+				case "bun":
+					configured = infra.GetBun() != nil
+				case "clickhouse":
+					configured = infra.GetClickhouse() != nil
+				case "mongo":
+					configured = infra.GetMongo() != nil
+				case "elastic":
+					configured = infra.GetElastic() != nil
+				case "s3":
+					configured = infra.GetS3() != nil
+				}
+				if !configured {
+					cs[i] = ch
+					return
+				}
+				if err := d.ping(ctx); err != nil {
+					ch.Status = "unhealthy"
+					ch.Error = err.Error()
+				} else {
+					ch.Status = "healthy"
+				}
+				cs[i] = ch
+				return
+			}
+			if d.local != nil {
+				configured, unhealthy := d.local()
+				if !configured {
+					cs[i] = ch
+					return
+				}
+				ch.Status = "healthy"
+				if unhealthy {
+					ch.Status = "unhealthy"
+					ch.Error = "disconnected"
+				}
+				cs[i] = ch
+			}
+		}(i, d)
+	}
+	wg.Wait()
 
 	return cs
 }
@@ -322,7 +560,7 @@ func (m *Manager) cfg() http.Handler {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(m.cfgVar)
+		json.NewEncoder(w).Encode(m.sanitizedConfig())
 	})
 }
 

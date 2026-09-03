@@ -35,6 +35,12 @@ const (
 	DefaultAddress         = ":9980"
 	DefaultBufferSize      = 4096
 	DefaultMaxIdleDuration = 60
+
+	// MaxBufferSizeCap bounds the datagram BufferSize so a single
+	// misconfiguration cannot OOM the process at startup.
+	MaxBufferSizeCap = 1 << 20
+	// MinReapIntervalSeconds floors the idle-session reaper tick.
+	MinReapIntervalSeconds = 5
 )
 
 type Config struct {
@@ -43,6 +49,16 @@ type Config struct {
 	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
 	BufferSize       int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
 	MaxIdleDuration  int    `json:"max_idle_duration" yaml:"max_idle_duration" mapstructure:"max_idle_duration"`
+	// ReadTimeout is the per-read deadline in seconds. 0 disables it.
+	ReadTimeout int `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
+	// WriteTimeout is the per-write deadline in seconds. 0 disables it.
+	WriteTimeout int `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
+	// MaxSessions caps tracked sessions (spoofed-source state explosion
+	// guard). 0 means unlimited. New sources beyond the cap are dropped.
+	MaxSessions int `json:"max_sessions" yaml:"max_sessions" mapstructure:"max_sessions"`
+	// MaxPacketsPerSecond caps datagrams per source per second
+	// (reflection/amplification guard). 0 means unlimited.
+	MaxPacketsPerSecond int `json:"max_packets_per_second" yaml:"max_packets_per_second" mapstructure:"max_packets_per_second"`
 }
 
 func DefaultConfig() *Config {
@@ -71,8 +87,28 @@ func (c *Config) Ensure() *Config {
 		c.BufferSize = DefaultBufferSize
 	}
 
-	if c.MaxIdleDuration == 0 {
+	if c.BufferSize > MaxBufferSizeCap {
+		c.BufferSize = MaxBufferSizeCap
+	}
+
+	if c.MaxIdleDuration <= 0 {
 		c.MaxIdleDuration = DefaultMaxIdleDuration
+	}
+
+	if c.ReadTimeout < 0 {
+		c.ReadTimeout = 0
+	}
+
+	if c.WriteTimeout < 0 {
+		c.WriteTimeout = 0
+	}
+
+	if c.MaxSessions < 0 {
+		c.MaxSessions = 0
+	}
+
+	if c.MaxPacketsPerSecond < 0 {
+		c.MaxPacketsPerSecond = 0
 	}
 
 	return c

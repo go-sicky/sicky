@@ -203,6 +203,8 @@ func (srv *WebsocketServer) Start() error {
 				"name", srv.options.Name,
 				"error", err.Error(),
 			)
+
+			return err
 		}
 
 		listener, err = tls.Listen(
@@ -295,16 +297,23 @@ func (srv *WebsocketServer) Start() error {
 
 func (srv *WebsocketServer) Stop() error {
 	srv.Lock()
-	defer srv.Unlock()
-
 	if !srv.running {
+		srv.Unlock()
 		// Not running
 		return nil
 	}
+	srv.running = false
+	app := srv.app
+	srv.Unlock()
 
 	srv.options.RunBeforeStop()
 
-	srv.app.Server().Shutdown()
+	var stopErr error
+	if app != nil && app.Server() != nil {
+		if serr := app.Server().Shutdown(); serr != nil {
+			stopErr = serr
+		}
+	}
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -312,24 +321,28 @@ func (srv *WebsocketServer) Stop() error {
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
-		"addr", srv.addr.String(),
 	)
-	srv.running = false
 	srv.options.RunAfterStop()
 
-	return nil
+	return stopErr
 }
 
 func (srv *WebsocketServer) Running() bool {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.running
 }
 
 func (srv *WebsocketServer) Addr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.addr
 }
 
 func (srv *WebsocketServer) IP() net.IP {
-	try := utils.AddrToIP(srv.addr)
+	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -338,15 +351,18 @@ func (srv *WebsocketServer) IP() net.IP {
 }
 
 func (srv *WebsocketServer) Port() int {
-	return utils.AddrToPort(srv.addr)
+	return utils.AddrToPort(srv.Addr())
 }
 
 func (srv *WebsocketServer) AdvertiseAddr() net.Addr {
+	srv.RLock()
+	defer srv.RUnlock()
+
 	return srv.advertiseAddr
 }
 
 func (srv *WebsocketServer) AdvertiseIP() net.IP {
-	try := utils.AddrToIP(srv.advertiseAddr)
+	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
 		try, _ = utils.ObtainPreferIP(true)
 	}
@@ -355,7 +371,7 @@ func (srv *WebsocketServer) AdvertiseIP() net.IP {
 }
 
 func (srv *WebsocketServer) AdvertisePort() int {
-	return utils.AddrToPort(srv.advertiseAddr)
+	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
 func (srv *WebsocketServer) Metadata() utils.Metadata {

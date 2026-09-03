@@ -36,7 +36,7 @@ const (
 )
 
 type Config struct {
-	EnableManager bool `json:"enable_manager" yaml:"enable_manager" mapstructure:"enable_manager" default:"true"` // Enable or disable the manager service
+	EnableManager bool `json:"enable_manager" yaml:"enable_manager" mapstructure:"enable_manager"` // Enable or disable the manager service
 }
 
 func DefaultConfig() *Config {

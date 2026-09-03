@@ -39,6 +39,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// serverPID is cached: a syscall per request is pure overhead.
+var serverPID = os.Getpid()
+
 type AccessLoggerMiddlewareConfig struct {
 	AccessLoggerConfig *AccessLoggerConfig
 	Next               func(c *fiber.Ctx) bool
@@ -96,28 +99,24 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 
 		end := time.Now()
 		status := c.Response().Header.StatusCode()
-		attributes := map[string]any{
-			"pid":            os.Getpid(),
-			"status":         status,
-			"latency":        end.Sub(start),
-			"route":          c.Route().Path,
-			"method":         string(c.Request().Header.Method()),
-			"host":           c.Hostname(),
-			"path":           c.Path(),
-			"ip":             c.IP(),
-			"user-agent":     string(c.Request().Header.UserAgent()),
-			"referer":        c.Request().Header.Referer(),
-			"request-id":     requestID,
-			"trace-id":       traceID,
-			"span-id":        spanID,
-			"parent-span-id": parentSpanID,
-			"sampled":        sampled,
-		}
-
-		// Extract attributes
-		var args []any
-		for k, v := range attributes {
-			args = append(args, k, v)
+		// Fixed-order slice: one alloc, stable field order for log
+		// indexing (a map here costs an extra alloc plus random order).
+		args := []any{
+			"pid", serverPID,
+			"status", status,
+			"latency", end.Sub(start),
+			"route", c.Route().Path,
+			"method", string(c.Request().Header.Method()),
+			"host", c.Hostname(),
+			"path", c.Path(),
+			"ip", c.IP(),
+			"user-agent", string(c.Request().Header.UserAgent()),
+			"referer", c.Request().Header.Referer(),
+			"request-id", requestID,
+			"trace-id", traceID,
+			"span-id", spanID,
+			"parent-span-id", parentSpanID,
+			"sampled", sampled,
 		}
 
 		l := cfg.AccessLoggerConfig.AccessLevel
@@ -134,7 +133,7 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 
 		cfg.Logger.LogContext(c.Context(), logger.LogLevel(l), msg, args...)
 
-		return nil
+		return chainErr
 	}
 }
 

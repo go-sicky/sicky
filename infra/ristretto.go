@@ -31,8 +31,16 @@
 package infra
 
 import (
+	"errors"
+
 	"github.com/dgraph-io/ristretto/v2"
 	"github.com/go-sicky/sicky/logger"
+)
+
+var (
+	ErrRistrettoNegativeNumCounters = errors.New("ristretto num_counters is negative")
+	ErrRistrettoNegativeMaxCost     = errors.New("ristretto max_cost is negative")
+	ErrRistrettoNegativeBufferItems = errors.New("ristretto buffer_items is negative")
 )
 
 type RistrettoConfig struct {
@@ -46,6 +54,16 @@ var Ristretto *ristretto.Cache[string, any]
 func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) {
 	if cfg == nil {
 		return nil, nil
+	}
+
+	cfg = cfg.Ensure()
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.Error(
+			"Ristretto config invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
 	}
 
 	cache, err := ristretto.NewCache(
@@ -71,11 +89,63 @@ func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 		"buffer_items", cfg.BufferItems,
 	)
 
-	if Ristretto == nil {
-		Ristretto = cache
+	mu.Lock()
+	defer mu.Unlock()
+	if Ristretto != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("Ristretto already initialized, closing duplicate cache")
+		cache.Close()
+
+		return Ristretto, nil
 	}
+	Ristretto = cache
 
 	return cache, nil
+}
+
+const (
+	DefaultRistrettoNumCounters = 10000000
+	DefaultRistrettoMaxCost     = 100000000
+	DefaultRistrettoBufferItems = 64
+)
+
+func (c *RistrettoConfig) Ensure() *RistrettoConfig {
+	if c == nil {
+		c = new(RistrettoConfig)
+	}
+
+	// Zero fills default; negative stays for Validate to abort.
+	if c.NumCounters == 0 {
+		c.NumCounters = DefaultRistrettoNumCounters
+	}
+
+	if c.MaxCost == 0 {
+		c.MaxCost = DefaultRistrettoMaxCost
+	}
+
+	if c.BufferItems == 0 {
+		c.BufferItems = DefaultRistrettoBufferItems
+	}
+
+	return c
+}
+
+// Validate aborts on negative sizing (BREAKING: previously swallowed).
+func (c *RistrettoConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if c.NumCounters < 0 {
+		return ErrRistrettoNegativeNumCounters
+	}
+	if c.MaxCost < 0 {
+		return ErrRistrettoNegativeMaxCost
+	}
+	if c.BufferItems < 0 {
+		return ErrRistrettoNegativeBufferItems
+	}
+	return nil
 }
 
 /*

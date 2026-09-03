@@ -33,14 +33,19 @@ package jetstream
 import "github.com/nats-io/nats.go"
 
 const (
-	DefaultStreamName          = "sicky"
-	DefaultStreamMaxConsummers = 256
+	DefaultStreamName         = "sicky"
+	DefaultStreamMaxConsumers = 256
+	// Deprecated: misspelled, use DefaultStreamMaxConsumers.
+	DefaultStreamMaxConsummers = DefaultStreamMaxConsumers
 )
 
 type StreamConfig struct {
-	Name          string   `json:"name" yaml:"name" mapstructure:"name"`
-	Subjects      []string `json:"subjects" yaml:"subjects" mapstructure:"subjects"`
-	MaxConsummers int      `json:"max_consumers" yaml:"max_consumers" mapstructure:"max_consumers"`
+	Name         string   `json:"name" yaml:"name" mapstructure:"name"`
+	Subjects     []string `json:"subjects" yaml:"subjects" mapstructure:"subjects"`
+	MaxConsumers int      `json:"max_consumers" yaml:"max_consumers" mapstructure:"max_consumers"`
+	// Deprecated: misspelled, use MaxConsumers. Kept for Go API compat;
+	// if set, it seeds MaxConsumers when the latter is zero.
+	MaxConsummers int `json:"-" yaml:"-" mapstructure:"max_consummers_deprecated"`
 }
 
 type Config struct {
@@ -52,9 +57,9 @@ func DefaultConfig() *Config {
 	return &Config{
 		URL: nats.DefaultURL,
 		Stream: &StreamConfig{
-			Name:          DefaultStreamName,
-			Subjects:      []string{"*"},
-			MaxConsummers: DefaultStreamMaxConsummers,
+			Name:         DefaultStreamName,
+			Subjects:     []string{"*"},
+			MaxConsumers: DefaultStreamMaxConsumers,
 		},
 	}
 }
@@ -80,8 +85,14 @@ func (c *Config) Ensure() *Config {
 		c.Stream.Subjects = []string{"*"}
 	}
 
-	if c.Stream.MaxConsummers < 0 {
-		c.Stream.MaxConsummers = DefaultStreamMaxConsummers
+	// Migrate deprecated misspelled field.
+	if c.Stream.MaxConsumers == 0 && c.Stream.MaxConsummers != 0 {
+		c.Stream.MaxConsumers = c.Stream.MaxConsummers
+	}
+	c.Stream.MaxConsummers = c.Stream.MaxConsumers
+
+	if c.Stream.MaxConsumers < 0 {
+		c.Stream.MaxConsumers = DefaultStreamMaxConsumers
 	}
 
 	return c
