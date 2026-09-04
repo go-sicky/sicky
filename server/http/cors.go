@@ -31,6 +31,7 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -61,29 +62,31 @@ func (c *CORSConfig) Ensure() *CORSConfig {
 	return c
 }
 
-// Deprecated: CORSMiddleware reflects any Origin with Allow-Credentials.
-// Do not mount it; use NewCORSMiddleware with an explicit whitelist.
-func CORSMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
-	return func(w http.ResponseWriter, r bunrouter.Request) error {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return next(w, r)
-		}
-
-		h := w.Header()
-		h.Set("Access-Control-Allow-Origin", origin)
-		h.Set("Access-Control-Allow-Credentials", "true")
-
-		if r.Method == http.MethodOptions {
-			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			h.Set("Access-Control-Max-Age", "85400")
-
-			return nil
-		}
-
-		return next(w, r)
+// Validate rejects wildcard-origin with credentials (browsers forbid it
+// and it leaks authenticated responses to any site).
+func (c *CORSConfig) Validate() error {
+	if c == nil {
+		return nil
 	}
+	if !c.AllowCredentials {
+		return nil
+	}
+	for _, o := range c.AllowedOrigins {
+		if o == "*" {
+			return errors.New("http: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
+		}
+	}
+	return nil
+}
+
+// Deprecated: CORSMiddleware is a hardened alias that denies all
+// cross-origin requests (passthrough without ACAO headers). It used to
+// reflect any Origin with Allow-Credentials, which enables credential
+// hijacking. Do not mount it; use NewCORSMiddleware with an explicit
+// whitelist.
+func CORSMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
+	denyAll := (&CORSConfig{}).Ensure()
+	return NewCORSMiddleware(denyAll)(next)
 }
 
 func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
@@ -97,6 +100,13 @@ func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 			continue
 		}
 		allowed[o] = struct{}{}
+	}
+	// Fail closed: a wildcard origin must never be combined with
+	// credentials (browsers reject it and it leaks authenticated
+	// responses). Drop the wildcard instead of emitting the illegal
+	// combination; configure explicit origins to allow credentials.
+	if wildcard && cfg.AllowCredentials {
+		wildcard = false
 	}
 
 	return func(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
@@ -116,6 +126,7 @@ func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 				// Untrusted origin: passthrough without ACAO so the
 				// browser blocks the read. Never reflect + credential.
 				if r.Method == http.MethodOptions {
+					w.Header().Set("Vary", "Origin")
 					w.WriteHeader(http.StatusNoContent)
 
 					return nil

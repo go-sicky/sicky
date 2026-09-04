@@ -44,13 +44,14 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 - **Consul** — HashiCorp Consul Agent API
 - **Redis** — Redis Hash + Pub/Sub notifications
 - **Local** — Filesystem-based (JSON files + fsnotify)
+- ~~mDNS~~ — Deprecated (`registry/mdns/` commented out, kept for reference; no longer supported)
 
 ### Observability
 - **OpenTelemetry tracing** — OTLP/gRPC, OTLP/HTTP, Stdout exporters; B3 propagation
 - **Uptrace** — Managed tracing via Uptrace SaaS
 - **Prometheus metrics** — 11 counters (6 server + 5 client) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
 - **Structured logging** — slog-based logger with Fiber/gRPC adapters
-- **Manager endpoints** — 6 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` (10 infra; only `unhealthy` degrades overall status), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only.
+- **Manager endpoints** — 8 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` + `/ready` (10 infra + registered business checkers; only `unhealthy` degrades; backend error text redacted), `/live` (static 200, liveness only), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only. Optional `manager.tls_cert_pem`/`tls_key_pem` serve the manager over HTTPS.
 
 ### Background Jobs & Concurrency
 - **Cron** — gocron/v2-based cron job scheduler
@@ -264,12 +265,16 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "enable_swagger": false,
     "expose_config": false,
     "auth_token": "",
+    "tls_cert_pem": "",   // optional HTTPS (PEM); both cert+key required, half-config fails Start
+    "tls_key_pem": "",
     "read_timeout": 10,
     "write_timeout": 10,
     "idle_timeout": 60,
     "shutdown_timeout": 5,
     "metrics_path": "/metrics",
     "health_path": "/health",
+    "live_path": "/live",
+    "ready_path": "/ready",
     "version_path": "/version",
     "info_path": "/info",
     "swagger_path": "/swagger.json",
@@ -284,12 +289,12 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false, "verbose": false, "slow_duration": 0, "max_open_conns": 0, "max_idle_conns": 0, "conn_max_lifetime_sec": 0, "conn_max_idle_time_sec": 0 },
     "badger":    { "path": "/tmp/badger" },
     "ristretto": { "num_counters": 10000000, "max_cost": 100000000, "buffer_items": 64 },
-    "nats":      { "url": "nats://localhost:4222", "token": "", "username": "", "password": "", "creds_file": "", "nkey_file": "", "enable_tls": false, "root_ca_file": "", "timeout_sec": 5, "reconnect_wait_sec": 2, "max_reconnects": 60 },
+    "nats":      { "url": "nats://localhost:4222", "token": "", "username": "", "password": "", "creds_file": "", "nkey_file": "", "enable_tls": false, "root_ca_file": "", "timeout_sec": 5, "reconnect_wait_sec": 2, "max_reconnects": 60 }, // -1 = retry forever
     "mqtt":      { "broker": "tcp://localhost:1883", "client_id": "", "username": "", "password": "", "enable_tls": false, "ca_file": "", "keep_alive_sec": 30, "connect_timeout_sec": 5 },
-    "elastic":   { "addresses": ["http://localhost:9200"], "username": "", "password": "", "cloud_id": "", "api_key": "", "service_token": "", "ca_cert_file": "", "timeout_sec": 5 },
+    "elastic":   { "addresses": ["http://localhost:9200"], "username": "", "password": "", "cloud_id": "", "api_key": "", "service_token": "", "ca_cert_file": "", "timeout_sec": 5 }, // timeout_sec = startup check only; per-request via ctx
     "clickhouse":{ "dsn": "clickhouse://..." },
-    "mongo":     { "uri": "mongodb://localhost:27017", "db": "mydb" },
-    "s3":        { "region": "us-east-1", "endpoint": "", "bucket": "", "use_path_style": false, "timeout": 5 } // region required; bucket optional; endpoint for MinIO/LocalStack
+    "mongo":     { "uri": "mongodb://localhost:27017", "db": "mydb", "max_pool_size": 0, "connect_timeout_sec": 0 }, // 0 = driver defaults
+    "s3":        { "region": "us-east-1", "endpoint": "", "bucket": "", "use_path_style": false, "timeout": 5, "request_timeout_sec": 0 } // region required; bucket optional; endpoint for MinIO/LocalStack; 0 = SDK default
   },
 
   "tracer": {
@@ -307,7 +312,7 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "pool_purge_interval": 60,
     "consul": { "endpoint": "http://localhost:8500" },
     "redis":  { "addr": "localhost:6379", "password": "", "db": 0 },
-    "local":  { "registry_file_path": "/tmp/sicky/registry", "cleanup_on_start": false }
+    "local":  { "registry_file_path": "/tmp/sicky/registry", "cleanup_on_start": false } // path must be absolute; cleanup only removes <uuid>.json
   },
 
   "broker": {
@@ -355,6 +360,18 @@ srv.App().Get("/users", listUsers)
 srv.App().Post("/users", createUser)
 ```
 
+> CORS is deny-by-default on both HTTP stacks: with empty `cors.allowed_origins` no `Access-Control-Allow-Origin` headers are emitted. Combining `"*"` with `allow_credentials: true` is rejected (`CORSConfig.Validate()`) and fails closed to deny-all. Example:
+>
+> ```go
+> srv := srvFiber.New(&server.Options{Name: "api"}, &srvFiber.Config{
+>     Address: ":8080",
+>     CORS: &srvFiber.CORSConfig{
+>         AllowedOrigins:   []string{"https://app.example.com"},
+>         AllowCredentials: true,
+>     },
+> })
+> ```
+
 ### gRPC Server
 
 ```go
@@ -369,6 +386,36 @@ srv := srvGrpc.New(&server.Options{Name: "grpc"}, &srvGrpc.Config{
 
 // Register your protobuf service
 pb.RegisterUserServiceServer(srv.App(), &userServer{})
+```
+
+### gRPC Client (TLS + Service Discovery)
+
+```go
+import (
+    cltGrpc "github.com/go-sicky/sicky/client/grpc"
+    "github.com/go-sicky/sicky/client"
+)
+
+// Direct-dial mode
+clt := cltGrpc.New(&client.Options{Name: "user-client"}, &cltGrpc.Config{
+    Addr: "127.0.0.1:9090",
+})
+
+// Service-discovery mode: endpoints resolve from the registry pool
+// (Instance.Servers[type==grpc]) and follow live pool updates
+disc := cltGrpc.New(&client.Options{Name: "user-client"}, &cltGrpc.Config{
+    Service:  "user-service",
+    Balancer: "round_robin",
+})
+
+// mTLS: both fields required — a half-configured pair fails fast
+// (nil client, ErrIncompleteTLSConfig), never silent plaintext
+secure := cltGrpc.New(&client.Options{Name: "user-client"}, &cltGrpc.Config{
+    Addr:       "10.0.0.5:9090",
+    TLSCertPEM: certPEM,
+    TLSKeyPEM:  keyPEM,
+})
+defer secure.Disconnect()
 ```
 
 ### TCP/UDP Server
@@ -395,6 +442,7 @@ func (h *MyHandler) OnData(sess *srvTCP.Session, data []byte) error {
 srv := srvTCP.New(&server.Options{Name: "tcp"}, &srvTCP.Config{
     Address:    ":9981",
     BufferSize: 4096,
+    // MaxMessageBytes: 1 << 20, // optional per-connection receive cap (0 = unlimited)
 })
 srv.Handle(&MyHandler{})
 ```
@@ -451,12 +499,24 @@ import (
 j := jobCron.New(&job.Options{Name: "cleanup"}, &jobCron.Config{})
 j.Add(&jobCron.Task{
     Expression: "0 0 * * *",
+    Timeout:    5 * time.Minute, // optional watchdog: expiry reports failure (leaked run can't be killed)
     Handler: func() error {
         // daily cleanup
         return nil
     },
 })
 j.Start()
+```
+
+### Task Runner (back-pressure)
+
+`Static.Task()` blocks when the queue is full — never call it from inside a Handler (deadlock). Use `TryTask` for bounded enqueue:
+
+```go
+if err := r.TryTask(&runner.Task{Data: work}, 100*time.Millisecond); errors.Is(err, runner.ErrPoolFull) {
+    // shed load: retry later or drop
+}
+_ = r.Len() // queued depth for observability
 ```
 
 ### Infrastructure
@@ -502,6 +562,25 @@ sicky.OnReload(func(ctx context.Context) error {
     logger.Info("Reloading on SIGHUP")
     return nil
 })
+
+// Business health check, merged into /health and /ready
+sicky.RegisterHealthChecker("order-db", func(ctx context.Context) error {
+    return orderStore.Ping(ctx)
+})
+```
+
+### Errors (codes + generic envelope)
+
+```go
+import "github.com/go-sicky/sicky/utils"
+
+_ = utils.RegisterErrorCode(40010, "order already paid", utils.StatusConflict)
+err := utils.NewCodedError(40010, "", dbErr) // Unwrap-compatible
+code := utils.CodeOf(err)                    // walks the chain, default 5000
+
+ok := utils.OkT(order)                       // success envelope
+fail := utils.FailT[any](utils.CodeNotFound, "").
+    WithRequestID(reqID)                     // message/status from registry
 ```
 
 ---
@@ -540,9 +619,9 @@ sicky help        # also: sicky serve -h, sicky new -h
 | `sicky` | Core orchestrator — `Init()` (returns error; `ErrVersionShown`/`ErrAlreadyInitialized` sentinels), `Run()` (returns joined error, graceful shutdown), `Viper()`, `ConfigUnmarshal()`, lifecycle hooks (`Before/AfterStart/Stop`, `OnReload` on SIGHUP), `FlagSwitch`, Manager |
 | `server` | Server interface + Fiber, gRPC, net/http (bunrouter), TCP, UDP, WebSocket implementations |
 | `broker` | Broker interface + NATS, JetStream, NSQ implementations |
-| `client` | Client interface + gRPC, HTTP, TCP, UDP, WebSocket implementations |
+| `client` | Client interface + gRPC, HTTP, TCP, UDP, WebSocket implementations (gRPC supports TLS 1.2+ mTLS fail-fast and registry-based service discovery) |
 | `service` | Service interface + Standard (background), Interactive (CLI), MCP (+ `mcp/protocol`) |
-| `registry` | Registry interface + Consul, Redis, Local (file JSON) — `mdns` 100% commented |
+| `registry` | Registry interface + Consul, Redis, Local (file JSON) — `mdns` deprecated (commented, kept) |
 | `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace (+ `tracer/fiber.go` B3 helper) |
 | `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 10 files, no interface |
 | `job` | Job interface + Cron (gocron), Ticker implementations |

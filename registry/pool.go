@@ -143,6 +143,21 @@ func SetPool(p *Pool) {
 	currentPool = p
 }
 
+// NotifyChan returns the pool update notification channel, or nil if the
+// pool is not initialized yet. The channel is stable across PurgePool calls
+// (the pool pointer and its Notify channel are preserved), so holders never
+// need to re-subscribe on purge; only InitPool/SetPool replace it.
+func NotifyChan() <-chan PoolEvent {
+	poolLock.RLock()
+	defer poolLock.RUnlock()
+
+	if currentPool == nil {
+		return nil
+	}
+
+	return currentPool.Notify
+}
+
 func (p *Pool) RegisterService(svc *Service) {
 	if p == nil {
 		return
@@ -415,63 +430,6 @@ func cloneInstance(in *Instance) *Instance {
 
 	return out
 }
-
-// func GetInstances(service string) map[string]*Instance {
-// 	poolLock.Lock()
-// 	defer poolLock.Unlock()
-
-// 	s, ok := Pool[service]
-// 	if ok && s.Instances != nil {
-// 		return s.Instances
-// 	}
-
-// 	return nil
-// }
-
-// func PurgeInstances() {
-// 	poolLock.Lock()
-// 	defer poolLock.Unlock()
-
-// 	for service, svc := range Pool {
-// 		if service != svc.Service {
-// 			delete(Pool, service)
-// 		}
-
-// 		for id, ins := range svc.Instances {
-// 			if ins.ID != id {
-// 				delete(Pool[service].Instances, id)
-// 			}
-
-// 			// Check instance
-// 			exists := false
-// 			for _, rg := range registries {
-// 				if rg.CheckInstance(ins.ID) {
-// 					exists = true
-// 					break
-// 				}
-// 			}
-
-// 			if !exists {
-// 				// Remove instance
-// 				delete(Pool[service].Instances, id)
-// 			}
-// 		}
-
-// 		if len(svc.Instances) == 0 {
-// 			delete(Pool, service)
-// 		}
-// 	}
-
-// 	select {
-// 	case PoolChan <- PoolEvent{Changed: true}:
-// 	default:
-// 		// Just ignore
-// 	}
-
-// 	logger.Logger.Debug(
-// 		"registry pool purged",
-// 	)
-// }
 
 /*
  * Local variables:

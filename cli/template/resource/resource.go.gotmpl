@@ -1,6 +1,10 @@
 package resource
 
-import mcp "github.com/go-sicky/sicky/service/mcp"
+import (
+	"fmt"
+
+	mcp "github.com/go-sicky/sicky/service/mcp"
+)
 
 type {{.ExportedName}}Resource struct{}
 
@@ -13,7 +17,7 @@ func (r *{{.ExportedName}}Resource) Description() string { return "{{.Name}} res
 
 func (r *{{.ExportedName}}Resource) Tools() []mcp.Tool           { return nil }
 func (r *{{.ExportedName}}Resource) CallTool(name string, args map[string]interface{}) (*mcp.ToolsCallResult, error) {
-	return nil, nil
+	return nil, fmt.Errorf("{{.Name}}: CallTool not implemented")
 }
 
 func (r *{{.ExportedName}}Resource) Resources() []mcp.Resource {
@@ -37,5 +41,5 @@ func (r *{{.ExportedName}}Resource) ReadResource(uri string) (*mcp.ResourcesRead
 
 func (r *{{.ExportedName}}Resource) Prompts() []mcp.Prompt                { return nil }
 func (r *{{.ExportedName}}Resource) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
-	return nil, nil
+	return nil, fmt.Errorf("{{.Name}}: GetPrompt not implemented")
 }

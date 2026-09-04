@@ -111,6 +111,12 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		// MySQL
 		sqldb, err = sql.Open("mysql", cfg.DSN)
 		if err != nil {
+			logger.Logger.Error(
+				"Database open failed",
+				"driver", cfg.Driver,
+				"error", err.Error(),
+			)
+
 			return nil, err
 		}
 
@@ -119,6 +125,12 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		// MS-SQLServer
 		sqldb, err = sql.Open("sqlserver", cfg.DSN)
 		if err != nil {
+			logger.Logger.Error(
+				"Database open failed",
+				"driver", cfg.Driver,
+				"error", err.Error(),
+			)
+
 			return nil, err
 		}
 
@@ -127,6 +139,12 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		// SQLite
 		sqldb, err = sql.Open("sqlite3", cfg.DSN)
 		if err != nil {
+			logger.Logger.Error(
+				"Database open failed",
+				"driver", cfg.Driver,
+				"error", err.Error(),
+			)
+
 			return nil, err
 		}
 
@@ -135,6 +153,12 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		// DaMeng (uses Oracle dialect as fallback)
 		sqldb, err = sql.Open("dm", cfg.DSN)
 		if err != nil {
+			logger.Logger.Error(
+				"Database open failed",
+				"driver", cfg.Driver,
+				"error", err.Error(),
+			)
+
 			return nil, err
 		}
 
@@ -174,8 +198,15 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 	}
 
 	// Connection pool: database/sql defaults to unlimited open
-	// connections, which can overwhelm the DB under load.
-	if cfg.MaxOpenConns > 0 {
+	// connections, which can overwhelm the DB under load. Zero keeps the
+	// driver default (unbounded) for backward compatibility — set
+	// max_open_conns explicitly in production.
+	if cfg.MaxOpenConns <= 0 {
+		logger.Logger.Warn(
+			"Database connection pool unbounded; set max_open_conns to cap it",
+			"driver", cfg.Driver,
+		)
+	} else {
 		sqldb.SetMaxOpenConns(cfg.MaxOpenConns)
 	}
 	if cfg.MaxIdleConns > 0 {
@@ -190,6 +221,12 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 
 	// Debug logger. Verbose logs bound query arguments, which may contain
 	// secrets — keep Verbose false in production.
+	if cfg.Verbose {
+		logger.Logger.Warn(
+			"Database verbose query logging enabled; bound arguments may contain secrets",
+			"driver", cfg.Driver,
+		)
+	}
 	if cfg.Debug {
 		db.AddQueryHook(bundebug.NewQueryHook(
 			bundebug.WithEnabled(true),

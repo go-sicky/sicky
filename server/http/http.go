@@ -63,6 +63,10 @@ type HTTPServer struct {
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
+	// listener is the socket we created in Start. Stop closes it
+	// directly as a backstop: Shutdown before Serve tracks the socket
+	// would otherwise leave Serve blocked on Accept forever.
+	listener net.Listener
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -126,6 +130,19 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	var tr trace.Tracer
 	if tracer.Default() != nil {
 		tr = tracer.Default().Tracer(srv.Name())
+	}
+	// Fail closed on illegal CORS (wildcard + credentials): deny all
+	// cross-origin requests rather than emitting the combination.
+	if err := cfg.CORS.Ensure().Validate(); err != nil {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Invalid CORS configuration, denying all origins",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"error", err.Error(),
+		)
+		cfg.CORS = (&CORSConfig{}).Ensure()
 	}
 	srv.router = bunrouter.New(
 		bunrouter.Use(NewRecoveryMiddleware(opts.Logger)),
@@ -266,6 +283,7 @@ func (srv *HTTPServer) Start() error {
 	}
 
 	srv.addr = listener.Addr()
+	srv.listener = listener
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
@@ -342,6 +360,21 @@ func (srv *HTTPServer) Stop() error {
 			"error", err.Error(),
 		)
 		errs = errors.Join(errs, err)
+	}
+	// Backstop for the shutdown-vs-Serve registration race: closing our
+	// own socket unblocks Accept even if Shutdown ran before Serve
+	// tracked it. Double-close is harmless (logged at debug).
+	if ln := srv.listener; ln != nil {
+		if err := ln.Close(); err != nil {
+			srv.options.Logger.DebugContext(
+				srv.ctx,
+				"HTTP listener close (already closed by shutdown)",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"error", err.Error(),
+			)
+		}
 	}
 	srv.wg.Wait()
 

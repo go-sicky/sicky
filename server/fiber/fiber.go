@@ -37,7 +37,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/tracer"
@@ -71,6 +70,10 @@ type FiberServer struct {
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
+	// listener is the socket we created in Start. Stop closes it
+	// directly: relying solely on fasthttp shutdown races with Serve
+	// registering the listener (shutdown first = Serve blocks forever).
+	listener net.Listener
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -162,8 +165,20 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	// The order of middlewares is important
 	// Issue was resolved at dawn on the first day of 2025, thanks to the remote class reunion >_<!
 	// CORS is deny-by-default: an empty whitelist skips the middleware
-	// entirely instead of falling back to AllowOrigins "*".
+	// entirely instead of falling back to AllowOrigins "*". An illegal
+	// combination (wildcard + credentials) fails closed the same way.
 	corsCfg := cfg.CORS.Ensure()
+	if err := corsCfg.Validate(); err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Invalid CORS configuration, denying all origins",
+			"server", srv.String(),
+			"id", opts.ID,
+			"name", opts.Name,
+			"error", err.Error(),
+		)
+		corsCfg = (&CORSConfig{}).Ensure()
+	}
 	corsMiddleware := func(c *fiber.Ctx) error {
 		return c.Next()
 	}
@@ -325,6 +340,7 @@ func (srv *FiberServer) Start() error {
 	if srv.config.AdvertiseAddress == "" {
 		srv.advertiseAddr = listener.Addr()
 	}
+	srv.listener = listener
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
@@ -389,40 +405,34 @@ func (srv *FiberServer) Stop() error {
 	timeout := srv.config.ShutdownTimeout
 	srv.Unlock()
 
-	// fasthttp Shutdown has no context: bound it with a timer so a
-	// lingering connection cannot hang Stop forever.
+	// Use the fiber-level shutdown, then close our own listener as a
+	// backstop: if Stop wins the race against Serve registering the
+	// socket with fasthttp, shutdown alone never unblocks Accept.
+	// Closing an already-closed listener only logs; double-close via
+	// fasthttp + us is harmless (second Close returns an error we log).
 	var errs error
-	done := make(chan error, 1)
-	go func() {
-		done <- app.Server().Shutdown()
-	}()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case err := <-done:
-		if err != nil {
-			srv.options.Logger.ErrorContext(
+	if err := app.ShutdownWithTimeout(timeout); err != nil && !isClosedConnError(err) {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Fiber server shutdown failed",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"error", err.Error(),
+		)
+		errs = errors.Join(errs, err)
+	}
+	if ln := srv.listener; ln != nil {
+		if err := ln.Close(); err != nil {
+			srv.options.Logger.DebugContext(
 				srv.ctx,
-				"Fiber server shutdown failed",
+				"Fiber listener close (already closed by shutdown)",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
 				"error", err.Error(),
 			)
-			errs = errors.Join(errs, err)
 		}
-	case <-timer.C:
-		err := ErrShutdownTimeout
-		srv.options.Logger.ErrorContext(
-			srv.ctx,
-			"Fiber server shutdown timed out, connections draining in background",
-			"server", srv.String(),
-			"id", srv.options.ID,
-			"name", srv.options.Name,
-			"timeout", timeout.String(),
-			"error", err.Error(),
-		)
-		errs = errors.Join(errs, err)
 	}
 	srv.wg.Wait()
 
@@ -442,6 +452,20 @@ func (srv *FiberServer) Stop() error {
 	srv.options.RunAfterStop()
 
 	return errs
+}
+
+// isClosedConnError reports benign double-close noise: our Stop backstop
+// closes the socket outside fasthttp bookkeeping, so a later shutdown may
+// re-close a stale s.ln entry. The socket is already down either way.
+func isClosedConnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
 func (srv *FiberServer) Running() bool {

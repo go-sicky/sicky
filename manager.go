@@ -32,7 +32,9 @@ package sicky
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -58,6 +60,49 @@ type componentHealth struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
+}
+
+// HealthCheck probes one business component. A nil error means healthy;
+// any error means unhealthy (the text is redacted on the wire, details
+// go to the server log).
+type HealthCheck func(ctx context.Context) error
+
+var (
+	healthCheckers   = make(map[string]HealthCheck)
+	healthCheckersMu sync.RWMutex
+)
+
+// RegisterHealthChecker adds a business health check merged into the
+// /health and /ready component lists. Names must be unique; re-registering
+// replaces the previous check. Unregister with UnregisterHealthChecker.
+func RegisterHealthChecker(name string, check HealthCheck) {
+	if name == "" || check == nil {
+		return
+	}
+	healthCheckersMu.Lock()
+	defer healthCheckersMu.Unlock()
+
+	healthCheckers[name] = check
+}
+
+// UnregisterHealthChecker removes a business health check.
+func UnregisterHealthChecker(name string) {
+	healthCheckersMu.Lock()
+	defer healthCheckersMu.Unlock()
+
+	delete(healthCheckers, name)
+}
+
+func snapshotHealthCheckers() map[string]HealthCheck {
+	healthCheckersMu.RLock()
+	defer healthCheckersMu.RUnlock()
+
+	out := make(map[string]HealthCheck, len(healthCheckers))
+	for name, check := range healthCheckers {
+		out[name] = check
+	}
+
+	return out
 }
 
 type Manager struct {
@@ -145,6 +190,20 @@ func (m *Manager) Start() error {
 	cfg := m.config
 	m.Unlock()
 
+	// A half-configured TLS must never silently serve plaintext.
+	if err := cfg.Validate(); err != nil {
+		logger.Logger.ErrorContext(
+			m.ctx,
+			"Manager TLS configuration incomplete",
+			"error", err.Error(),
+		)
+		m.Lock()
+		m.running = false
+		m.Unlock()
+
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Address,
 		ReadTimeout:       time.Duration(cfg.ReadTimeout) * time.Second,
@@ -153,9 +212,33 @@ func (m *Manager) Start() error {
 		IdleTimeout:       time.Duration(cfg.IdleTimeout) * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+	// servePlaintext reports whether the listener runs without TLS.
+	servePlaintext := true
+	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
+		cert, err := tls.X509KeyPair([]byte(cfg.TLSCertPEM), []byte(cfg.TLSKeyPEM))
+		if err != nil {
+			logger.Logger.ErrorContext(
+				m.ctx,
+				"Manager TLS certification failed",
+				"error", err.Error(),
+			)
+			m.Lock()
+			m.running = false
+			m.Unlock()
+
+			return err
+		}
+		srv.TLSConfig = &tls.Config{
+			MinVersion:   tls.VersionTLS12,
+			Certificates: []tls.Certificate{cert},
+		}
+		servePlaintext = false
+	}
 	mux := http.NewServeMux()
 	mux.Handle(cfg.MetricsPath, m.metrics())
 	mux.Handle(cfg.HealthPath, m.health())
+	mux.Handle(cfg.LivePath, m.live())
+	mux.Handle(cfg.ReadyPath, m.ready())
 	mux.Handle(cfg.VersionPath, m.version())
 	mux.Handle(cfg.InfoPath, m.info())
 	mux.Handle(cfg.ConfigPath, m.guardSensitive(m.cfg()))
@@ -172,10 +255,17 @@ func (m *Manager) Start() error {
 		)
 	}
 	m.wg.Add(1)
-	go func(s *http.Server) {
+	go func(s *http.Server, useTLS bool) {
 		defer m.wg.Done()
 
-		err := s.ListenAndServe()
+		var err error
+		if useTLS {
+			// Certificates are already loaded into s.TLSConfig;
+			// empty cert/key file names keep ServeTLS from touching disk.
+			err = s.ServeTLS(nil, "", "")
+		} else {
+			err = s.ListenAndServe()
+		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Logger.ErrorContext(
 				m.ctx,
@@ -193,13 +283,14 @@ func (m *Manager) Start() error {
 			m.ctx,
 			"Manager server closed",
 		)
-	}(srv)
+	}(srv, !servePlaintext)
 
 	logger.Logger.InfoContext(
 		m.ctx,
 		"Manager server started",
 		"address", m.Addr(),
 		"port", m.Port(),
+		"tls", !servePlaintext,
 	)
 
 	return nil
@@ -266,7 +357,11 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 		if token != "" {
 			got := r.Header.Get("Authorization")
 			want := "Bearer " + token
-			if len(got) != len(want) || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+			// Compare equal-length digests so a length mismatch does not
+			// short-circuit into a timing oracle on the token length.
+			gotSum := sha256.Sum256([]byte(got))
+			wantSum := sha256.Sum256([]byte(want))
+			if subtle.ConstantTimeCompare(gotSum[:], wantSum[:]) != 1 {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -309,9 +404,12 @@ func isExternalListen(addr string) bool {
 }
 
 // sanitizeValue redacts secret-looking keys/values before /config exposure.
+// Connection-string keys (uri/url/broker/addresses/...) are redacted because
+// they commonly embed userinfo; plain usernames/client IDs are left visible
+// for debugging (/config itself is already auth-or-loopback gated).
 func sanitizeValue(key string, val any) any {
 	lk := strings.ToLower(key)
-	for _, sub := range []string{"dsn", "password", "passwd", "pwd", "secret", "token", "apikey", "api_key", "auth", "private_key", "accesskey", "access_key"} {
+	for _, sub := range []string{"dsn", "password", "passwd", "pwd", "secret", "token", "apikey", "api_key", "api-key", "auth", "private_key", "accesskey", "access_key", "secret_key", "session_token", "uri", "url", "broker", "addresses", "cloud_id", "creds_file", "nkey_file", "ca_file", "ca_cert_file", "root_ca_file"} {
 		if strings.Contains(lk, sub) {
 			if s, ok := val.(string); ok && s != "" {
 				return "***redacted***"
@@ -373,36 +471,57 @@ func (m *Manager) metrics() http.Handler {
 }
 
 func (m *Manager) health() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.writeHealth(w, m.collectComponentHealth(r.Context()))
+	})
+}
+
+// live reports process liveness only: no dependency probes, always 200
+// while the manager itself serves. Use it for orchestrator liveness;
+// use /ready (or /health) for readiness.
+func (m *Manager) live() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy", "version": m.appVersion})
+	})
+}
+
+// ready aggregates the same component list as /health: only real
+// failures degrade it to 503.
+func (m *Manager) ready() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m.writeHealth(w, m.collectComponentHealth(r.Context()))
+	})
+}
+
+func (m *Manager) writeHealth(w http.ResponseWriter, components []componentHealth) {
 	type status struct {
 		Status     string            `json:"status"`
 		Version    string            `json:"version"`
 		Components []componentHealth `json:"components"`
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		components := m.collectComponentHealth(r.Context())
-		// Only real failures degrade overall status. "not_configured"
-		// components are reported but do not fail readiness.
-		overall := "healthy"
-		for _, c := range components {
-			if c.Status == "unhealthy" {
-				overall = "degraded"
-				break
-			}
+	// Only real failures degrade overall status. "not_configured"
+	// components are reported but do not fail readiness.
+	overall := "healthy"
+	for _, c := range components {
+		if c.Status == "unhealthy" {
+			overall = "degraded"
+			break
 		}
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		if overall == "degraded" {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-		_ = json.NewEncoder(w).Encode(
-			&status{
-				Status:     overall,
-				Version:    m.appVersion,
-				Components: components,
-			},
-		)
-	})
+	w.Header().Set("Content-Type", "application/json")
+	if overall == "degraded" {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+	_ = json.NewEncoder(w).Encode(
+		&status{
+			Status:     overall,
+			Version:    m.appVersion,
+			Components: components,
+		},
+	)
 }
 
 func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHealth {
@@ -493,7 +612,16 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 				}
 				if err := d.ping(ctx); err != nil {
 					ch.Status = "unhealthy"
-					ch.Error = err.Error()
+					// Never expose backend error text on the unauthenticated
+					// /health endpoint (it leaks addresses/auth details).
+					// The detail goes to the server log only.
+					logger.Logger.ErrorContext(
+						ctx,
+						"Health check failed",
+						"component", d.name,
+						"error", err.Error(),
+					)
+					ch.Error = "unhealthy"
 				} else {
 					ch.Status = "healthy"
 				}
@@ -516,6 +644,23 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 		}(i, d)
 	}
 	wg.Wait()
+
+	// Business checkers registered via RegisterHealthChecker run under the
+	// same timeout and join the component list after the infra checks.
+	for name, check := range snapshotHealthCheckers() {
+		ch := componentHealth{Name: name, Status: "healthy"}
+		if err := check(ctx); err != nil {
+			ch.Status = "unhealthy"
+			ch.Error = "unhealthy"
+			logger.Logger.ErrorContext(
+				ctx,
+				"Health check failed",
+				"component", name,
+				"error", err.Error(),
+			)
+		}
+		cs = append(cs, ch)
+	}
 
 	return cs
 }

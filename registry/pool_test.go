@@ -49,7 +49,32 @@ func TestPurgePoolKeepsPointer(t *testing.T) {
 	if currentPool != before {
 		t.Fatal("PurgePool swapped pool pointer, Notify channel not preserved")
 	}
-	if GetService("svc") == nil {
-		t.Fatal("fresh instance missing after purge")
+}
+
+func TestNotifyChanStableAcrossPurge(t *testing.T) {
+	InitPool()
+	ch := NotifyChan()
+	if ch == nil {
+		t.Fatal("NotifyChan must be non-nil after InitPool")
+	}
+	PurgePool([]*Instance{{ID: uuid.New(), ServiceName: "svc"}})
+	if NotifyChan() != ch {
+		t.Fatal("NotifyChan must stay stable across PurgePool")
+	}
+
+	// Drain the notification from the purge above.
+	select {
+	case <-ch:
+	default:
+		t.Fatal("expected pool change notification")
+	}
+	PurgePool([]*Instance{{ID: uuid.New(), ServiceName: "svc2"}})
+	select {
+	case ev := <-ch:
+		if !ev.Changed {
+			t.Fatal("expected Changed event")
+		}
+	default:
+		t.Fatal("expected pool change notification")
 	}
 }

@@ -33,7 +33,9 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/go-sicky/sicky/job"
@@ -113,7 +115,7 @@ func (job *Cron) Add(task *Task) error {
 	if job.running && job.scheduler != nil && task.Handler != nil {
 		if _, err := job.scheduler.NewJob(
 			gocron.CronJob(task.Expression, true),
-			gocron.NewTask(task.Handler),
+			gocron.NewTask(job.runWithTimeout(task, task.Handler)),
 		); err != nil {
 			return err
 		}
@@ -145,7 +147,7 @@ func (job *Cron) Start() error {
 		_, err := job.scheduler.NewJob(
 			gocron.CronJob(task.Expression, true),
 			gocron.NewTask(
-				task.Handler,
+				job.runWithTimeout(task, task.Handler),
 			),
 		)
 		if err != nil {
@@ -202,6 +204,42 @@ type Task struct {
 	ID         uuid.UUID
 	Expression string
 	Handler    CronHandler
+	// Timeout bounds one run. Zero disables. On expiry the run is
+	// reported as failed but the handler goroutine cannot be killed —
+	// it leaks until it returns, and overlapping runs may pile up.
+	// Prefer short, idempotent handlers.
+	Timeout time.Duration
+}
+
+// runWithTimeout executes h with the task timeout watchdog.
+func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
+	if task == nil || task.Timeout <= 0 || h == nil {
+		return h
+	}
+	timeout := task.Timeout
+
+	return func() error {
+		done := make(chan error, 1)
+		go func() { done <- h() }()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case err := <-done:
+			return err
+		case <-timer.C:
+			job.options.Logger.ErrorContext(
+				job.ctx,
+				"Cron task timed out; leaked run continues in background",
+				"job", job.String(),
+				"id", job.options.ID,
+				"name", job.options.Name,
+				"task_id", task.ID.String(),
+				"timeout", timeout.String(),
+			)
+
+			return fmt.Errorf("cron task %s timed out after %s", task.ID.String(), timeout.String())
+		}
+	}
 }
 
 /* }}} */

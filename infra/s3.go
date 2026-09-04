@@ -33,6 +33,7 @@ package infra
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -60,6 +61,10 @@ type S3Config struct {
 	// Timeout bounds LoadDefaultConfig (IMDS lookups can stall for
 	// seconds outside AWS). Seconds, defaults to DefaultInitTimeoutSec.
 	Timeout int `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	// RequestTimeoutSec bounds whole S3 API calls (headers + body) via the
+	// HTTP client. 0 keeps the SDK default (unbounded); negative aborts.
+	// Prefer a context deadline per call when you need tighter control.
+	RequestTimeoutSec int `json:"request_timeout_sec" yaml:"request_timeout_sec" mapstructure:"request_timeout_sec"`
 }
 
 // s3Bucket mirrors the configured bucket for PingS3. Guarded by mu.
@@ -116,6 +121,11 @@ func InitS3(cfg *S3Config) (*s3.Client, error) {
 
 	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
+	}
+	if cfg.RequestTimeoutSec > 0 {
+		loadOpts = append(loadOpts, config.WithHTTPClient(&http.Client{
+			Timeout: time.Duration(cfg.RequestTimeoutSec) * time.Second,
+		}))
 	}
 	if strings.TrimSpace(cfg.AccessKey) != "" {
 		loadOpts = append(loadOpts, config.WithCredentialsProvider(
@@ -192,7 +202,7 @@ func (c *S3Config) Validate() error {
 		return ErrS3SecretEmpty
 	}
 
-	if c.Timeout < 0 {
+	if c.Timeout < 0 || c.RequestTimeoutSec < 0 {
 		return ErrS3TimeoutInvalid
 	}
 

@@ -89,37 +89,30 @@ func (m *Message) Format(v any, mime ...int) error {
 		tm = mime[0]
 	}
 
+	var err error
 	switch tm {
 	case MsgJson:
-		var err error
 		m.Body, err = json.Marshal(v)
-
-		return err
 	case MsgProtobuf:
-		pm, ok := v.(proto.Message)
-		if ok {
-			var err error
+		if pm, ok := v.(proto.Message); ok {
 			m.Body, err = proto.Marshal(pm)
-
-			return err
 		}
 	case MsgMsgpack:
-		var err error
 		m.Body, err = msgpack.Marshal(v)
-
-		return err
 	default:
 		// Raw
-		b, ok := v.([]byte)
-		if ok {
+		if b, ok := v.([]byte); ok {
 			m.Body = b
 			tm = MsgRaw
 		}
 	}
 
+	// Always record the effective mime: previously the JSON/msgpack
+	// paths returned early with Mime left at zero (Raw), so Scan on the
+	// receiving side silently skipped decoding (data loss with nil error).
 	m.Mime = tm
 
-	return nil
+	return err
 }
 
 func (m *Message) Raw() []byte {

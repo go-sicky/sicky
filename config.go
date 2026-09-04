@@ -49,6 +49,8 @@ const (
 	DefaultManagerAddress  = ":8888"
 	DefaultMetricsPath     = "/metrics"
 	DefaultHealthPath      = "/health"
+	DefaultLivePath        = "/live"
+	DefaultReadyPath       = "/ready"
 	DefaultVersionPath     = "/version"
 	DefaultInfoPath        = "/info"
 	DefaultSwaggerPath     = "/swagger.json"
@@ -60,6 +62,10 @@ const (
 	DefaultManagerWriteTimeout = 10 // seconds
 	DefaultManagerIdleTimeout  = 60 // seconds
 )
+
+// ErrManagerIncompleteTLSConfig is returned when only one of
+// ManagerConfig.TLSCertPEM/TLSKeyPEM is set.
+var ErrManagerIncompleteTLSConfig = errors.New("manager: tls_cert_pem and tls_key_pem must both be set or both empty")
 
 type ManagerConfig struct {
 	Enable           bool   `json:"enable" yaml:"enable" mapstructure:"enable"`
@@ -73,12 +79,19 @@ type ManagerConfig struct {
 	// /metrics stays public for Prometheus scraping.
 	AuthToken string `json:"auth_token" yaml:"auth_token" mapstructure:"auth_token"`
 	// HTTP server timeouts in seconds (Slowloris mitigation).
-	ReadTimeout     int    `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
-	WriteTimeout    int    `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
-	IdleTimeout     int    `json:"idle_timeout" yaml:"idle_timeout" mapstructure:"idle_timeout"`
-	ShutdownTimeout int    `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+	ReadTimeout     int `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
+	WriteTimeout    int `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
+	IdleTimeout     int `json:"idle_timeout" yaml:"idle_timeout" mapstructure:"idle_timeout"`
+	ShutdownTimeout int `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+	// Optional TLS for the manager listener (PEM-encoded). Both fields are
+	// required together; a half-configured pair fails Start fast instead of
+	// silently serving plaintext. Empty means plaintext (default).
+	TLSCertPEM      string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
+	TLSKeyPEM       string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
 	MetricsPath     string `json:"metrics_path" yaml:"metrics_path" mapstructure:"metrics_path"`
 	HealthPath      string `json:"health_path" yaml:"health_path" mapstructure:"health_path"`
+	LivePath        string `json:"live_path" yaml:"live_path" mapstructure:"live_path"`
+	ReadyPath       string `json:"ready_path" yaml:"ready_path" mapstructure:"ready_path"`
 	VersionPath     string `json:"version_path" yaml:"version_path" mapstructure:"version_path"`
 	InfoPath        string `json:"info_path" yaml:"info_path" mapstructure:"info_path"`
 	SwaggerPath     string `json:"swagger_path" yaml:"swagger_path" mapstructure:"swagger_path"`
@@ -92,6 +105,8 @@ func DefaultManagerConfig() *ManagerConfig {
 		Address:         DefaultManagerAddress,
 		MetricsPath:     DefaultMetricsPath,
 		HealthPath:      DefaultHealthPath,
+		LivePath:        DefaultLivePath,
+		ReadyPath:       DefaultReadyPath,
 		VersionPath:     DefaultVersionPath,
 		InfoPath:        DefaultInfoPath,
 		SwaggerPath:     DefaultSwaggerPath,
@@ -120,6 +135,14 @@ func (c *ManagerConfig) Ensure() *ManagerConfig {
 
 	if c.HealthPath == "" {
 		c.HealthPath = DefaultHealthPath
+	}
+
+	if c.LivePath == "" {
+		c.LivePath = DefaultLivePath
+	}
+
+	if c.ReadyPath == "" {
+		c.ReadyPath = DefaultReadyPath
 	}
 
 	if c.VersionPath == "" {
@@ -159,6 +182,18 @@ func (c *ManagerConfig) Ensure() *ManagerConfig {
 	}
 
 	return c
+}
+
+// Validate rejects a half-configured TLS pair.
+func (c *ManagerConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if (c.TLSCertPEM != "") != (c.TLSKeyPEM != "") {
+		return ErrManagerIncompleteTLSConfig
+	}
+
+	return nil
 }
 
 type InfraConfig struct {

@@ -46,12 +46,21 @@ import (
 type MongoConfig struct {
 	URI string `json:"uri" yaml:"uri" mapstructure:"uri"`
 	DB  string `json:"db" yaml:"db" mapstructure:"db"`
+	// MaxPoolSize caps driver connections. 0 keeps the driver default
+	// (100).
+	MaxPoolSize uint64 `json:"max_pool_size" yaml:"max_pool_size" mapstructure:"max_pool_size"`
+	// ConnectTimeoutSec bounds initial dial/server selection. 0 keeps the
+	// driver default (30s); negative aborts startup.
+	ConnectTimeoutSec int `json:"connect_timeout_sec" yaml:"connect_timeout_sec" mapstructure:"connect_timeout_sec"`
 }
 
 // ErrMongoURIEmpty aborts startup: a non-nil MongoConfig means "enable
 // mongo", and an empty URI would otherwise fail late after a 5s ping
 // timeout.
-var ErrMongoURIEmpty = errors.New("infra: mongo uri is empty")
+var (
+	ErrMongoURIEmpty      = errors.New("infra: mongo uri is empty")
+	ErrMongoOptionInvalid = errors.New("infra: mongo pool/timeout option is negative")
+)
 
 var Mongo *mongo.Client
 
@@ -70,7 +79,14 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		return nil, err
 	}
 
-	client, err := mongo.Connect(options.Client().ApplyURI(cfg.URI))
+	clientOpts := options.Client().ApplyURI(cfg.URI)
+	if cfg.MaxPoolSize > 0 {
+		clientOpts.SetMaxPoolSize(cfg.MaxPoolSize)
+	}
+	if cfg.ConnectTimeoutSec > 0 {
+		clientOpts.SetConnectTimeout(time.Duration(cfg.ConnectTimeoutSec) * time.Second)
+	}
+	client, err := mongo.Connect(clientOpts)
 	if err != nil {
 		logger.Logger.Error(
 			"Mongo connect failed",
@@ -149,6 +165,10 @@ func (c *MongoConfig) Validate() error {
 
 	if strings.TrimSpace(c.URI) == "" {
 		return ErrMongoURIEmpty
+	}
+
+	if c.ConnectTimeoutSec < 0 {
+		return ErrMongoOptionInvalid
 	}
 
 	return nil

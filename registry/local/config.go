@@ -30,9 +30,20 @@
 
 package local
 
+import (
+	"errors"
+	"path/filepath"
+	"strings"
+)
+
 const (
 	DefaultRegistryFilePath = "/tmp/sicky/registry"
 )
+
+// ErrLocalPathNotAbsolute is returned when RegistryFilePath is not absolute
+// after cleaning. Relative paths resolve against the process working
+// directory, which is a config-hijack vector.
+var ErrLocalPathNotAbsolute = errors.New("local registry: registry_file_path must be absolute")
 
 type Config struct {
 	RegistryFilePath string `json:"registry_file_path" yaml:"registry_file_path" mapstructure:"registry_file_path"`
@@ -51,11 +62,26 @@ func (c *Config) Ensure() *Config {
 		c = DefaultConfig()
 	}
 
-	if c.RegistryFilePath == "" {
+	if strings.TrimSpace(c.RegistryFilePath) == "" {
 		c.RegistryFilePath = DefaultRegistryFilePath
+	} else {
+		c.RegistryFilePath = filepath.Clean(c.RegistryFilePath)
 	}
 
 	return c
+}
+
+// Validate rejects relative paths so the registry directory can never be
+// resolved against an untrusted working directory.
+func (c *Config) Validate() error {
+	if c == nil {
+		return nil
+	}
+	if !filepath.IsAbs(filepath.Clean(c.RegistryFilePath)) {
+		return ErrLocalPathNotAbsolute
+	}
+
+	return nil
 }
 
 /*

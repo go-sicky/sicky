@@ -80,7 +80,26 @@ type UDPServer struct {
 // New UDP server
 func New(opts *server.Options, cfg *Config) *UDPServer {
 	opts = opts.Ensure()
+	negRead, negWrite, negSessions, negRate := cfg.ReadTimeout, cfg.WriteTimeout, cfg.MaxSessions, cfg.MaxPacketsPerSecond
 	cfg = cfg.Ensure()
+	if negRead < 0 || negWrite < 0 {
+		// Ensure clamps negatives to 0 (= disabled deadlines): loud here
+		// so a typo does not silently widen Slowloris exposure.
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Negative timeout clamped to 0 (deadlines disabled)",
+			"read_timeout", negRead,
+			"write_timeout", negWrite,
+		)
+	}
+	if negSessions < 0 || negRate < 0 {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Negative limit clamped to 0 (unlimited)",
+			"max_sessions", negSessions,
+			"max_packets_per_second", negRate,
+		)
+	}
 
 	var (
 		addr          net.Addr
@@ -215,6 +234,10 @@ func (srv *UDPServer) Start() error {
 	go func() {
 		defer srv.wg.Done()
 
+		backoff := utils.NewBackoff(50*time.Millisecond, time.Second)
+		errLog := utils.NewLogSampler(5, time.Second)
+		capLog := utils.NewLogSampler(1, time.Second)
+
 		buff := make([]byte, srv.config.BufferSize)
 		for {
 			if srv.config.ReadTimeout > 0 {
@@ -237,40 +260,58 @@ func (srv *UDPServer) Start() error {
 					break
 				}
 				// Transient errors (ENOBUFS/ICMP refused/…) must not
-				// kill the packet loop: log and keep serving. Read
-				// deadlines surface as timeouts: just re-arm and
+				// kill the packet loop: log (sampled) and keep serving.
+				// Read deadlines surface as timeouts: just re-arm and
 				// continue; idle sessions are recycled by the reaper.
 				var nerr net.Error
 				if errors.As(err, &nerr) && nerr.Timeout() {
+					backoff.Reset()
 					continue
 				}
-				srv.options.Logger.ErrorContext(
-					srv.ctx,
-					"UDP ReadFromUDP failed",
-					"server", srv.String(),
-					"id", srv.options.ID,
-					"name", srv.options.Name,
-					"network", srv.addr.Network(),
-					"address", srv.addr.String(),
-					"error", err.Error(),
-				)
+				if allow, suppressed := errLog.Allow(); allow {
+					args := []any{
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"network", srv.addr.Network(),
+						"address", srv.addr.String(),
+						"error", err.Error(),
+					}
+					if suppressed > 0 {
+						args = append(args, "suppressed", suppressed)
+					}
+					srv.options.Logger.ErrorContext(srv.ctx, "UDP ReadFromUDP failed", args...)
+				}
+				// Persistent read failures (e.g. ENOBUFS under flood)
+				// back off so the loop cannot hot-spin.
+				time.Sleep(backoff.Next())
 
 				continue
-			} else if n > 0 {
-				if !srv.allowPacket(addr) {
+			}
+			backoff.Reset()
+			if n > 0 {
+				// One addrKey per packet: shared by the rate limiter
+				// and the session lookup below.
+				srcKey := addrKey(addr)
+				if !srv.allowPacketKey(srcKey) {
 					continue
 				}
-				sess := srv.pool.GetByAddr(addr)
+				sess := srv.pool.GetByKey(srcKey)
 				if sess == nil {
 					if srv.config.MaxSessions > 0 && srv.pool.Length() >= srv.config.MaxSessions {
-						srv.options.Logger.ErrorContext(
-							srv.ctx,
-							"UDP session cap reached, dropping datagram",
-							"server", srv.String(),
-							"id", srv.options.ID,
-							"name", srv.options.Name,
-							"max_sessions", srv.config.MaxSessions,
-						)
+						// Sampled: a cap-drop storm under flood must not log-DoS.
+						if allow, suppressed := capLog.Allow(); allow {
+							args := []any{
+								"server", srv.String(),
+								"id", srv.options.ID,
+								"name", srv.options.Name,
+								"max_sessions", srv.config.MaxSessions,
+							}
+							if suppressed > 0 {
+								args = append(args, "suppressed", suppressed)
+							}
+							srv.options.Logger.ErrorContext(srv.ctx, "UDP session cap reached, dropping datagram", args...)
+						}
 
 						continue
 					}
@@ -496,17 +537,18 @@ func (srv *UDPServer) stopReaper() {
 }
 
 // allowPacket enforces the fixed-window per-source packet limit. A
-// non-positive MaxPacketsPerSecond disables limiting. Over-limit packets
-// are dropped silently: logging each drop would itself become a log-DoS.
+// non-positive limit disables it.
 func (srv *UDPServer) allowPacket(addr *net.UDPAddr) bool {
+	return srv.allowPacketKey(addrKey(addr))
+}
+
+// allowPacketKey is allowPacket on a precomputed addrKey: the hot packet
+// loop computes the key once and shares it with the session lookup so a
+// packet formats the source address at most once.
+func (srv *UDPServer) allowPacketKey(key string) bool {
 	limit := srv.config.MaxPacketsPerSecond
 	if limit <= 0 {
 		return true
-	}
-
-	key := ""
-	if addr != nil {
-		key = addr.String()
 	}
 
 	now := time.Now()

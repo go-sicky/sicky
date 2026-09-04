@@ -53,6 +53,17 @@ func New(opts *registry.Options, cfg *Config) *Local {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
+	if err := cfg.Validate(); err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Local registry config invalid",
+			"registry", "local",
+			"error", err.Error(),
+		)
+
+		return nil
+	}
+
 	ctx, cancel := context.WithCancel(opts.Context)
 	rg := &Local{
 		config:  cfg,
@@ -298,6 +309,14 @@ func (rg *Local) cleanupStaleFiles() {
 	count := 0
 	for _, file := range files {
 		if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		// Only remove files this registry could have written
+		// (<uuid>.json). Anything else is left alone so a misconfigured
+		// directory never causes collateral deletes.
+		base := file.Name()[:len(file.Name())-len(".json")]
+		if _, err := uuid.Parse(base); err != nil {
 			continue
 		}
 

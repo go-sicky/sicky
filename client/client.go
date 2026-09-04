@@ -32,6 +32,7 @@ package client
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -56,16 +57,57 @@ type Client interface {
 	ID() uuid.UUID
 }
 
-var clients = make(map[uuid.UUID]Client, 0)
+var (
+	clients       = make(map[uuid.UUID]Client, 0)
+	defaultClient Client
+	cltMu         sync.RWMutex
+)
 
 func Set(clts ...Client) {
+	cltMu.Lock()
+	defer cltMu.Unlock()
+
 	for _, clt := range clts {
 		clients[clt.ID()] = clt
+		if defaultClient == nil {
+			defaultClient = clt
+		}
 	}
 }
 
 func Get(id uuid.UUID) Client {
+	cltMu.RLock()
+	defer cltMu.RUnlock()
+
 	return clients[id]
+}
+
+func Default() Client {
+	cltMu.RLock()
+	defer cltMu.RUnlock()
+
+	return defaultClient
+}
+
+func Clients() map[uuid.UUID]Client {
+	cltMu.RLock()
+	defer cltMu.RUnlock()
+
+	out := make(map[uuid.UUID]Client, len(clients))
+	for id, clt := range clients {
+		out[id] = clt
+	}
+
+	return out
+}
+
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	cltMu.Lock()
+	defer cltMu.Unlock()
+
+	clients = make(map[uuid.UUID]Client, 0)
+	defaultClient = nil
 }
 
 /*

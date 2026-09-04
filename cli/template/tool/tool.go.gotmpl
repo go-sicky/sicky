@@ -1,6 +1,10 @@
 package tool
 
-import mcp "github.com/go-sicky/sicky/service/mcp"
+import (
+	"fmt"
+
+	mcp "github.com/go-sicky/sicky/service/mcp"
+)
 
 type {{.ExportedName}}Tool struct{}
 
@@ -34,10 +38,10 @@ func (t *{{.ExportedName}}Tool) CallTool(name string, args map[string]interface{
 
 func (t *{{.ExportedName}}Tool) Resources() []mcp.Resource          { return nil }
 func (t *{{.ExportedName}}Tool) ReadResource(uri string) (*mcp.ResourcesReadResult, error) {
-	return nil, nil
+	return nil, fmt.Errorf("{{.Name}}: ReadResource not implemented")
 }
 
 func (t *{{.ExportedName}}Tool) Prompts() []mcp.Prompt                { return nil }
 func (t *{{.ExportedName}}Tool) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
-	return nil, nil
+	return nil, fmt.Errorf("{{.Name}}: GetPrompt not implemented")
 }

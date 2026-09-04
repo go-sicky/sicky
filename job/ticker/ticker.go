@@ -33,6 +33,7 @@ package ticker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +50,7 @@ type Ticker struct {
 	done    chan struct{}
 	counter atomic.Uint64
 	running bool
+	wg      sync.WaitGroup
 
 	tasks []*Task
 	sync.RWMutex
@@ -130,7 +132,9 @@ func (job *Ticker) Start() error {
 
 	job.done = make(chan struct{})
 	job.ticker = time.NewTicker(time.Duration(job.config.Interval) * time.Second)
+	job.wg.Add(1)
 	go func() {
+		defer job.wg.Done()
 		for {
 			select {
 			case t, ok := <-job.ticker.C:
@@ -150,7 +154,7 @@ func (job *Ticker) Start() error {
 							defer func() {
 								_ = recover()
 							}()
-							err := hdl.Handler(t, count)
+							err := job.runWithTimeout(hdl, t, count)
 							if err != nil {
 								job.options.Logger.ErrorContext(
 									job.ctx,
@@ -187,15 +191,18 @@ func (job *Ticker) Start() error {
 
 func (job *Ticker) Stop() error {
 	job.Lock()
-	defer job.Unlock()
-
 	if !job.running {
+		job.Unlock()
 		return nil
 	}
 
 	close(job.done)
 	job.ticker.Stop()
 	job.running = false
+	job.Unlock()
+
+	// Wait for the loop goroutine so Start-Stop-Start cannot double-run.
+	job.wg.Wait()
 
 	job.options.Logger.InfoContext(
 		job.ctx,
@@ -216,6 +223,42 @@ type Task struct {
 	ID      uuid.UUID
 	Inteval uint64
 	Handler TickerHandler
+	// Timeout bounds one run. Zero disables. On expiry the tick is
+	// reported as failed but the handler keeps running in background
+	// (it cannot be killed) and later ticks may overlap it.
+	Timeout time.Duration
+}
+
+// runWithTimeout executes the task handler with the timeout watchdog.
+func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
+	if hdl == nil || hdl.Handler == nil || hdl.Timeout <= 0 {
+		if hdl == nil || hdl.Handler == nil {
+			return nil
+		}
+
+		return hdl.Handler(t, count)
+	}
+	timeout := hdl.Timeout
+
+	done := make(chan error, 1)
+	go func() { done <- hdl.Handler(t, count) }()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		job.options.Logger.ErrorContext(
+			job.ctx,
+			"Ticker task timed out; leaked run continues in background",
+			"job", job.String(),
+			"id", job.options.ID,
+			"name", job.options.Name,
+			"timeout", timeout.String(),
+		)
+
+		return fmt.Errorf("ticker task timed out after %s", timeout.String())
+	}
 }
 
 /* }}} */

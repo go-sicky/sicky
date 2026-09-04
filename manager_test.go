@@ -3,6 +3,7 @@ package sicky
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/go-sicky/sicky/infra"
 )
+
+var errTestBoom = errors.New("boom-test-failure")
 
 func TestGuardNoTokenLoopbackOnly(t *testing.T) {
 	m := NewManager(&ManagerConfig{Address: ":8888"}, "app", "v1")
@@ -29,6 +32,62 @@ func TestGuardNoTokenLoopbackOnly(t *testing.T) {
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("loopback without token want 200 got %d", rec2.Code)
+	}
+}
+
+func TestHealthCustomCheckers(t *testing.T) {
+	m := NewManager(nil, "app", "v1")
+	RegisterHealthChecker("biz-ok", func(ctx context.Context) error { return nil })
+	RegisterHealthChecker("biz-bad", func(ctx context.Context) error { return errTestBoom })
+	defer UnregisterHealthChecker("biz-ok")
+	defer UnregisterHealthChecker("biz-bad")
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	rec := httptest.NewRecorder()
+	m.health().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("failing checker must degrade to 503, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "biz-ok") || !strings.Contains(body, "biz-bad") {
+		t.Fatalf("custom checkers missing in body: %s", body)
+	}
+	if strings.Contains(body, "boom-test-failure") {
+		t.Fatalf("backend error text must be redacted: %s", body)
+	}
+
+	liveReq := httptest.NewRequest("GET", "/live", nil)
+	liveRec := httptest.NewRecorder()
+	m.live().ServeHTTP(liveRec, liveReq)
+	if liveRec.Code != http.StatusOK {
+		t.Fatalf("live must be 200, got %d", liveRec.Code)
+	}
+
+	UnregisterHealthChecker("biz-bad")
+	rec2 := httptest.NewRecorder()
+	m.ready().ServeHTTP(rec2, httptest.NewRequest("GET", "/ready", nil))
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("ready must recover to 200 after unregister, got %d", rec2.Code)
+	}
+}
+
+func TestManagerTLSValidate(t *testing.T) {
+	half := &ManagerConfig{Address: "127.0.0.1:0", TLSCertPEM: "cert"}
+	if err := half.Ensure().Validate(); err != ErrManagerIncompleteTLSConfig {
+		t.Fatalf("half-TLS must fail validation, got %v", err)
+	}
+
+	m := NewManager(half, "app", "v1")
+	if err := m.Start(); err != ErrManagerIncompleteTLSConfig {
+		_ = m.Stop()
+		t.Fatalf("half-TLS Start must fail fast, got %v", err)
+	}
+
+	bogus := &ManagerConfig{Address: "127.0.0.1:0", TLSCertPEM: "cert", TLSKeyPEM: "key"}
+	m2 := NewManager(bogus, "app", "v1")
+	if err := m2.Start(); err == nil {
+		_ = m2.Stop()
+		t.Fatal("unparseable PEM Start must fail")
 	}
 }
 
@@ -60,6 +119,16 @@ func TestSanitizeRedactsSecrets(t *testing.T) {
 	}
 	if got := sanitizeValue("addr", "1.2.3.4"); got != "1.2.3.4" {
 		t.Fatal("non-secret over-redacted")
+	}
+	// Connection-string keys commonly embed userinfo and must redact.
+	for _, k := range []string{"uri", "url", "broker", "addresses", "cloud_id", "creds_file", "nkey_file", "ca_cert_file", "root_ca_file"} {
+		if got := sanitizeValue(k, "nats://u:p@h:4222"); got != "***redacted***" {
+			t.Fatalf("%s not redacted: %v", k, got)
+		}
+	}
+	// Plain usernames stay visible for debugging.
+	if got := sanitizeValue("username", "ops"); got != "ops" {
+		t.Fatalf("username over-redacted: %v", got)
 	}
 
 	m := NewManager(nil, "app", "v1")

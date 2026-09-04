@@ -37,6 +37,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -184,7 +185,21 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 			return fmt.Errorf("read config: %w", err)
 		}
 
-		logger.Logger.Info("Config read", "location", configLoc)
+		// Never log embedded credentials (e.g. consul://user:pass@host/path).
+		location := configLoc
+		if u, uerr := url.Parse(configLoc); uerr == nil && u != nil {
+			location = u.Redacted()
+		}
+		logger.Logger.Info("Config read", "location", location)
+		if used := configIns.ConfigFileUsed(); used != "" {
+			if cwd, cerr := os.Getwd(); cerr == nil {
+				if sameDir, serr := filepath.Abs(filepath.Dir(used)); serr == nil {
+					if cwdAbs, cerr2 := filepath.Abs(cwd); cerr2 == nil && sameDir == cwdAbs {
+						logger.Logger.Warn("Config loaded from working directory; ensure the CWD is trusted", "file", used)
+					}
+				}
+			}
+		}
 	}
 
 	// Read config from environment variables

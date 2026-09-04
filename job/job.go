@@ -32,6 +32,7 @@ package job
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -53,16 +54,57 @@ type Job interface {
 	Stop() error
 }
 
-var jobs = make(map[uuid.UUID]Job)
+var (
+	jobs       = make(map[uuid.UUID]Job)
+	defaultJob Job
+	jobMu      sync.RWMutex
+)
 
 func Set(js ...Job) {
+	jobMu.Lock()
+	defer jobMu.Unlock()
+
 	for _, job := range js {
 		jobs[job.ID()] = job
+		if defaultJob == nil {
+			defaultJob = job
+		}
 	}
 }
 
 func Get(id uuid.UUID) Job {
+	jobMu.RLock()
+	defer jobMu.RUnlock()
+
 	return jobs[id]
+}
+
+func Default() Job {
+	jobMu.RLock()
+	defer jobMu.RUnlock()
+
+	return defaultJob
+}
+
+func Jobs() map[uuid.UUID]Job {
+	jobMu.RLock()
+	defer jobMu.RUnlock()
+
+	out := make(map[uuid.UUID]Job, len(jobs))
+	for id, j := range jobs {
+		out[id] = j
+	}
+
+	return out
+}
+
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	jobMu.Lock()
+	defer jobMu.Unlock()
+
+	jobs = make(map[uuid.UUID]Job)
+	defaultJob = nil
 }
 
 /*

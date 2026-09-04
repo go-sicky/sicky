@@ -53,7 +53,7 @@ func newWatcher(rg *Local) (*Watcher, error) {
 
 	dir := rg.config.RegistryFilePath
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			fw.Close()
 
 			return nil, err

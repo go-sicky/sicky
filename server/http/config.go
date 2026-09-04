@@ -202,6 +202,9 @@ func (c *Config) Ensure() *Config {
 		c.MaxHeaderBytes = DefaultMaxHeaderBytes
 	}
 
+	// Non-positive fills the 4MB default; this version offers no opt-out.
+	// The middleware itself (NewBodyLimitMiddleware) treats non-positive
+	// as disabled, but server config never passes such a value through.
 	if c.BodyLimit < 0 {
 		c.BodyLimit = 0
 	}

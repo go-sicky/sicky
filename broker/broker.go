@@ -101,6 +101,15 @@ func Brokers() map[uuid.UUID]Broker {
 	return brokers
 }
 
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	brkMu.Lock()
+	defer brkMu.Unlock()
+
+	brokers = make(map[uuid.UUID]Broker, 0)
+	defaultBroker = nil
+}
+
 /* {{{ [Helpers] */
 func Publish(topic string, m *Message) error {
 	brkMu.RLock()

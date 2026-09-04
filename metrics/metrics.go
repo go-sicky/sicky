@@ -177,58 +177,6 @@ func init() {
 	Register("process_collector", collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 }
 
-// func StartMetrics(cfg *Config) error {
-// 	cfg = cfg.Ensure()
-
-// 	metricsRegistry := prometheus.NewRegistry()
-// 	metricsRegistry.MustRegister(
-// 		NumGRPCServerAccessCounter,
-// 		NumHTTPServerAccessCounter,
-// 		NumUDPServerAccessCounter,
-// 		NumWebsocketServerAccessCounter,
-// 		NumGRPCClientCallCounter,
-// 		NumHTTPClientCallCounter,
-// 		NumUDPClientCallCounter,
-// 		NumWebsocketClientCallCounter,
-// 		collectors.NewBuildInfoCollector(),
-// 		collectors.NewGoCollector(),
-// 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-// 	)
-
-// 	http.Handle(
-// 		cfg.ExporterPath,
-// 		promhttp.HandlerFor(
-// 			metricsRegistry,
-// 			promhttp.HandlerOpts{
-// 				Registry: metricsRegistry,
-// 			},
-// 		),
-// 	)
-
-// 	metricsServer := &http.Server{
-// 		Addr: cfg.ExporterAddr,
-// 	}
-
-// 	go func() {
-// 		logger.Logger.Info(
-// 			"Prometheus exporter listening",
-// 			"addr", cfg.ExporterAddr,
-// 			"path", cfg.ExporterPath,
-// 		)
-
-// 		err := metricsServer.ListenAndServe()
-// 		if err != nil {
-// 			if errors.Is(err, http.ErrServerClosed) {
-// 				logger.Logger.Warn("Prometheus exporter closed", "error", err.Error())
-// 			} else {
-// 				logger.Logger.Error("Prometheus exporter listen failed", "error", err.Error())
-// 			}
-// 		}
-// 	}()
-
-// 	return nil
-// }
-
 /*
  * Local variables:
  * tab-width: 4

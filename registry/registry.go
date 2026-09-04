@@ -101,6 +101,15 @@ func Registries() map[uuid.UUID]Registry {
 	return registries
 }
 
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	rgMu.Lock()
+	defer rgMu.Unlock()
+
+	registries = make(map[uuid.UUID]Registry)
+	defaultRegistry = nil
+}
+
 /* {{{ [Helpers] */
 func Register(ins *Instance) error {
 	if defaultRegistry == nil {

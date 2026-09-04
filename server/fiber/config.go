@@ -216,6 +216,7 @@ func (c *Config) Ensure() *Config {
 	}
 	c.CORS.Ensure()
 
+	// Non-positive fills the 4MB default; this version offers no opt-out.
 	if c.BodyLimit < 0 {
 		c.BodyLimit = 0
 	}

@@ -55,6 +55,10 @@ type Config struct {
 	WriteTimeout int `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
 	// MaxSessions caps tracked sessions. 0 means unlimited.
 	MaxSessions int `json:"max_sessions" yaml:"max_sessions" mapstructure:"max_sessions"`
+	// MaxMessageBytes caps total bytes received per connection. 0 means
+	// unlimited. Streaming/long-lived connections must set this high
+	// enough or leave it 0 — exceeding it closes the connection.
+	MaxMessageBytes int64 `json:"max_message_bytes" yaml:"max_message_bytes" mapstructure:"max_message_bytes"`
 }
 
 func DefaultConfig() *Config {
@@ -101,6 +105,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.MaxSessions < 0 {
 		c.MaxSessions = 0
+	}
+
+	if c.MaxMessageBytes < 0 {
+		c.MaxMessageBytes = 0
 	}
 
 	return c

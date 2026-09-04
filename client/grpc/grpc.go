@@ -32,17 +32,31 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
+)
+
+// How often the discovery loop retries while the registry pool is not
+// initialized yet, and how often it re-syncs as a fallback in case a
+// pool notification is missed.
+const (
+	discoveryRetryInterval  = 5 * time.Second
+	discoveryResyncInterval = 30 * time.Second
 )
 
 // GRPCClient : Client definition
@@ -52,6 +66,10 @@ type GRPCClient struct {
 	ctx       context.Context
 	conn      *grpc.ClientConn
 	connected bool
+
+	// Closed on Disconnect to stop the service-discovery goroutine.
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // New GRPC client
@@ -64,11 +82,43 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		ctx:       opts.Context,
 		connected: false,
 		options:   opts,
+		done:      make(chan struct{}),
+	}
+
+	// A half-configured TLS must never silently fall back to plaintext.
+	if err := cfg.Validate(); err != nil {
+		clt.options.Logger.ErrorContext(
+			clt.ctx,
+			"GRPC client TLS configuration incomplete",
+			"client", clt.String(),
+			"id", clt.options.ID,
+			"name", clt.options.Name,
+			"error", err.Error(),
+		)
+
+		return nil
 	}
 
 	gopts := make([]grpc.DialOption, 0)
 	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
-		// SSL
+		cert, err := tls.X509KeyPair([]byte(cfg.TLSCertPEM), []byte(cfg.TLSKeyPEM))
+		if err != nil {
+			clt.options.Logger.ErrorContext(
+				clt.ctx,
+				"GRPC client TLS certification failed",
+				"client", clt.String(),
+				"id", clt.options.ID,
+				"name", clt.options.Name,
+				"error", err.Error(),
+			)
+
+			return nil
+		}
+
+		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			MinVersion:   tls.VersionTLS12,
+			Certificates: []tls.Certificate{cert},
+		})))
 	} else {
 		gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
@@ -181,33 +231,78 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 
 	client.Set(clt)
 
-	// Pool notifier
-	// go func() {
-	// 	for ev := range registry.PoolChan {
-	// 		if cfg.Service != "" && ev.Changed {
-	// 			ins := registry.GetInstances(cfg.Service)
-	// 			addrs := make([]resolver.Address, 0)
-	// 			for _, in := range ins {
-	// 				addr := resolver.Address{
-	// 					Addr: fmt.Sprintf("%s:%d", in.AdvertiseAddress, in.AdvertisePort),
-	// 				}
-
-	// 				addrs = append(addrs, addr)
-	// 				clt.options.Logger.TraceContext(
-	// 					clt.ctx,
-	// 					"Append address to GRPC client resolver state",
-	// 					"id", clt.options.ID,
-	// 					"service", cfg.Service,
-	// 					"address", in.Address,
-	// 				)
-	// 			}
-
-	// 			r.UpdateState(resolver.State{Addresses: addrs})
-	// 		}
-	// 	}
-	// }()
+	// Service discovery: in Service mode (no static Addr) keep the manual
+	// resolver in sync with the registry pool. Direct-Addr mode needs no
+	// updates.
+	if cfg.Addr == "" && cfg.Service != "" {
+		r.InitialState(resolver.State{Addresses: resolveGRPCAddrs(cfg.Service)})
+		go watchRegistryPool(clt, r, cfg.Service)
+	}
 
 	return clt
+}
+
+// resolveGRPCAddrs snapshots the registry pool for service and returns the
+// advertised grpc endpoints as resolver addresses.
+func resolveGRPCAddrs(service string) []resolver.Address {
+	ins := registry.GetInstances(service)
+	addrs := make([]resolver.Address, 0, len(ins))
+	for _, in := range ins {
+		if in == nil {
+			continue
+		}
+		for _, srv := range in.Servers {
+			if srv == nil || srv.Type != "grpc" {
+				continue
+			}
+			addr := srv.AdvertiseAddress
+			if addr == "" {
+				addr = in.AdvertiseAddress
+			}
+			if addr == "" || srv.Port <= 0 {
+				continue
+			}
+			addrs = append(addrs, resolver.Address{
+				Addr: fmt.Sprintf("%s:%d", addr, srv.Port),
+			})
+		}
+	}
+
+	return addrs
+}
+
+// watchRegistryPool pushes registry pool updates into the manual resolver
+// until the client is disconnected. A periodic resync guards against a
+// missed notification; the loop never blocks shutdown.
+func watchRegistryPool(clt *GRPCClient, r *manual.Resolver, service string) {
+	resync := time.NewTicker(discoveryResyncInterval)
+	defer resync.Stop()
+
+	for {
+		ch := registry.NotifyChan()
+		if ch == nil {
+			// Pool not initialized yet (client created before InitPool):
+			// retry instead of exiting so discovery still comes up.
+			select {
+			case <-clt.done:
+				return
+			case <-time.After(discoveryRetryInterval):
+				r.UpdateState(resolver.State{Addresses: resolveGRPCAddrs(service)})
+			}
+			continue
+		}
+
+		select {
+		case <-clt.done:
+			return
+		case ev := <-ch:
+			if ev.Changed {
+				r.UpdateState(resolver.State{Addresses: resolveGRPCAddrs(service)})
+			}
+		case <-resync.C:
+			r.UpdateState(resolver.State{Addresses: resolveGRPCAddrs(service)})
+		}
+	}
 }
 
 func (clt *GRPCClient) Options() *client.Options {
@@ -226,11 +321,15 @@ func (clt *GRPCClient) Connect() error {
 
 func (clt *GRPCClient) Disconnect() error {
 	clt.connected = false
+	clt.closeOnce.Do(func() { close(clt.done) })
 
 	return clt.conn.Close()
 }
 
+// Call implements client.Client. It only bumps the call counter; real RPCs
+// go through Invoke (unary) or NewStream (streaming).
 func (clt *GRPCClient) Call() error {
+	metrics.NumGRPCClientCallCounter.Inc()
 	return nil
 }
 

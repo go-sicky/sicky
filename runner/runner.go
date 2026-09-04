@@ -32,9 +32,15 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/google/uuid"
 )
+
+// ErrPoolFull is returned by non-blocking enqueue attempts when the
+// runner task queue has no room.
+var ErrPoolFull = errors.New("runner: task queue full")
 
 type Runner interface {
 	// Get context
@@ -60,16 +66,57 @@ type Task struct {
 	Data any
 }
 
-var runners = make(map[uuid.UUID]Runner)
+var (
+	runners       = make(map[uuid.UUID]Runner)
+	defaultRunner Runner
+	runMu         sync.RWMutex
+)
 
 func Set(rs ...Runner) {
+	runMu.Lock()
+	defer runMu.Unlock()
+
 	for _, r := range rs {
 		runners[r.ID()] = r
+		if defaultRunner == nil {
+			defaultRunner = r
+		}
 	}
 }
 
 func Get(id uuid.UUID) Runner {
+	runMu.RLock()
+	defer runMu.RUnlock()
+
 	return runners[id]
+}
+
+func Default() Runner {
+	runMu.RLock()
+	defer runMu.RUnlock()
+
+	return defaultRunner
+}
+
+func Runners() map[uuid.UUID]Runner {
+	runMu.RLock()
+	defer runMu.RUnlock()
+
+	out := make(map[uuid.UUID]Runner, len(runners))
+	for id, r := range runners {
+		out[id] = r
+	}
+
+	return out
+}
+
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	runMu.Lock()
+	defer runMu.Unlock()
+
+	runners = make(map[uuid.UUID]Runner)
+	defaultRunner = nil
 }
 
 /*

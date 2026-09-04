@@ -58,6 +58,8 @@ type ElasticConfig struct {
 	// CACertFile loads a custom CA bundle (PEM file path).
 	CACertFile string `json:"ca_cert_file" yaml:"ca_cert_file" mapstructure:"ca_cert_file"`
 	// TimeoutSec bounds the startup Info() check. Seconds.
+	// It does not bound regular API calls: pass a context deadline per
+	// call (manager health uses a 2s context).
 	TimeoutSec int `json:"timeout_sec" yaml:"timeout_sec" mapstructure:"timeout_sec"`
 }
 

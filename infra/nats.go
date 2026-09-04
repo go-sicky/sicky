@@ -61,7 +61,8 @@ type NatsConfig struct {
 	// ReconnectWaitSec is the delay between reconnect attempts. Seconds.
 	ReconnectWaitSec int `json:"reconnect_wait_sec" yaml:"reconnect_wait_sec" mapstructure:"reconnect_wait_sec"`
 	// MaxReconnects caps reconnect attempts. 0 fills 60 (the library
-	// default); negative aborts startup.
+	// default); -1 retries forever (opt-in: a permanently down server
+	// then never surfaces as a startup error); other negatives abort.
 	MaxReconnects int `json:"max_reconnects" yaml:"max_reconnects" mapstructure:"max_reconnects"`
 }
 
@@ -199,7 +200,7 @@ func (c *NatsConfig) Validate() error {
 		return ErrNatsURLEmpty
 	}
 
-	if c.TimeoutSec < 0 || c.ReconnectWaitSec < 0 || c.MaxReconnects < 0 {
+	if c.TimeoutSec < 0 || c.ReconnectWaitSec < 0 || c.MaxReconnects < -1 {
 		return ErrNatsOptionInvalid
 	}
 

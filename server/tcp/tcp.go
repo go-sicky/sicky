@@ -75,7 +75,32 @@ type TCPServer struct {
 
 func New(opts *server.Options, cfg *Config) *TCPServer {
 	opts = opts.Ensure()
+	negRead, negWrite, negSessions, negMsg := cfg.ReadTimeout, cfg.WriteTimeout, cfg.MaxSessions, cfg.MaxMessageBytes
 	cfg = cfg.Ensure()
+	if negRead < 0 || negWrite < 0 {
+		// Ensure clamps negatives to 0 (= disabled deadlines): loud here
+		// so a typo does not silently widen Slowloris exposure.
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Negative timeout clamped to 0 (deadlines disabled)",
+			"read_timeout", negRead,
+			"write_timeout", negWrite,
+		)
+	}
+	if negSessions < 0 {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Negative max_sessions clamped to 0 (unlimited)",
+			"max_sessions", negSessions,
+		)
+	}
+	if negMsg < 0 {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Negative max_message_bytes clamped to 0 (unlimited)",
+			"max_message_bytes", negMsg,
+		)
+	}
 
 	var (
 		addr          net.Addr
@@ -371,6 +396,10 @@ func (srv *TCPServer) Start() error {
 	go func() {
 		defer srv.acceptWg.Done()
 
+		backoff := utils.NewBackoff(50*time.Millisecond, time.Second)
+		errLog := utils.NewLogSampler(5, time.Second)
+		capLog := utils.NewLogSampler(1, time.Second)
+
 		for {
 			client, err := srv.conn.Accept()
 			if err != nil {
@@ -389,21 +418,27 @@ func (srv *TCPServer) Start() error {
 					break
 				}
 				// Transient errors (EMFILE/EINTR/…) must not kill the
-				// accept loop: back off briefly and keep serving.
-				srv.options.Logger.ErrorContext(
-					srv.ctx,
-					"TCP Accept failed",
-					"server", srv.String(),
-					"id", srv.options.ID,
-					"name", srv.options.Name,
-					"network", srv.addr.Network(),
-					"address", srv.addr.String(),
-					"error", err.Error(),
-				)
-				time.Sleep(50 * time.Millisecond)
+				// accept loop: capped exponential backoff with jitter,
+				// sampled logging so a persistent failure cannot log-DoS.
+				if allow, suppressed := errLog.Allow(); allow {
+					args := []any{
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"network", srv.addr.Network(),
+						"address", srv.addr.String(),
+						"error", err.Error(),
+					}
+					if suppressed > 0 {
+						args = append(args, "suppressed", suppressed)
+					}
+					srv.options.Logger.ErrorContext(srv.ctx, "TCP Accept failed", args...)
+				}
+				time.Sleep(backoff.Next())
 
 				continue
 			}
+			backoff.Reset()
 
 			var writeTimeout time.Duration
 			if srv.config.WriteTimeout > 0 {
@@ -412,15 +447,20 @@ func (srv *TCPServer) Start() error {
 			// Enforce the session cap before allocating anything for
 			// the peer (mirrors the UDP datagram-drop policy).
 			if srv.config.MaxSessions > 0 && srv.pool.Length() >= srv.config.MaxSessions {
-				srv.options.Logger.ErrorContext(
-					srv.ctx,
-					"TCP session cap reached, rejecting connection",
-					"server", srv.String(),
-					"id", srv.options.ID,
-					"name", srv.options.Name,
-					"remote", remoteAddrString(client),
-					"max_sessions", srv.config.MaxSessions,
-				)
+				// Sampled: a cap-reject storm under flood must not log-DoS.
+				if allow, suppressed := capLog.Allow(); allow {
+					args := []any{
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"remote", remoteAddrString(client),
+						"max_sessions", srv.config.MaxSessions,
+					}
+					if suppressed > 0 {
+						args = append(args, "suppressed", suppressed)
+					}
+					srv.options.Logger.ErrorContext(srv.ctx, "TCP session cap reached, rejecting connection", args...)
+				}
 				client.Close()
 
 				continue
@@ -468,6 +508,7 @@ func (srv *TCPServer) Start() error {
 
 				buff := make([]byte, srv.config.BufferSize)
 				reader := bufio.NewReader(c)
+				var totalBytes int64
 			read:
 				for {
 					if srv.config.ReadTimeout > 0 {
@@ -506,6 +547,21 @@ func (srv *TCPServer) Start() error {
 					} else {
 						sess.touch()
 						if n > 0 {
+							totalBytes += int64(n)
+							if srv.config.MaxMessageBytes > 0 && totalBytes > srv.config.MaxMessageBytes {
+								srv.options.Logger.ErrorContext(
+									srv.ctx,
+									"TCP connection exceeded message cap, closing",
+									"server", srv.String(),
+									"id", srv.options.ID,
+									"name", srv.options.Name,
+									"remote", remoteAddrString(c),
+									"total_bytes", totalBytes,
+									"max_message_bytes", srv.config.MaxMessageBytes,
+								)
+
+								break read
+							}
 							dst := make([]byte, n)
 							copy(dst, buff)
 							metrics.NumTCPServerAccessCounter.Inc()

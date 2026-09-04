@@ -90,8 +90,7 @@ func TestValidateEmptyConfigsAbort(t *testing.T) {
 		}, ErrMQTTCAUnreadable},
 		{"nats negative option", func() error {
 			return (&NatsConfig{URL: "nats://localhost:4222", MaxReconnects: -2}).Ensure().Validate()
-		}, ErrNatsOptionInvalid},
-		{"nats missing creds file", func() error {
+		}, ErrNatsOptionInvalid}, {"nats missing creds file", func() error {
 			return (&NatsConfig{URL: "nats://localhost:4222", CredsFile: "/nonexistent/user.creds"}).Ensure().Validate()
 		}, ErrNatsFileUnreadable},
 		{"s3", func() error { return (&S3Config{}).Ensure().Validate() }, ErrS3RegionEmpty},
@@ -143,6 +142,9 @@ func TestValidateGoodConfigs(t *testing.T) {
 		}},
 		{"nats", func() error {
 			return (&NatsConfig{URL: "nats://localhost:4222"}).Ensure().Validate()
+		}},
+		{"nats infinite reconnects", func() error {
+			return (&NatsConfig{URL: "nats://localhost:4222", MaxReconnects: -1}).Ensure().Validate()
 		}},
 		{"redis", func() error {
 			return (&RedisConfig{Addr: "localhost:6379"}).Ensure().Validate()

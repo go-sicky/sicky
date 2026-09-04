@@ -33,6 +33,7 @@ package static
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/go-sicky/sicky/runner"
 	"github.com/go-sicky/sicky/utils"
@@ -150,25 +151,93 @@ func (r *Static) Task(t *runner.Task) {
 	if t == nil {
 		return
 	}
+	// Hold the lock across the send: Stop closes the channel under the
+	// same lock, so sending unlocked could panic on a closed channel.
+	// Workers drain the queue without this lock, so a blocked send only
+	// waits for a free slot (and Stop waits behind it) — never deadlocks
+	// on the mutex itself.
 	r.mu.Lock()
-	ch := r.task
-	stopped := r.stopped
-	r.mu.Unlock()
-	if ch == nil || stopped {
+	defer r.mu.Unlock()
+	if r.task == nil || r.stopped || !r.started {
 		return
 	}
 	if t.ID == uuid.Nil {
 		t.ID = uuid.New()
 	}
 
+	// Blocking send: back-pressures the caller when the queue is full.
+	// Never call Task from inside the runner Handler itself — with all
+	// workers blocked in Handler the queue can never drain (deadlock).
+	// Use TryTask for a non-blocking or bounded-wait enqueue.
 	r.task <- t
+}
+
+// TryTask enqueues t without indefinite blocking. A non-positive timeout
+// tries once and returns runner.ErrPoolFull when the queue is full;
+// a positive timeout bounds the wait. It returns runner.ErrPoolFull
+// when the runner is stopped.
+//
+// The lock is held across the send (see Task): an in-flight TryTask
+// delays Stop by at most the caller's timeout.
+func (r *Static) TryTask(t *runner.Task, timeout time.Duration) error {
+	if t == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.task == nil || r.stopped || !r.started {
+		return runner.ErrPoolFull
+	}
+	if t.ID == uuid.Nil {
+		t.ID = uuid.New()
+	}
+
+	if timeout <= 0 {
+		select {
+		case r.task <- t:
+			return nil
+		default:
+			return runner.ErrPoolFull
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case r.task <- t:
+		return nil
+	case <-timer.C:
+		return runner.ErrPoolFull
+	}
+}
+
+// Len reports the current number of queued (not yet picked-up) tasks.
+func (r *Static) Len() int {
+	r.mu.Lock()
+	ch := r.task
+	r.mu.Unlock()
+	if ch == nil {
+		return 0
+	}
+
+	return len(ch)
 }
 
 func (r *Static) _worker() {
 	defer r.wg.Done()
 	self := utils.GoroutineID()
 
-	for t := range r.task {
+	// Snapshot the channel: ranging the r.task field directly races with
+	// Stop (which nils it) — a worker that first evaluates the range after
+	// Stop would range a nil channel and block forever.
+	r.mu.Lock()
+	ch := r.task
+	r.mu.Unlock()
+	if ch == nil {
+		return
+	}
+
+	for t := range ch {
 		func() {
 			defer func() {
 				_ = recover()
