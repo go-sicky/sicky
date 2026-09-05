@@ -34,6 +34,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // Cron is a cron component.
@@ -126,9 +128,13 @@ func (job *Cron) Add(task *Task) error {
 			gocron.CronJob(task.Expression, true),
 			gocron.NewTask(job.runWithTimeout(task, task.Handler)),
 		); err != nil {
+			metrics.JobRegisteredTotal.WithLabelValues("cron", "error").Inc()
+
 			return err
 		}
 	}
+
+	metrics.JobRegisteredTotal.WithLabelValues("cron", "ok").Inc()
 
 	return nil
 }
@@ -162,6 +168,7 @@ func (job *Cron) Start() error {
 			),
 		)
 		if err != nil {
+			metrics.JobRegisteredTotal.WithLabelValues("cron", "error").Inc()
 			job.options.Logger.ErrorContext(
 				job.ctx,
 				"Register cron task failed",
@@ -171,12 +178,15 @@ func (job *Cron) Start() error {
 				"task_id", task.ID.String(),
 				"error", err.Error(),
 			)
+		} else {
+			metrics.JobRegisteredTotal.WithLabelValues("cron", "ok").Inc()
 		}
 	}
 
 	job.scheduler.Start()
 
 	job.running = true
+	metrics.JobRunning.WithLabelValues("cron").Set(1)
 
 	job.options.Logger.InfoContext(
 		job.ctx,
@@ -205,6 +215,7 @@ func (job *Cron) Stop() error {
 	}
 
 	job.running = false
+	metrics.JobRunning.WithLabelValues("cron").Set(0)
 
 	return nil
 }
@@ -226,13 +237,36 @@ type Task struct {
 
 // runWithTimeout executes h with the task timeout watchdog.
 func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
-	if task == nil || task.Timeout <= 0 || h == nil {
+	if task == nil || h == nil {
 		return h
+	}
+
+	taskID := task.ID.String()
+
+	if task.Timeout <= 0 {
+		// No watchdog: still count runs. Panics propagate to the
+		// scheduler unchanged after being recorded.
+		return func() (err error) {
+			start := time.Now()
+			defer func() {
+				if r := recover(); r != nil {
+					metrics.ObserveJobRun("cron", taskID, "panic", time.Since(start))
+
+					panic(r)
+				}
+			}()
+
+			err = h()
+			metrics.ObserveJobRun("cron", taskID, metrics.ResultOf(err), time.Since(start))
+
+			return err
+		}
 	}
 
 	timeout := task.Timeout
 
 	return func() error {
+		start := time.Now()
 		done := make(chan error, 1)
 		go func() {
 			// A panicking handler must not leave the watchdog hanging
@@ -258,6 +292,12 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 		defer timer.Stop()
 		select {
 		case err := <-done:
+			result := metrics.ResultOf(err)
+			if err != nil && strings.Contains(err.Error(), "panicked") {
+				result = "panic"
+			}
+			metrics.ObserveJobRun("cron", taskID, result, time.Since(start))
+
 			return err
 		case <-timer.C:
 			job.options.Logger.ErrorContext(
@@ -269,6 +309,7 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 				"task_id", task.ID.String(),
 				"timeout", timeout.String(),
 			)
+			metrics.ObserveJobRun("cron", taskID, "timeout", time.Since(start))
 
 			return fmt.Errorf("cron task %s timed out after %s", task.ID.String(), timeout.String())
 		}

@@ -47,7 +47,7 @@ func TestNewBogusPEMmaterialFailsFast(t *testing.T) {
 }
 
 func TestCallIncrementsCounter(t *testing.T) {
-	before := counterValue(metrics.NumGRPCClientCallCounter)
+	before := counterValue(metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop"))
 	opts := &client.Options{ID: uuid.New(), Name: "call-test"}
 	clt := New(opts, &Config{Addr: "127.0.0.1:1"})
 	if clt == nil {
@@ -60,7 +60,7 @@ func TestCallIncrementsCounter(t *testing.T) {
 		t.Fatalf("Call: %v", err)
 	}
 
-	if got := counterValue(metrics.NumGRPCClientCallCounter); got != before+1 {
+	if got := counterValue(metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop")); got != before+1 {
 		t.Fatalf("counter = %v, want %v", got, before+1)
 	}
 }

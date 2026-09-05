@@ -153,9 +153,9 @@ func (clt *TCPClient) Disconnect() error {
 	return err
 }
 
-// Call executes a call.
+// Call executes a call (placeholder: no transport happens here).
 func (clt *TCPClient) Call() error {
-	metrics.NumTCPClientCallCounter.Inc()
+	metrics.ClientRequestsTotal.WithLabelValues("tcp", "noop", "noop", "noop").Inc()
 
 	return nil
 }

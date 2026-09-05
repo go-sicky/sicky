@@ -37,10 +37,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
 )
@@ -140,7 +142,10 @@ func (rg *Consul) Name() string {
 }
 
 // Register registers the collector.
-func (rg *Consul) Register(ins *registry.Instance) error {
+func (rg *Consul) Register(ins *registry.Instance) (err error) {
+	start := time.Now()
+	defer func() { metrics.ObserveRegistryOp("consul", "register", start, err) }()
+
 	reg := &api.AgentServiceRegistration{
 		Kind:    api.ServiceKindTypical,
 		ID:      ins.ID.String(),
@@ -185,7 +190,7 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 		}
 	}
 
-	err := rg.client.Agent().ServiceRegister(reg)
+	err = rg.client.Agent().ServiceRegister(reg)
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -219,8 +224,11 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 }
 
 // Deregister removes the registration.
-func (rg *Consul) Deregister(id uuid.UUID) error {
-	err := rg.client.Agent().ServiceDeregister(id.String())
+func (rg *Consul) Deregister(id uuid.UUID) (err error) {
+	start := time.Now()
+	defer func() { metrics.ObserveRegistryOp("consul", "deregister", start, err) }()
+
+	err = rg.client.Agent().ServiceDeregister(id.String())
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -251,6 +259,7 @@ func (rg *Consul) Deregister(id uuid.UUID) error {
 func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	svcs, err := rg.client.Agent().Services()
 	if err != nil {
+		metrics.RegistryOpsTotal.WithLabelValues("consul", "check", "error").Inc()
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
 			"Get consul services failed",
@@ -264,12 +273,25 @@ func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	}
 
 	_, ok := svcs[id.String()]
+	result := "ok"
+	if !ok {
+		result = "missing"
+	}
+	metrics.RegistryOpsTotal.WithLabelValues("consul", "check", result).Inc()
 
 	return ok
 }
 
 // Load loads persisted state.
-func (rg *Consul) Load() ([]*registry.Instance, error) {
+func (rg *Consul) Load() (instances []*registry.Instance, err error) {
+	start := time.Now()
+	defer func() {
+		metrics.ObserveRegistryOp("consul", "load", start, err)
+		if err == nil {
+			metrics.RegistryInstances.WithLabelValues("consul").Set(float64(len(instances)))
+		}
+	}()
+
 	svcs, err := rg.client.Agent().Services()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
@@ -284,7 +306,6 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 		return nil, err
 	}
 
-	var instances []*registry.Instance
 	for _, svc := range svcs {
 		id, err := uuid.Parse(svc.ID)
 		if err != nil {
@@ -398,6 +419,7 @@ func (rg *Consul) Watch() error {
 			)
 		}
 	})
+	metrics.RegistryOpsTotal.WithLabelValues("consul", "watch", metrics.ResultOf(werr)).Inc()
 
 	return werr
 }

@@ -95,9 +95,11 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		}
 
 		start := time.Now()
-		metrics.NumGRPCServerAccessCounter.Inc()
 		resp, err := handler(ctx, req)
 		end := time.Now()
+
+		code := status.Code(err).String()
+		metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, code, end.Sub(start))
 
 		// Fixed-order slice: one alloc, stable field order for log
 		// indexing (a map here costs an extra alloc plus random order).
@@ -138,9 +140,11 @@ func NewStreamAccessLoggerInterceptor(config ...LoggerConfig) grpc.StreamServerI
 
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
-		metrics.NumGRPCServerAccessCounter.Inc()
 		err := handler(srv, ss)
 		end := time.Now()
+
+		code := status.Code(err).String()
+		metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, code, end.Sub(start))
 
 		args := []any{
 			"pid", serverPID,

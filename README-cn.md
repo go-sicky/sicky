@@ -84,9 +84,9 @@ timing 类字段 0 填默认、负值 abort，NATS 的 `max_reconnects: -1` 例�
 - **OpenTelemetry tracing** — OTLP/gRPC、OTLP/HTTP、Stdout 三种标准 exporter；Uptrace 走独立 SDK（见下）
 - **Uptrace** — `dsn` 方式接入 Uptrace SaaS（`sample_rate` 在 Uptrace 模式下被忽略，服务端采样）
 - **传播协议** — W3C TraceContext + W3C Baggage + B3（single/multi）双发；`tracer.InstallPropagator()` 由 `sicky.go` 在 tracer 初始化成功后统一安装一次
-- **Prometheus metrics** — 11 个 counter（6 server + 5 client）+ 3 个 collector（`build_info`、`go`、`process`），由 Manager `/metrics` 统一暴露，不要另起 metrics 端口
-- **结构化日志** — 基于 slog 的内置 logger，带 Fiber/gRPC 适配器。⚠️ `logger.NewFiberMiddleware` 是已废弃的遗产，
-  不要和 `server/fiber` 内置链路同时挂载，否则 `num_fiber_server_access` 会 double-count
+- **Prometheus metrics** — `sicky_` 前缀的 RED 指标（server/client/broker/job/runner/registry/infra/manager）+ 3 个 collector（`build_info`、`go`、`process`），由 Manager `/metrics` 统一暴露，不要另起 metrics 端口
+- **结构化日志** — 基于 slog 的内置 logger，带 Fiber/gRPC 适配器。⚠️ `logger.NewFiberMiddleware` 是已废弃的遗产（现已无计数），
+  不要和 `server/fiber` 内置链路同时挂载，否则 `sicky_server_requests_total{server="fiber"}` 会 double-count
 - **Manager 端点** — 实际注册 **8 个**（`manager.go:256-263`）：
   `/metrics`（公开，给 Prometheus 抓）、`/health` + `/ready`（同一套聚合：10 个 infra + 注册的业务 checker；
   只有 `unhealthy` 拉低整体状态，`not_configured` 上报但视为健康；infra 部分并发跑在 2s ctx 下，

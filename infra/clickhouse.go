@@ -39,6 +39,7 @@ import (
 	"github.com/uptrace/go-clickhouse/ch"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // ClickHouseConfig holds ClickHouse connection settings.
@@ -70,6 +71,17 @@ var Clickhouse *ch.DB
 
 // InitClickHouse connects and stores the shared singleton (first-wins, nil cfg disables).
 func InitClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	db, err := initClickHouse(cfg)
+	metrics.CountInfraInit("clickhouse", err)
+
+	return db, err
+}
+
+func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 	if cfg == nil {
 		return nil, nil
 	}

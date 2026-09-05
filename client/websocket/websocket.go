@@ -107,9 +107,9 @@ func (clt *WebsocketClient) Disconnect() error {
 	return nil
 }
 
-// Call executes a call.
+// Call executes a call (placeholder: no transport happens here).
 func (clt *WebsocketClient) Call() error {
-	metrics.NumWebsocketClientCallCounter.Inc()
+	metrics.ClientRequestsTotal.WithLabelValues("websocket", "noop", "noop", "noop").Inc()
 
 	return nil
 }

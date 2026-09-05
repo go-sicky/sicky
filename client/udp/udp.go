@@ -157,9 +157,9 @@ func (clt *UDPClient) Disconnect() error {
 	return nil
 }
 
-// Call executes a call.
+// Call executes a call (placeholder: no transport happens here).
 func (clt *UDPClient) Call() error {
-	metrics.NumUDPClientCallCounter.Inc()
+	metrics.ClientRequestsTotal.WithLabelValues("udp", "noop", "noop", "noop").Inc()
 
 	return nil
 }

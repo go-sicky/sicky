@@ -45,6 +45,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
+	"google.golang.org/grpc/status"
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
@@ -341,10 +342,10 @@ func (clt *GRPCClient) Disconnect() error {
 	return clt.conn.Close()
 }
 
-// Call implements client.Client. It only bumps the call counter; real RPCs
-// go through Invoke (unary) or NewStream (streaming).
+// Call implements client.Client. It only bumps the placeholder counter;
+// real RPCs go through Invoke (unary) or NewStream (streaming).
 func (clt *GRPCClient) Call() error {
-	metrics.NumGRPCClientCallCounter.Inc()
+	metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop").Inc()
 
 	return nil
 }
@@ -375,9 +376,12 @@ func (clt *GRPCClient) Invoke(ctx context.Context, method string, args, reply an
 		"name", clt.options.Name,
 		"method", method,
 	)
-	metrics.NumGRPCClientCallCounter.Inc()
+	start := time.Now()
 	err := clt.conn.Invoke(ctx, method, args, reply, opts...)
+	code := status.Code(err).String()
+	metrics.ObserveClientRequest("grpc", method, clt.conn.Target(), code, time.Since(start))
 	if err != nil {
+		metrics.ClientErrorsTotal.WithLabelValues("grpc", method, "invoke").Inc()
 		clt.options.Logger.ErrorContext(
 			ctx,
 			"Invoke GRPC call failed",

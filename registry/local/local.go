@@ -36,9 +36,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/registry"
 )
 
@@ -118,7 +120,10 @@ func (rg *Local) Name() string {
 }
 
 // Register registers the collector.
-func (rg *Local) Register(ins *registry.Instance) error {
+func (rg *Local) Register(ins *registry.Instance) (err error) {
+	start := time.Now()
+	defer func() { metrics.ObserveRegistryOp("local", "register", start, err) }()
+
 	dir := rg.config.RegistryFilePath
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -141,7 +146,7 @@ func (rg *Local) Register(ins *registry.Instance) error {
 		return fmt.Errorf("local registry marshal (instance %s): %w", ins.ID, merr)
 	}
 
-	err := os.WriteFile(file, data, 0o600)
+	err = os.WriteFile(file, data, 0o600)
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -171,9 +176,12 @@ func (rg *Local) Register(ins *registry.Instance) error {
 }
 
 // Deregister removes the registration.
-func (rg *Local) Deregister(id uuid.UUID) error {
+func (rg *Local) Deregister(id uuid.UUID) (err error) {
+	start := time.Now()
+	defer func() { metrics.ObserveRegistryOp("local", "deregister", start, err) }()
+
 	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
-	err := os.Remove(file)
+	err = os.Remove(file)
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -203,13 +211,26 @@ func (rg *Local) Deregister(id uuid.UUID) error {
 func (rg *Local) CheckInstance(id uuid.UUID) bool {
 	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
 	_, err := os.Stat(file)
+	ok := err == nil
+	result := "ok"
+	if !ok {
+		result = "missing"
+	}
+	metrics.RegistryOpsTotal.WithLabelValues("local", "check", result).Inc()
 
-	return err == nil
+	return ok
 }
 
 // Load loads persisted state.
-func (rg *Local) Load() ([]*registry.Instance, error) {
-	var instances []*registry.Instance
+func (rg *Local) Load() (instances []*registry.Instance, err error) {
+	start := time.Now()
+	defer func() {
+		metrics.ObserveRegistryOp("local", "load", start, err)
+		if err == nil {
+			metrics.RegistryInstances.WithLabelValues("local").Set(float64(len(instances)))
+		}
+	}()
+
 	dir := rg.config.RegistryFilePath
 	files, err := os.ReadDir(dir)
 	if err != nil {
@@ -261,6 +282,7 @@ func (rg *Local) Load() ([]*registry.Instance, error) {
 func (rg *Local) Watch() error {
 	w, err := newWatcher(rg)
 	if err != nil {
+		metrics.RegistryOpsTotal.WithLabelValues("local", "watch", "error").Inc()
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
 			"Create watcher failed",
@@ -275,6 +297,7 @@ func (rg *Local) Watch() error {
 
 	rg.watcher = w
 	w.Start()
+	metrics.RegistryOpsTotal.WithLabelValues("local", "watch", "ok").Inc()
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,

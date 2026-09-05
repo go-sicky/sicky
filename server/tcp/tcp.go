@@ -526,6 +526,7 @@ func (srv *TCPServer) Start() error {
 				}
 
 				_ = client.Close()
+				metrics.ServerRejectedTotal.WithLabelValues("tcp", "session_cap").Inc()
 
 				continue
 			}
@@ -546,9 +547,11 @@ func (srv *TCPServer) Start() error {
 			srv.connsMu.Lock()
 			srv.conns[client] = struct{}{}
 			srv.connsMu.Unlock()
+			metrics.ServerConnections.WithLabelValues("tcp").Inc()
 			srv.wg.Add(1)
 			go func(c net.Conn, sess *Session) {
 				defer srv.wg.Done()
+				defer metrics.ServerConnections.WithLabelValues("tcp").Dec()
 				defer func() {
 					srv.connsMu.Lock()
 					delete(srv.conns, c)
@@ -631,19 +634,22 @@ func (srv *TCPServer) Start() error {
 									"total_bytes", totalBytes,
 									"max_message_bytes", srv.config.MaxMessageBytes,
 								)
+								metrics.ServerRejectedTotal.WithLabelValues("tcp", "message_cap").Inc()
 
 								break read
 							}
 
 							dst := make([]byte, n)
 							copy(dst, buff)
-							metrics.NumTCPServerAccessCounter.Inc()
+							start := time.Now()
 							for _, hdl := range srv.snapshotHandlers() {
 								h := hdl
 								_ = srv.safelyInvoke("OnData", sess, func() error {
 									return h.OnData(sess, dst)
 								})
 							}
+							metrics.ObserveServerRequest("tcp", "data", "data", "ok", time.Since(start))
+							metrics.ServerIOBytesTotal.WithLabelValues("tcp", "in").Add(float64(n))
 						}
 					}
 				}

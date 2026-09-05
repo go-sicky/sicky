@@ -22,6 +22,8 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/go-clickhouse/ch"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // DefaultInitTimeoutSec bounds dial/ping/connect calls that previously had
@@ -132,6 +134,7 @@ func ClearBadger() {
 	mu.Lock()
 	defer mu.Unlock()
 	Badger = nil
+	metrics.SetInfraUp("badger", false)
 }
 
 // ClearBun is part of the public API.
@@ -139,6 +142,7 @@ func ClearBun() {
 	mu.Lock()
 	defer mu.Unlock()
 	Bun = nil
+	metrics.SetInfraUp("bun", false)
 }
 
 // ClearClickHouse is part of the public API.
@@ -147,6 +151,7 @@ func ClearClickHouse() {
 	defer mu.Unlock()
 	ClickHouse = nil
 	Clickhouse = nil
+	metrics.SetInfraUp("clickhouse", false)
 }
 
 // Deprecated: use ClearClickHouse.
@@ -159,6 +164,7 @@ func ClearElastic() {
 	mu.Lock()
 	defer mu.Unlock()
 	Elastic = nil
+	metrics.SetInfraUp("elastic", false)
 }
 
 // ClearMongo is part of the public API.
@@ -167,6 +173,7 @@ func ClearMongo() {
 	defer mu.Unlock()
 	Mongo = nil
 	mongoDBName = ""
+	metrics.SetInfraUp("mongo", false)
 }
 
 // ClearMQTT is part of the public API.
@@ -174,6 +181,7 @@ func ClearMQTT() {
 	mu.Lock()
 	defer mu.Unlock()
 	MQTT = nil
+	metrics.SetInfraUp("mqtt", false)
 }
 
 // ClearNATS is part of the public API.
@@ -182,6 +190,7 @@ func ClearNATS() {
 	defer mu.Unlock()
 	NATS = nil
 	Nats = nil
+	metrics.SetInfraUp("nats", false)
 }
 
 // Deprecated: use ClearNATS.
@@ -194,6 +203,7 @@ func ClearRedis() {
 	mu.Lock()
 	defer mu.Unlock()
 	Redis = nil
+	metrics.SetInfraUp("redis", false)
 }
 
 // ClearRistretto is part of the public API.
@@ -201,6 +211,7 @@ func ClearRistretto() {
 	mu.Lock()
 	defer mu.Unlock()
 	Ristretto = nil
+	metrics.SetInfraUp("ristretto", false)
 }
 
 // ClearS3 is part of the public API.
@@ -209,6 +220,7 @@ func ClearS3() {
 	defer mu.Unlock()
 	S3 = nil
 	s3Bucket = ""
+	metrics.SetInfraUp("s3", false)
 }
 
 // RedactDSN strips credentials (userinfo and common password query keys)

@@ -36,12 +36,14 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 var (
@@ -129,6 +131,7 @@ func (brk *Nats) Connect() error {
 	nc, err := nats.Connect(
 		brk.config.URL,
 	)
+	metrics.BrokerConnected.WithLabelValues("nats").Set(0)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -157,6 +160,7 @@ func (brk *Nats) Connect() error {
 	brk.conn = nc
 	handlers := maps.Clone(brk.handlers)
 	brk.mu.Unlock()
+	metrics.BrokerConnected.WithLabelValues("nats").Set(1)
 
 	// Handlers
 	for topic, hdl := range handlers {
@@ -197,6 +201,7 @@ func (brk *Nats) Disconnect() error {
 		brk.mu.Lock()
 		brk.conn = nil
 		brk.mu.Unlock()
+		metrics.BrokerConnected.WithLabelValues("nats").Set(0)
 		brk.options.Logger.InfoContext(
 			brk.ctx,
 			"Nats broker disconnected",
@@ -212,7 +217,10 @@ func (brk *Nats) Disconnect() error {
 
 // Publish publishes a message.
 func (brk *Nats) Publish(topic string, m *broker.Message) error {
+	start := time.Now()
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+		metrics.ObserveBrokerPublish("nats", topic, start, ErrBrokerNotConnected)
+
 		return ErrBrokerNotConnected
 	}
 
@@ -227,6 +235,7 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 	}
 
 	err := brk.conn.PublishMsg(msg)
+	metrics.ObserveBrokerPublish("nats", topic, start, err)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -258,6 +267,8 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+		metrics.BrokerSubscribeTotal.WithLabelValues("nats", topic, "error").Inc()
+
 		return ErrBrokerNotConnected
 	}
 
@@ -265,12 +276,17 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	// for one topic must not both pass the existence check.
 	_, exists := brk.subscriptions[topic]
 	if exists {
+		metrics.BrokerSubscribeTotal.WithLabelValues("nats", topic, "dup").Inc()
+
 		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {
+		start := time.Now()
+		result := "ok"
 		defer func() {
 			if r := recover(); r != nil {
+				result = "panic"
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
 					"Nats broker handler panicked",
@@ -281,11 +297,13 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 					"panic", r,
 				)
 			}
+			metrics.ObserveBrokerHandler("nats", topic, result, time.Since(start))
 		}()
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
 			err := h(m)
 			if err != nil {
+				result = "error"
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
 					"Nats broker handler error",
@@ -308,6 +326,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		}
 	})
 	if err != nil {
+		metrics.BrokerSubscribeTotal.WithLabelValues("nats", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Nats broker subscribe failed",
@@ -321,6 +340,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		return fmt.Errorf("nats broker subscribe (topic %s): %w", topic, err)
 	}
 
+	metrics.BrokerSubscribeTotal.WithLabelValues("nats", topic, "ok").Inc()
 	brk.options.Logger.DebugContext(
 		brk.ctx,
 		"Nats broker subscribed",

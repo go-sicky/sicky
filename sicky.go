@@ -54,6 +54,7 @@ import (
 	brkNsq "github.com/go-sicky/sicky/broker/nsq"
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/registry"
 	rgConsul "github.com/go-sicky/sicky/registry/consul"
 	rgLocal "github.com/go-sicky/sicky/registry/local"
@@ -916,6 +917,7 @@ func Run(cfg *Config) error {
 		// Start service
 		errs = svc.Start()
 		if len(errs) > 0 {
+			metrics.ServiceStartsTotal.WithLabelValues(svc.String(), "error").Inc()
 			err = errors.Join(errs...)
 			logger.ErrorContext(
 				options.Context,
@@ -948,6 +950,7 @@ func Run(cfg *Config) error {
 			"version", svc.Options().Version,
 			"branch", svc.Options().Branch,
 		)
+		metrics.ServiceStartsTotal.WithLabelValues(svc.String(), "ok")
 
 		// Registry instance
 		ins := serviceToRegistryInstance(svc)
@@ -1038,11 +1041,14 @@ shutdown:
 						}
 
 						if rerr := fn(options.Context); rerr != nil {
+							metrics.ConfigReloadsTotal.WithLabelValues("error").Inc()
 							logger.Logger.ErrorContext(
 								options.Context,
 								"Reload wrapper failed",
 								"error", rerr.Error(),
 							)
+						} else {
+							metrics.ConfigReloadsTotal.WithLabelValues("ok").Inc()
 						}
 					}
 				}

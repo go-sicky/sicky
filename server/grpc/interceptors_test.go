@@ -102,13 +102,13 @@ func TestServerStreamNilTracerPassesThrough(t *testing.T) {
 }
 
 func TestStreamInterceptorsCount(t *testing.T) {
-	before := counterValue(metrics.NumGRPCServerAccessCounter)
+	before := counterValue(metrics.ServerRequestsTotal.WithLabelValues("grpc", "/svc/M", "/svc/M", "OK"))
 
 	siv := NewStreamAccessLoggerInterceptor()
 	_ = siv(nil, &stubServerStream{ctx: context.Background()},
 		&grpc.StreamServerInfo{FullMethod: "/svc/M"},
 		func(srv any, ss grpc.ServerStream) error { return nil })
-	if got := counterValue(metrics.NumGRPCServerAccessCounter); got != before+1 {
+	if got := counterValue(metrics.ServerRequestsTotal.WithLabelValues("grpc", "/svc/M", "/svc/M", "OK")); got != before+1 {
 		t.Fatalf("server stream counter want %v got %v", before+1, got)
 	}
 }

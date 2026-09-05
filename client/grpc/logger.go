@@ -68,9 +68,8 @@ func NewClientStreamLoggerInterceptor(l logger.GeneralLogger) grpc.StreamClientI
 	}
 
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-		metrics.NumGRPCClientCallCounter.Inc()
-
 		cs, err := streamer(ctx, desc, cc, method, opts...)
+		metrics.ClientStreamOpenTotal.WithLabelValues("grpc", method, metrics.ResultOf(err)).Inc()
 		l.LogContext(ctx, logger.DebugLevel, "grpc.stream",
 			"method", method,
 			"target", cc.Target(),

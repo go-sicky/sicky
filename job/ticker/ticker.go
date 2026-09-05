@@ -34,6 +34,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,6 +42,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/job"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // Ticker is a ticker component.
@@ -127,6 +129,7 @@ func (job *Ticker) Add(task *Task) error {
 	}
 
 	job.tasks = append(job.tasks, task)
+	metrics.JobRegisteredTotal.WithLabelValues("ticker", "ok").Inc()
 
 	return nil
 }
@@ -160,9 +163,14 @@ func (job *Ticker) Start() error {
 					}
 
 					if count%hdl.Inteval == 0 {
+						metrics.JobTicksTotal.WithLabelValues("ticker", "fired").Inc()
 						func() {
+							start := time.Now()
+							taskID := hdl.ID.String()
+							result := "ok"
 							defer func() {
 								if rec := recover(); rec != nil {
+									result = "panic"
 									job.options.Logger.ErrorContext(
 										job.ctx,
 										"Ticker handler panicked",
@@ -172,9 +180,16 @@ func (job *Ticker) Start() error {
 										"panic", rec,
 									)
 								}
+								metrics.ObserveJobRun("ticker", taskID, result, time.Since(start))
 							}()
 							err := job.runWithTimeout(hdl, t, count)
 							if err != nil {
+								result = metrics.ResultOf(err)
+								if strings.Contains(err.Error(), "timed out") {
+									result = "timeout"
+								} else if strings.Contains(err.Error(), "panicked") {
+									result = "panic"
+								}
 								job.options.Logger.ErrorContext(
 									job.ctx,
 									"Ticker handler failed",
@@ -182,6 +197,8 @@ func (job *Ticker) Start() error {
 								)
 							}
 						}()
+					} else {
+						metrics.JobTicksTotal.WithLabelValues("ticker", "skipped").Inc()
 					}
 				}
 
@@ -194,6 +211,7 @@ func (job *Ticker) Start() error {
 	})
 
 	job.running = true
+	metrics.JobRunning.WithLabelValues("ticker").Set(1)
 
 	job.options.Logger.InfoContext(
 		job.ctx,
@@ -220,6 +238,7 @@ func (job *Ticker) Stop() error {
 	close(job.done)
 	job.ticker.Stop()
 	job.running = false
+	metrics.JobRunning.WithLabelValues("ticker").Set(0)
 	job.Unlock()
 
 	// Wait for the loop goroutine so Start-Stop-Start cannot double-run.
@@ -265,7 +284,22 @@ func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
 	timeout := hdl.Timeout
 
 	done := make(chan error, 1)
-	go func() { done <- hdl.Handler(t, count) }()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				job.options.Logger.ErrorContext(
+					job.ctx,
+					"Ticker task panicked",
+					"job", job.String(),
+					"id", job.options.ID,
+					"name", job.options.Name,
+					"panic", rec,
+				)
+				done <- fmt.Errorf("ticker task panicked: %v", rec)
+			}
+		}()
+		done <- hdl.Handler(t, count)
+	}()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {

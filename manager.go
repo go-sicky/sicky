@@ -713,7 +713,10 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 					return
 				}
 
-				if err := d.ping(ctx); err != nil {
+				start := time.Now()
+				derr := d.ping(ctx)
+				metrics.ManagerHealthCheckDuration.WithLabelValues(d.name).Observe(time.Since(start).Seconds())
+				if err := derr; err != nil {
 					ch.Status = statusUnhealthy
 					// Never expose backend error text on the unauthenticated
 					// /health endpoint (it leaks addresses/auth details).
@@ -760,7 +763,10 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 	j := len(defs)
 	for name, check := range bizChecks {
 		ch := componentHealth{Name: name, Status: statusHealthy}
-		if err := check(ctx); err != nil {
+		start := time.Now()
+		cerr := check(ctx)
+		metrics.ManagerHealthCheckDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
+		if err := cerr; err != nil {
 			ch.Status = statusUnhealthy
 			ch.Error = statusUnhealthy
 			logger.Logger.ErrorContext(

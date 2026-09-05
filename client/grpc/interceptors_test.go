@@ -94,7 +94,7 @@ func TestClientStreamNilTracerPassesThrough(t *testing.T) {
 }
 
 func TestClientStreamLoggerCounts(t *testing.T) {
-	before := counterValue(metrics.NumGRPCClientCallCounter)
+	before := counterValue(metrics.ClientStreamOpenTotal.WithLabelValues("grpc", "/svc/M", "ok"))
 	cc, err := grpc.NewClient("passthrough:///unused-for-test",
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -111,7 +111,7 @@ func TestClientStreamLoggerCounts(t *testing.T) {
 		t.Fatalf("streamer: %v", err)
 	}
 
-	if got := counterValue(metrics.NumGRPCClientCallCounter); got != before+1 {
+	if got := counterValue(metrics.ClientStreamOpenTotal.WithLabelValues("grpc", "/svc/M", "ok")); got != before+1 {
 		t.Fatalf("client stream counter want %v got %v", before+1, got)
 	}
 }

@@ -37,11 +37,13 @@ import (
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/v2/event"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // MongoConfig is a infra component.
@@ -73,6 +75,17 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		return nil, nil
 	}
 
+	client, err := initMongo(cfg)
+	metrics.CountInfraInit("mongo", err)
+
+	return client, err
+}
+
+func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
@@ -91,6 +104,19 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	if cfg.ConnectTimeoutSec > 0 {
 		clientOpts.SetConnectTimeout(time.Duration(cfg.ConnectTimeoutSec) * time.Second)
 	}
+
+	// Command monitor: every operation lands in sicky_infra_ops with
+	// server-reported latency, no call-site changes needed.
+	clientOpts.SetMonitor(&event.CommandMonitor{
+		Succeeded: func(_ context.Context, e *event.CommandSucceededEvent) {
+			metrics.InfraOpsTotal.WithLabelValues("mongo", e.CommandName, "ok").Inc()
+			metrics.InfraOpDuration.WithLabelValues("mongo", e.CommandName).Observe(e.Duration.Seconds())
+		},
+		Failed: func(_ context.Context, e *event.CommandFailedEvent) {
+			metrics.InfraOpsTotal.WithLabelValues("mongo", e.CommandName, "error").Inc()
+			metrics.InfraOpDuration.WithLabelValues("mongo", e.CommandName).Observe(e.Duration.Seconds())
+		},
+	})
 
 	client, err := mongo.Connect(clientOpts)
 	if err != nil {

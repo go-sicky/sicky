@@ -156,6 +156,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 					"name", srv.options.Name,
 					"origin", string(c.Request().Header.Peek("Origin")),
 				)
+				metrics.ServerRejectedTotal.WithLabelValues("websocket", "origin").Inc()
 
 				return fiber.ErrForbidden
 			}
@@ -212,6 +213,7 @@ func (srv *WebsocketServer) checkOrigin(c *fiber.Ctx) bool {
 // the pool entry instead of leaking the panic value to the client.
 func (srv *WebsocketServer) recoverConn(conn *websocket.Conn) {
 	if r := recover(); r != nil {
+		metrics.ServerPanicsTotal.WithLabelValues("websocket", "operator").Inc()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"Websocket operator panicked",
@@ -652,6 +654,8 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 	if SessionPool != nil {
 		SessionPool.Put(sess)
 	}
+	metrics.ServerConnections.WithLabelValues("websocket").Inc()
+	defer metrics.ServerConnections.WithLabelValues("websocket").Dec()
 
 	handlers := srv.snapshotHandlers()
 
@@ -669,6 +673,7 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 	}
 
 	if connectFailed {
+		metrics.ServerRejectedTotal.WithLabelValues("websocket", "connect").Inc()
 		_ = sess.Close()
 
 		return
@@ -702,12 +707,18 @@ read:
 				)
 
 				// OnData
-				metrics.NumWebsocketServerAccessCounter.Inc()
+				start := time.Now()
 				for _, hdl := range handlers {
 					_ = srv.safelyInvoke("data", sess, func() error {
 						return hdl.OnData(sess, mt, body)
 					})
 				}
+				msgType := "binary"
+				if mt == websocket.TextMessage {
+					msgType = "text"
+				}
+				metrics.ObserveServerRequest("websocket", msgType, msgType, "ok", time.Since(start))
+				metrics.ServerIOBytesTotal.WithLabelValues("websocket", "in").Add(float64(len(body)))
 			case websocket.PongMessage:
 				// Ignore typo
 				sess.touch()

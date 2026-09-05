@@ -36,12 +36,14 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 var (
@@ -132,6 +134,7 @@ func (brk *JetStream) Connect() error {
 		brk.config.URL,
 	)
 	if err != nil {
+		metrics.BrokerConnected.WithLabelValues("jetstream").Set(0)
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Jetstream broker connect failed",
@@ -195,6 +198,7 @@ func (brk *JetStream) Connect() error {
 	brk.streamInfo = si
 	snapshot := maps.Clone(brk.handlers)
 	brk.mu.Unlock()
+	metrics.BrokerConnected.WithLabelValues("jetstream").Set(1)
 
 	// Handlers
 	for topic, hdl := range snapshot {
@@ -238,6 +242,7 @@ func (brk *JetStream) Disconnect() error {
 		brk.mu.Lock()
 		brk.conn = nil
 		brk.mu.Unlock()
+		metrics.BrokerConnected.WithLabelValues("jetstream").Set(0)
 		brk.options.Logger.InfoContext(
 			brk.ctx,
 			"Jetstream broker disconnected",
@@ -253,7 +258,10 @@ func (brk *JetStream) Disconnect() error {
 
 // Publish publishes a message.
 func (brk *JetStream) Publish(topic string, m *broker.Message) error {
+	start := time.Now()
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+		metrics.ObserveBrokerPublish("jetstream", topic, start, ErrBrokerNotConnected)
+
 		return ErrBrokerNotConnected
 	}
 
@@ -268,6 +276,7 @@ func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 	}
 
 	ack, err := brk.streamer.PublishMsg(msg)
+	metrics.ObserveBrokerPublish("jetstream", topic, start, err)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -300,6 +309,8 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "error").Inc()
+
 		return ErrBrokerNotConnected
 	}
 
@@ -307,12 +318,17 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 	// for one topic must not both pass the existence check.
 	_, exists := brk.subscriptions[topic]
 	if exists {
+		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "dup").Inc()
+
 		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.streamer.Subscribe(topic, func(msg *nats.Msg) {
+		start := time.Now()
+		result := "acked"
 		defer func() {
 			if r := recover(); r != nil {
+				result = "panic"
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
 					"Jetstream broker handler panicked",
@@ -326,6 +342,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 				// message: NAK so it stays in-flight until AckWait.
 				_ = msg.Nak()
 			}
+			metrics.ObserveBrokerHandler("jetstream", topic, result, time.Since(start))
 		}()
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
@@ -341,6 +358,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 					"error", err.Error(),
 				)
 				_ = msg.Nak()
+				result = "nacked"
 			} else {
 				brk.options.Logger.DebugContext(
 					brk.ctx,
@@ -357,6 +375,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 		}
 	}, nats.ManualAck())
 	if err != nil {
+		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Jetstream broker subscribe failed",
@@ -380,6 +399,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 	)
 
 	brk.subscriptions[topic] = sub
+	metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "ok").Inc()
 
 	return nil
 }

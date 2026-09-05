@@ -44,6 +44,7 @@ import (
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 var (
@@ -156,6 +157,7 @@ func safeEndpoint(ep string) string {
 func (brk *NSQ) Connect() error {
 	p, err := nsq.NewProducer(brk.config.Endpoint, brk.nsqCfg)
 	if err != nil {
+		metrics.BrokerConnected.WithLabelValues("nsq").Set(0)
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Nsq broker create producer failed",
@@ -171,6 +173,7 @@ func (brk *NSQ) Connect() error {
 	p.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
 	err = p.Ping()
 	if err != nil {
+		metrics.BrokerConnected.WithLabelValues("nsq").Set(0)
 		// The producer keeps its connection goroutine alive after a ping
 		// failure; stop it before returning.
 		p.Stop()
@@ -199,6 +202,7 @@ func (brk *NSQ) Connect() error {
 	brk.producer = p
 	snapshot := maps.Clone(brk.handlers)
 	brk.mu.Unlock()
+	metrics.BrokerConnected.WithLabelValues("nsq").Set(1)
 
 	// Handlers
 	for topic, hdl := range snapshot {
@@ -239,6 +243,7 @@ func (brk *NSQ) Disconnect() error {
 	if p != nil {
 		p.Stop()
 	}
+	metrics.BrokerConnected.WithLabelValues("nsq").Set(0)
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
@@ -253,16 +258,22 @@ func (brk *NSQ) Disconnect() error {
 
 // Publish publishes a message.
 func (brk *NSQ) Publish(topic string, m *broker.Message) error {
+	start := time.Now()
 	if brk.producer == nil {
+		metrics.ObserveBrokerPublish("nsq", topic, start, ErrBrokerNotConnected)
+
 		return ErrBrokerNotConnected
 	}
 
 	if m == nil {
+		metrics.ObserveBrokerPublish("nsq", topic, start, ErrNilMessage)
+
 		return ErrNilMessage
 	}
 
 	m.Topic = topic
 	err := brk.producer.Publish(topic, m.Raw())
+	metrics.ObserveBrokerPublish("nsq", topic, start, err)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -286,6 +297,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	_, dup := brk.subscriptions[topic]
 	brk.mu.RUnlock()
 	if dup {
+		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "dup").Inc()
 		brk.options.Logger.DebugContext(
 			brk.ctx,
 			"Nsq broker duplicated subscription",
@@ -301,6 +313,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 
 	consumer, err := nsq.NewConsumer(topic, brk.config.Channel, brk.nsqCfg)
 	if err != nil {
+		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Nsq broker create consumer failed",
@@ -330,6 +343,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	})
 	err = consumer.ConnectToNSQD(brk.config.Endpoint)
 	if err != nil {
+		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "error").Inc()
 		// The consumer already spawned connection goroutines: stop it so
 		// the half-open dial loop does not leak.
 		consumer.Stop()
@@ -350,6 +364,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	brk.mu.Lock()
 	brk.subscriptions[topic] = consumer
 	brk.mu.Unlock()
+	metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "ok").Inc()
 	brk.options.Logger.DebugContext(
 		brk.ctx,
 		"Nsq broker subscribed",
@@ -416,10 +431,13 @@ type nsqHandler struct {
 
 // HandleMessage is part of the public API.
 func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
+	start := time.Now()
+	result := "ok"
 	// A panicking handler must not ack the message (it would be
 	// permanently lost): return an error so nsq requeues it.
 	defer func() {
 		if r := recover(); r != nil {
+			result = "panic"
 			h.Broker.options.Logger.ErrorContext(
 				h.Broker.ctx,
 				"Nsq broker handler panicked",
@@ -432,6 +450,10 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 			)
 			err = fmt.Errorf("nsq broker handler panicked: %v", r)
 		}
+		if err != nil && result == "ok" {
+			result = "requeued"
+		}
+		metrics.ObserveBrokerHandler("nsq", h.Topic, result, time.Since(start))
 	}()
 	h.Broker.options.Logger.DebugContext(
 		h.Broker.ctx,

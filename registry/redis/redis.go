@@ -39,6 +39,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/registry"
 )
 
@@ -132,7 +133,10 @@ func (rg *Redis) Name() string {
 }
 
 // Register registers the collector.
-func (rg *Redis) Register(ins *registry.Instance) error {
+func (rg *Redis) Register(ins *registry.Instance) (err error) {
+	start := time.Now()
+	defer func() { metrics.ObserveRegistryOp("redis", "register", start, err) }()
+
 	data, merr := json.Marshal(ins)
 	if merr != nil {
 		// A marshal failure must fail the registration instead of storing
@@ -140,7 +144,7 @@ func (rg *Redis) Register(ins *registry.Instance) error {
 		return fmt.Errorf("redis registry marshal (instance %s): %w", ins.ID, merr)
 	}
 
-	_, err := rg.client.HSet(rg.ctx, rg.config.InstanceKey, ins.ID.String(), string(data)).Result()
+	_, err = rg.client.HSet(rg.ctx, rg.config.InstanceKey, ins.ID.String(), string(data)).Result()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -186,8 +190,11 @@ func (rg *Redis) Register(ins *registry.Instance) error {
 }
 
 // Deregister removes the registration.
-func (rg *Redis) Deregister(id uuid.UUID) error {
-	_, err := rg.client.HDel(rg.ctx, rg.config.InstanceKey, id.String()).Result()
+func (rg *Redis) Deregister(id uuid.UUID) (err error) {
+	start := time.Now()
+	defer func() { metrics.ObserveRegistryOp("redis", "deregister", start, err) }()
+
+	_, err = rg.client.HDel(rg.ctx, rg.config.InstanceKey, id.String()).Result()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -220,6 +227,7 @@ func (rg *Redis) Deregister(id uuid.UUID) error {
 func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 	exists, err := rg.client.HExists(rg.ctx, rg.config.InstanceKey, id.String()).Result()
 	if err != nil {
+		metrics.RegistryOpsTotal.WithLabelValues("redis", "check", "error").Inc()
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
 			"Check instance failed",
@@ -233,13 +241,27 @@ func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 		return false
 	}
 
+	result := "ok"
+	if !exists {
+		result = "missing"
+	}
+	metrics.RegistryOpsTotal.WithLabelValues("redis", "check", result).Inc()
+
 	return exists
 }
 
 // Load loads persisted state.
-func (rg *Redis) Load() ([]*registry.Instance, error) {
-	var instances []*registry.Instance
-	res, err := rg.client.HGetAll(rg.ctx, rg.config.InstanceKey).Result()
+func (rg *Redis) Load() (instances []*registry.Instance, err error) {
+	start := time.Now()
+	defer func() {
+		metrics.ObserveRegistryOp("redis", "load", start, err)
+		if err == nil {
+			metrics.RegistryInstances.WithLabelValues("redis").Set(float64(len(instances)))
+		}
+	}()
+
+	var res map[string]string
+	res, err = rg.client.HGetAll(rg.ctx, rg.config.InstanceKey).Result()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -291,6 +313,7 @@ func (rg *Redis) Watch() error {
 				// Reload services list
 				ins, err := rg.Load()
 				if err != nil {
+					metrics.RegistryWatchEventsTotal.WithLabelValues("redis", "error").Inc()
 					rg.options.Logger.ErrorContext(
 						rg.ctx,
 						"Reload services list failed",
@@ -309,6 +332,7 @@ func (rg *Redis) Watch() error {
 				)
 
 				registry.PurgePool(ins)
+				metrics.RegistryWatchEventsTotal.WithLabelValues("redis", "reload").Inc()
 			}
 		}
 	}()

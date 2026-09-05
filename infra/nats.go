@@ -42,6 +42,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // NATSConfig holds NATS connection settings.
@@ -113,6 +114,17 @@ var Nats *nats.Conn
 
 // InitNATS connects and stores the shared singleton (first-wins, nil cfg disables).
 func InitNATS(cfg *NATSConfig) (*nats.Conn, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	conn, err := initNATS(cfg)
+	metrics.CountInfraInit("nats", err)
+
+	return conn, err
+}
+
+func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 	if cfg == nil {
 		return nil, nil
 	}

@@ -35,8 +35,6 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-
-	"github.com/go-sicky/sicky/metrics"
 )
 
 // FiberMiddlewareConfig is a logger component.
@@ -106,8 +104,9 @@ func fiberMiddlewareConfigDefault(config ...*FiberMiddlewareConfig) *FiberMiddle
 
 // Deprecated: legacy middleware, no longer maintained. The framework's
 // own Fiber server (server/fiber) mounts its access-log middleware
-// internally and owns the num_fiber_server_access counter — mounting this
-// on the same app double-counts. Prefer server/fiber's built-in chain;
+// internally and owns the sicky_server_requests_total{server="fiber"}
+// series — mounting this on the same app double-counts. Prefer
+// server/fiber's built-in chain;
 // tracer/fiber.go's middleware (tracing only, no counter) is safe to stack.
 func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 	cfg := fiberMiddlewareConfigDefault(config...)
@@ -121,9 +120,6 @@ func NewFiberMiddleware(config ...*FiberMiddlewareConfig) fiber.Handler {
 	}
 
 	return func(c *fiber.Ctx) error {
-		// Metric
-		metrics.NumFiberServerAccessCounter.Inc()
-
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}

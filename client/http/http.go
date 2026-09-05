@@ -33,6 +33,8 @@ package http
 import (
 	"context"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
@@ -116,9 +118,9 @@ func (clt *HTTPClient) Disconnect() error {
 	return nil
 }
 
-// Call executes a call.
+// Call executes a call (placeholder: no transport happens here).
 func (clt *HTTPClient) Call() error {
-	metrics.NumHTTPClientCallCounter.Inc()
+	metrics.ClientRequestsTotal.WithLabelValues("http", "noop", "noop", "noop").Inc()
 
 	return nil
 }
@@ -158,8 +160,7 @@ func InjectHTTP(ctx context.Context, h http.Header) {
 // "<method> <host>", injects propagation headers, records errors, and
 // bumps the client call counter.
 func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
-	metrics.NumHTTPClientCallCounter.Inc()
-
+	start := time.Now()
 	ctx := req.Context()
 	var span trace.Span
 	if clt.tracer != nil {
@@ -176,6 +177,14 @@ func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	if err != nil && span != nil {
 		span.RecordError(err)
 	}
+
+	code := "error"
+	if err == nil && resp != nil {
+		code = strconv.Itoa(resp.StatusCode)
+	} else if err != nil {
+		metrics.ClientErrorsTotal.WithLabelValues("http", req.Method, "do").Inc()
+	}
+	metrics.ObserveClientRequest("http", req.Method, req.URL.Host, code, time.Since(start))
 
 	return resp, err
 }

@@ -43,6 +43,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // S3Config is a infra component.
@@ -87,7 +88,9 @@ func PingS3(ctx context.Context) error {
 		return nil
 	}
 
+	start := time.Now()
 	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket})
+	metrics.ObserveInfraOp("s3", "head_bucket", start, err)
 	if err != nil {
 		return fmt.Errorf("infra: s3 head bucket (bucket %s): %w", bucket, err)
 	}
@@ -108,6 +111,17 @@ var S3 *s3.Client
 
 // InitS3 is part of the public API.
 func InitS3(cfg *S3Config) (*s3.Client, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	client, err := initS3(cfg)
+	metrics.CountInfraInit("s3", err)
+
+	return client, err
+}
+
+func initS3(cfg *S3Config) (*s3.Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}

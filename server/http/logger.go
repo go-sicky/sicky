@@ -94,7 +94,6 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 			}
 
 			// Metric
-			metrics.NumHTTPServerAccessCounter.Inc()
 			start := time.Now()
 			rv := r.Context().Value(cfg.AccessLoggerConfig.RequestIDContextKey)
 			requestID, _ := rv.(string)
@@ -121,6 +120,8 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 			if status == 0 {
 				status = http.StatusOK
 			}
+
+			metrics.ObserveServerRequest("http", r.Method, r.Route(), strconv.Itoa(status), end.Sub(start))
 
 			// Fixed-order slice: one alloc, stable field order for log
 			// indexing (a map here costs an extra alloc plus random order).

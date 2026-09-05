@@ -51,7 +51,7 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 ### Observability
 - **OpenTelemetry tracing** — OTLP/gRPC, OTLP/HTTP, Stdout exporters; B3 propagation
 - **Uptrace** — Managed tracing via Uptrace SaaS
-- **Prometheus metrics** — 11 counters (6 server + 5 client) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
+- **Prometheus metrics** — `sicky_`-prefixed RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
 - **Structured logging** — slog-based logger with Fiber/gRPC adapters
 - **Manager endpoints** — 8 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` + `/ready` (10 infra + registered business checkers; only `unhealthy` degrades; backend error text redacted), `/live` (static 200, liveness only), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only. Optional `manager.tls_cert_pem`/`tls_key_pem` serve the manager over HTTPS.
 
@@ -629,7 +629,7 @@ sicky help        # also: sicky serve -h, sicky new -h
 | `job` | Job interface + Cron (gocron), Ticker implementations |
 | `runner` | Runner interface + Static goroutine pool implementation |
 | `logger` | Structured logger (slog-based), Fiber/gRPC adapters |
-| `metrics` | Prometheus 11 counters (6 server + 5 client) + 3 collectors (`build_info`, `go`, `process`) |
+| `metrics` | Prometheus `sicky_*` RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go`, `process`) |
 | `utils` | Helpers — `metadata`, `net` (IP/`Net2fd`), `http` envelopes, `debug`, `misc` |
 | `internal` | Internal request `Context` (ID, AppName, broker/registry/tracer/logger carriers) |
 | `cli` | CLI entry point — `sicky new/generate/serve/version/help` (`cli/sicky.go`) |

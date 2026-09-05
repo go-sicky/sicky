@@ -51,6 +51,7 @@ import (
 	"github.com/uptrace/bun/extra/bundebug"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // BunConfig is a infra component.
@@ -87,8 +88,36 @@ var (
 	ErrBunPoolInvalid       = errors.New("infra: bun pool setting is negative")
 )
 
+// bunMetricsHook records every query into sicky_infra_ops. It is always
+// attached (unlike the debug-only bundebug hook) so SQL latency/error is
+// observed in production without verbose logging.
+type bunMetricsHook struct{}
+
+func (bunMetricsHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
+	return ctx
+}
+
+func (bunMetricsHook) AfterQuery(_ context.Context, event *bun.QueryEvent) {
+	op := event.Operation()
+	if op == "" {
+		op = "query"
+	}
+	metrics.ObserveInfraOp("bun", op, event.StartTime, event.Err)
+}
+
 // InitBun is part of the public API.
 func InitBun(cfg *BunConfig) (*bun.DB, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	db, err := initBun(cfg)
+	metrics.CountInfraInit("bun", err)
+
+	return db, err
+}
+
+func initBun(cfg *BunConfig) (*bun.DB, error) {
 	var (
 		sqldb *sql.DB
 		err   error
@@ -243,6 +272,9 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 	} else if cfg.SlowDuration > 0 {
 		db.AddQueryHook(bundebug.NewQueryHook(bundebug.WithEnabled(true)))
 	}
+
+	// Metrics hook is unconditional: production needs query RED too.
+	db.AddQueryHook(bunMetricsHook{})
 
 	logger.Logger.Info(
 		"Database initialized",

@@ -37,6 +37,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // BadgerConfig is a infra component.
@@ -53,6 +54,17 @@ var Badger *badger.DB
 
 // InitBadger is part of the public API.
 func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	db, err := initBadger(cfg)
+	metrics.CountInfraInit("badger", err)
+
+	return db, err
+}
+
+func initBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	if cfg == nil {
 		return nil, nil
 	}

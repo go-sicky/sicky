@@ -14,7 +14,7 @@
 | `client/http/http.go:80-103`, `client/websocket/websocket.go:78-99` | 24+22 lines | Legacy functional-options comments; safe-delete candidate |
 | `server/grpc/tracer.go:123-125` | 3 lines | Superseded by `metadata.Join` at `:128`; safe-delete candidate |
 | `server/grpc/metadata.go:40-52` `NewMetadataInterceptor` | 13 lines | Placeholder for future baggage propagation; 0 callers by design, now marked `Deprecated: do not mount` |
-| `tracer/fiber.go:79-122`, `logger/fiber.go:106-191` `NewFiberMiddleware` x2 | ~330 lines live-but-deprecated | Never mount logger variant alongside `server/fiber` built-in chain (double-counts `num_fiber_server_access`); tracer variant is counter-free and safe to stack |
+| `tracer/fiber.go:79-122`, `logger/fiber.go:106-191` `NewFiberMiddleware` x2 | ~330 lines live-but-deprecated | Never mount logger variant alongside `server/fiber` built-in chain (double-counts `sicky_server_requests_total{server="fiber"}`); tracer variant is counter-free and safe to stack |
 | `registry/pool.go NewPool/SetPool` | 2 funcs | Now marked `Deprecated`: `NewPool` creates a pool disconnected from global state, `SetPool` swaps the `Notify` channel under watchers; use `InitPool`/`PurgePool` instead. Instance methods (`RegisterService/GetService/...`) stay — they serve snapshot readers |
 | `server/http/cors.go:86-95` `CORSMiddleware` | 10 lines | Deny-all alias; use `NewCORSMiddleware` with explicit whitelist |
 

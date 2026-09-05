@@ -37,6 +37,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/runner"
 	"github.com/go-sicky/sicky/utils"
 )
@@ -135,6 +136,7 @@ func (r *Static) Start() error {
 	}
 
 	r.started = true
+	metrics.RunnerWorkers.WithLabelValues("static").Set(float64(n))
 
 	r.options.Logger.InfoContext(
 		r.ctx,
@@ -164,6 +166,9 @@ func (r *Static) Stop() error {
 	r.mu.Unlock()
 
 	r.wg.Wait()
+	metrics.RunnerWorkers.WithLabelValues("static").Set(0)
+	metrics.RunnerQueueDepth.WithLabelValues("static").Set(0)
+	metrics.RunnerInflight.WithLabelValues("static").Set(0)
 
 	r.options.Logger.InfoContext(
 		r.ctx,
@@ -192,6 +197,7 @@ func (r *Static) Task(t *runner.Task) {
 	r.mu.Lock()
 	if r.task == nil || r.stopped || !r.started {
 		r.mu.Unlock()
+		metrics.RunnerSubmitTotal.WithLabelValues("static", "dropped_not_started").Inc()
 
 		return
 	}
@@ -206,6 +212,8 @@ func (r *Static) Task(t *runner.Task) {
 	// Fast path: already stopping.
 	select {
 	case <-done:
+		metrics.RunnerSubmitTotal.WithLabelValues("static", "dropped_stopping").Inc()
+
 		return
 	default:
 	}
@@ -218,7 +226,10 @@ func (r *Static) Task(t *runner.Task) {
 
 	select {
 	case ch <- t:
+		metrics.RunnerSubmitTotal.WithLabelValues("static", "enqueued").Inc()
+		metrics.RunnerQueueDepth.WithLabelValues("static").Set(float64(len(ch)))
 	case <-done:
+		metrics.RunnerSubmitTotal.WithLabelValues("static", "dropped_stopping").Inc()
 	}
 }
 
@@ -234,6 +245,7 @@ func (r *Static) TryTask(t *runner.Task, timeout time.Duration) error {
 	r.mu.Lock()
 	if r.task == nil || r.stopped || !r.started {
 		r.mu.Unlock()
+		metrics.RunnerTrySubmitTotal.WithLabelValues("static", "dropped_not_started").Inc()
 
 		return runner.ErrPoolFull
 	}
@@ -275,8 +287,22 @@ func (r *Static) TryTask(t *runner.Task, timeout time.Duration) error {
 	}
 
 	if !send() {
+		select {
+		case <-done:
+			metrics.RunnerTrySubmitTotal.WithLabelValues("static", "dropped_stopping").Inc()
+		default:
+			if timeout <= 0 {
+				metrics.RunnerTrySubmitTotal.WithLabelValues("static", "full").Inc()
+			} else {
+				metrics.RunnerTrySubmitTotal.WithLabelValues("static", "full_timeout").Inc()
+			}
+		}
+
 		return runner.ErrPoolFull
 	}
+
+	metrics.RunnerTrySubmitTotal.WithLabelValues("static", "enqueued").Inc()
+	metrics.RunnerQueueDepth.WithLabelValues("static").Set(float64(len(ch)))
 
 	return nil
 }
@@ -308,9 +334,15 @@ func (r *Static) _worker() {
 	}
 
 	for t := range ch {
+		metrics.RunnerQueueDepth.WithLabelValues("static").Set(float64(len(ch)))
 		func() {
+			start := time.Now()
+			result := "ok"
+			metrics.RunnerInflight.WithLabelValues("static").Inc()
 			defer func() {
+				metrics.RunnerInflight.WithLabelValues("static").Dec()
 				if rec := recover(); rec != nil {
+					result = "panic"
 					r.options.Logger.ErrorContext(
 						r.ctx,
 						"Runner task panicked",
@@ -322,6 +354,8 @@ func (r *Static) _worker() {
 						"panic", rec,
 					)
 				}
+				metrics.RunnerTaskRunsTotal.WithLabelValues("static", result).Inc()
+				metrics.RunnerTaskDuration.WithLabelValues("static").Observe(time.Since(start).Seconds())
 			}()
 			r.options.Logger.TraceContext(
 				r.ctx,
@@ -337,6 +371,7 @@ func (r *Static) _worker() {
 			if r.options.Handler != nil {
 				err := r.options.Handler(t)
 				if err != nil {
+					result = "error"
 					r.options.Logger.ErrorContext(
 						r.ctx,
 						"Runner worker run failed",

@@ -41,6 +41,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // ElasticConfig is a infra component.
@@ -87,6 +88,17 @@ var Elastic *elasticsearch.Client
 
 // InitElastic is part of the public API.
 func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	client, err := initElastic(cfg)
+	metrics.CountInfraInit("elastic", err)
+
+	return client, err
+}
+
+func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}
@@ -231,7 +243,11 @@ func PingElastic(ctx context.Context) error {
 		return nil
 	}
 
-	return pingElastic(ctx, c)
+	start := time.Now()
+	err := pingElastic(ctx, c)
+	metrics.ObserveInfraOp("elastic", "ping", start, err)
+
+	return err
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).

@@ -44,6 +44,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // MQTT is a shared infra value.
@@ -89,6 +90,17 @@ var (
 
 // InitMQTT is part of the public API.
 func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	client, err := initMQTT(cfg)
+	metrics.CountInfraInit("mqtt", err)
+
+	return client, err
+}
+
+func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}

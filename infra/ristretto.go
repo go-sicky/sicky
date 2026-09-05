@@ -37,6 +37,7 @@ import (
 	"github.com/dgraph-io/ristretto/v2"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 var (
@@ -60,6 +61,17 @@ var Ristretto *ristretto.Cache[string, any]
 
 // InitRistretto is part of the public API.
 func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	cache, err := initRistretto(cfg)
+	metrics.CountInfraInit("ristretto", err)
+
+	return cache, err
+}
+
+func initRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) {
 	if cfg == nil {
 		return nil, nil
 	}

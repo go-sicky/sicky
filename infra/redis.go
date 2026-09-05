@@ -34,13 +34,50 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
+
+// redisMetricsHook records per-command latency/error into sicky_infra_ops.
+// It is attached in InitRedis so every business call through the singleton
+// is observed without touching call sites.
+type redisMetricsHook struct{}
+
+func (redisMetricsHook) DialHook(next redis.DialHook) redis.DialHook {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		start := time.Now()
+		conn, err := next(ctx, network, addr)
+		metrics.ObserveInfraOp("redis", "dial", start, err)
+
+		return conn, err
+	}
+}
+
+func (redisMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		start := time.Now()
+		err := next(ctx, cmd)
+		metrics.ObserveInfraOp("redis", cmd.Name(), start, err)
+
+		return err
+	}
+}
+
+func (redisMetricsHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		start := time.Now()
+		err := next(ctx, cmds)
+		metrics.ObserveInfraOp("redis", "pipeline", start, err)
+
+		return err
+	}
+}
 
 // RedisConfig is a infra component.
 type RedisConfig struct {
@@ -83,6 +120,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 			"Redis config invalid",
 			"error", err.Error(),
 		)
+		metrics.CountInfraInit("redis", err)
 
 		return nil, err
 	}
@@ -98,6 +136,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 		PoolSize:     cfg.PoolSize,
 		MinIdleConns: cfg.MinIdleConns,
 	})
+	rdb.AddHook(redisMetricsHook{})
 	if cfg.EnableTLS {
 		rdb.Options().TLSConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
@@ -132,6 +171,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 				"error", cerr.Error(),
 			)
 		}
+		metrics.CountInfraInit("redis", err)
 
 		return nil, err
 	}
@@ -155,11 +195,13 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 				"error", cerr.Error(),
 			)
 		}
+		metrics.CountInfraInit("redis", nil)
 
 		return Redis, nil
 	}
 
 	Redis = rdb
+	metrics.CountInfraInit("redis", nil)
 
 	return rdb, nil
 }

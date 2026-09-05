@@ -32,6 +32,7 @@ package fiber
 
 import (
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -83,7 +84,6 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 			return c.Next()
 		}
 
-		metrics.NumFiberServerAccessCounter.Inc()
 		start := time.Now()
 		rv := c.Locals(cfg.AccessLoggerConfig.RequestIDContextKey)
 		requestID, _ := rv.(string)
@@ -103,6 +103,7 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 
 		end := time.Now()
 		status := c.Response().Header.StatusCode()
+		metrics.ObserveServerRequest("fiber", string(c.Request().Header.Method()), c.Route().Path, strconv.Itoa(status), end.Sub(start))
 		// Fixed-order slice: one alloc, stable field order for log
 		// indexing (a map here costs an extra alloc plus random order).
 		args := []any{

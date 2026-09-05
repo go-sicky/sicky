@@ -338,6 +338,8 @@ func (srv *UDPServer) Start() error {
 				// and the session lookup below.
 				srcKey := addrKey(addr)
 				if !srv.allowPacketKey(srcKey) {
+					metrics.ServerRejectedTotal.WithLabelValues("udp", "rate_limit").Inc()
+
 					continue
 				}
 
@@ -359,6 +361,7 @@ func (srv *UDPServer) Start() error {
 
 							srv.options.Logger.ErrorContext(srv.ctx, "UDP session cap reached, dropping datagram", args...)
 						}
+						metrics.ServerRejectedTotal.WithLabelValues("udp", "session_cap").Inc()
 
 						continue
 					}
@@ -370,6 +373,7 @@ func (srv *UDPServer) Start() error {
 
 					sess = NewSessionWithTimeout(srv.conn, addr, writeTimeout)
 					srv.pool.Put(sess)
+					metrics.ServerConnections.WithLabelValues("udp").Inc()
 					for _, hdl := range srv.snapshotHandlers() {
 						h := hdl
 						s := sess
@@ -383,7 +387,7 @@ func (srv *UDPServer) Start() error {
 
 				dst := make([]byte, n)
 				copy(dst, buff)
-				metrics.NumUDPServerAccessCounter.Inc()
+				start := time.Now()
 				for _, hdl := range srv.snapshotHandlers() {
 					h := hdl
 					s := sess
@@ -391,6 +395,8 @@ func (srv *UDPServer) Start() error {
 						return h.OnData(s, dst)
 					})
 				}
+				metrics.ObserveServerRequest("udp", "datagram", "datagram", "ok", time.Since(start))
+				metrics.ServerIOBytesTotal.WithLabelValues("udp", "in").Add(float64(n))
 			}
 		}
 	})
@@ -453,6 +459,7 @@ func (srv *UDPServer) Stop() error {
 	// restart a returning client must re-fire OnConnect instead of
 	// hitting a session whose Send fails with "use of closed connection".
 	srv.pool.PurgeForce()
+	metrics.ServerConnections.WithLabelValues("udp").Set(0)
 
 	// Bound the drain: a blocking handler must never wedge Stop forever.
 	waitDone := make(chan struct{})
