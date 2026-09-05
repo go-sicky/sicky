@@ -142,6 +142,17 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 			"error", err.Error(),
 		)
 
+		// The exporter owns a gRPC connection and goroutines; do not
+		// leak them when the provider cannot be built.
+		if scErr := e.Shutdown(tc.ctx); scErr != nil {
+			tc.options.Logger.ErrorContext(
+				tc.ctx,
+				"Trace exporter shutdown failed",
+				"tracer", tc.String(),
+				"error", scErr.Error(),
+			)
+		}
+
 		return nil
 	}
 

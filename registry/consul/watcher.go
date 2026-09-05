@@ -31,10 +31,12 @@
 package consul
 
 import (
+	"context"
 	"sync"
 
 	"github.com/hashicorp/consul/api/watch"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 )
 
@@ -42,6 +44,7 @@ import (
 type Watcher struct {
 	endpoint  string
 	watchPlan *watch.Plan
+	logger    logger.GeneralLogger
 
 	sync.RWMutex
 }
@@ -49,6 +52,7 @@ type Watcher struct {
 func newWatcher(rg *Consul) (*Watcher, error) {
 	w := &Watcher{
 		endpoint: rg.config.Endpoint,
+		logger:   rg.options.Logger,
 	}
 
 	params := map[string]any{
@@ -160,9 +164,21 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 
 // Start starts the component.
 func (w *Watcher) Start() error {
-	// Run blocks until Stop; its error is terminal for the watch loop and
-	// has nowhere to propagate from a detached goroutine.
-	go func() { _ = w.watchPlan.Run(w.endpoint) }()
+	// Run blocks until Stop. A terminal watch-loop error has nowhere to
+	// propagate from a detached goroutine, but it must never vanish
+	// silently: log it so operators see the watch died.
+	go func() {
+		if err := w.watchPlan.Run(w.endpoint); err != nil {
+			if w.logger != nil {
+				w.logger.ErrorContext(
+					context.Background(),
+					"Consul watcher run failed",
+					"endpoint", w.endpoint,
+					"error", err.Error(),
+				)
+			}
+		}
+	}()
 
 	return nil
 }

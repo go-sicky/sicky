@@ -41,6 +41,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/infra"
 )
 
 var (
@@ -138,7 +139,7 @@ func (brk *Nats) Connect() error {
 			"error", err.Error(),
 		)
 
-		return fmt.Errorf("nats broker connect (url %s): %w", brk.config.URL, err)
+		return fmt.Errorf("nats broker connect (url %s): %w", infra.RedactDSN(brk.config.URL), err)
 	}
 
 	brk.options.Logger.InfoContext(
@@ -147,13 +148,18 @@ func (brk *Nats) Connect() error {
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
-		"url", brk.config.URL,
+		"url", infra.RedactDSN(brk.config.URL),
 	)
 
+	// Snapshot handlers under the lock; Disconnect must not race the
+	// re-subscribe iteration.
+	brk.mu.Lock()
 	brk.conn = nc
+	handlers := maps.Clone(brk.handlers)
+	brk.mu.Unlock()
 
 	// Handlers
-	for topic, hdl := range brk.handlers {
+	for topic, hdl := range handlers {
 		err := brk.Subscribe(topic, hdl)
 		if err != nil {
 			brk.options.Logger.ErrorContext(
@@ -175,22 +181,29 @@ func (brk *Nats) Connect() error {
 func (brk *Nats) Disconnect() error {
 	var unsubErr error
 
-	if brk.conn != nil && !brk.conn.IsClosed() {
-		for topic := range brk.handlers {
+	brk.mu.Lock()
+	conn := brk.conn
+	handlers := maps.Clone(brk.handlers)
+	brk.mu.Unlock()
+
+	if conn != nil && !conn.IsClosed() {
+		for topic := range handlers {
 			if err := brk.Unsubscribe(topic); err != nil {
 				unsubErr = errors.Join(unsubErr, fmt.Errorf("nats broker unsubscribe (topic %s): %w", topic, err))
 			}
 		}
 
-		brk.conn.Close()
+		conn.Close()
+		brk.mu.Lock()
 		brk.conn = nil
+		brk.mu.Unlock()
 		brk.options.Logger.InfoContext(
 			brk.ctx,
 			"Nats broker disconnected",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
-			"url", brk.config.URL,
+			"url", infra.RedactDSN(brk.config.URL),
 		)
 	}
 
@@ -242,20 +255,32 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 
 // Subscribe subscribes a handler.
 func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return ErrBrokerNotConnected
 	}
 
-	brk.mu.RLock()
+	// Check-and-insert under the same lock: two concurrent Subscribe calls
+	// for one topic must not both pass the existence check.
 	_, exists := brk.subscriptions[topic]
-	brk.mu.RUnlock()
 	if exists {
 		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.conn.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
-			_ = recover()
+			if r := recover(); r != nil {
+				brk.options.Logger.ErrorContext(
+					brk.ctx,
+					"Nats broker handler panicked",
+					"broker", brk.String(),
+					"id", brk.options.ID,
+					"name", brk.options.Name,
+					"topic", topic,
+					"panic", r,
+				)
+			}
 		}()
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
@@ -305,9 +330,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		"topic", topic,
 	)
 
-	brk.mu.Lock()
 	brk.subscriptions[topic] = sub
-	brk.mu.Unlock()
 
 	return nil
 }

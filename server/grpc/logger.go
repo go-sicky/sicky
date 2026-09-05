@@ -37,6 +37,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
@@ -116,6 +117,9 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		if err != nil {
 			ll = logger.ErrorLevel
 
+			// Report the real gRPC code so error-rate dashboards see
+			// failures instead of a hardcoded 200.
+			args[3] = int(status.Code(err))
 			args = append(args, "error", err.Error())
 		}
 
@@ -152,6 +156,9 @@ func NewStreamAccessLoggerInterceptor(config ...LoggerConfig) grpc.StreamServerI
 		if err != nil {
 			ll = logger.ErrorLevel
 
+			// Report the real gRPC code so error-rate dashboards see
+			// failures instead of a hardcoded 200.
+			args[3] = int(status.Code(err))
 			args = append(args, "error", err.Error())
 		}
 

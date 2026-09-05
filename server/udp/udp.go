@@ -104,6 +104,19 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		)
 	}
 
+	if cfg.MaxPacketsPerSecond == 0 || cfg.MaxSessions == 0 {
+		// Defaults keep 0 = off, but a production UDP endpoint without
+		// rate and session caps is exposed to spoofed-source floods and
+		// amplification abuse: warn loudly, never silently change the
+		// default.
+		opts.Logger.WarnContext(
+			opts.Context,
+			"UDP flood protections disabled: set max_packets_per_second and max_sessions for production",
+			"max_sessions", cfg.MaxSessions,
+			"max_packets_per_second", cfg.MaxPacketsPerSecond,
+		)
+	}
+
 	var (
 		addr          net.Addr
 		advertiseAddr net.Addr
@@ -193,15 +206,26 @@ func (srv *UDPServer) Name() string {
 // Start starts the component.
 func (srv *UDPServer) Start() error {
 	var err error
-	srv.Lock()
-	defer srv.Unlock()
 
-	if srv.running || srv.stopping {
+	srv.RLock()
+	running := srv.running
+	stopping := srv.stopping
+	srv.RUnlock()
+	if running || stopping {
 		// running
 		return nil
 	}
 
+	// Hooks run unlocked: they may call accessors (Addr/Port/...) which
+	// take the read lock and would self-deadlock under the write lock.
 	srv.options.RunBeforeStart()
+
+	srv.Lock()
+	if srv.running || srv.stopping {
+		srv.Unlock()
+
+		return nil
+	}
 
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
@@ -211,6 +235,7 @@ func (srv *UDPServer) Start() error {
 	srv.metadata.Set("id", srv.options.ID.String())
 	c, ok := srv.addr.(*net.UDPAddr)
 	if !ok {
+		srv.Unlock()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"Obtain UDP address failed",
@@ -229,6 +254,7 @@ func (srv *UDPServer) Start() error {
 		c,
 	)
 	if err != nil {
+		srv.Unlock()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"Network listen failed",
@@ -379,6 +405,8 @@ func (srv *UDPServer) Start() error {
 		"address", srv.addr.String(),
 	)
 	srv.running = true
+	srv.Unlock()
+
 	srv.options.RunAfterStart()
 
 	return nil
@@ -397,9 +425,12 @@ func (srv *UDPServer) Stop() error {
 	}
 
 	srv.stopping = true
-	srv.options.RunBeforeStop()
 	conn := srv.conn
 	srv.Unlock()
+
+	// Hooks run unlocked: they may call accessors which take the read
+	// lock and would self-deadlock under the write lock.
+	srv.options.RunBeforeStop()
 
 	var errs error
 	if err := conn.Close(); err != nil {
@@ -417,7 +448,24 @@ func (srv *UDPServer) Stop() error {
 	}
 
 	srv.stopReaper()
-	srv.wg.Wait()
+
+	// Drop stale sessions: they hold the just-closed conn, and after a
+	// restart a returning client must re-fire OnConnect instead of
+	// hitting a session whose Send fails with "use of closed connection".
+	srv.pool.PurgeForce()
+
+	// Bound the drain: a blocking handler must never wedge Stop forever.
+	waitDone := make(chan struct{})
+	go func() {
+		srv.wg.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(time.Duration(srv.config.ShutdownTimeout) * time.Second):
+		errs = errors.Join(errs, errors.New("udp server shutdown timed out"))
+	}
 
 	srv.Lock()
 	srv.running = false
@@ -494,8 +542,11 @@ func (srv *UDPServer) AdvertisePort() int {
 
 // Metadata returns the metadata.
 func (srv *UDPServer) Metadata() utils.Metadata {
-	// Snapshot: the map is written during Start while handlers may read
-	// it concurrently; returning the live map would race.
+	// Snapshot under the read lock: the map is written during Start while
+	// handlers may read it concurrently; returning the live map would race.
+	srv.RLock()
+	defer srv.RUnlock()
+
 	if srv.metadata == nil {
 		return utils.NewMetadata()
 	}

@@ -360,6 +360,23 @@ func (p *Pool) Purge() {
 	}
 }
 
+// PurgeForce drops every tracked session unconditionally. Used by Stop:
+// after the server conn is closed every pooled session is dead, and on
+// restart a returning client must re-fire OnConnect.
+func (p *Pool) PurgeForce() {
+	p.RLock()
+	snapshot := make([]*Session, 0, len(p.sessions))
+	for _, sess := range p.sessions {
+		snapshot = append(snapshot, sess)
+	}
+
+	p.RUnlock()
+
+	for _, sess := range snapshot {
+		_ = sess.Close()
+	}
+}
+
 // RunReaper purges idle sessions on every tick until stop is closed.
 // The caller owns the goroutine lifecycle (add to WaitGroup before go).
 func (p *Pool) RunReaper(tick time.Duration, stop <-chan struct{}) {

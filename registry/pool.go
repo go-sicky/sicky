@@ -468,7 +468,10 @@ func cloneInstance(in *Instance) *Instance {
 		}
 
 		dup := *tp
-		dup.Instance = out
+		// No back-reference: Instance->Topics->Instance would form a JSON
+		// cycle (the source instance itself is a cyclic in-memory graph)
+		// that breaks /services and every registry backend.
+		dup.Instance = nil
 		out.Topics[name] = &dup
 	}
 

@@ -218,15 +218,27 @@ func (srv *HTTPServer) Start() error {
 		err      error
 	)
 
-	srv.Lock()
-	defer srv.Unlock()
-
-	if srv.running || srv.stopping {
+	srv.RLock()
+	running := srv.running
+	stopping := srv.stopping
+	srv.RUnlock()
+	if running || stopping {
 		// running
 		return nil
 	}
 
+	// Hooks run unlocked: they may call accessors (Addr/Port/...) which
+	// take the read lock and would self-deadlock under the write lock.
 	srv.options.RunBeforeStart()
+
+	srv.Lock()
+
+	if srv.running || srv.stopping {
+		srv.Unlock()
+
+		// running
+		return nil
+	}
 
 	// A half-configured TLS must never silently fall back to plaintext.
 	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
@@ -237,6 +249,8 @@ func (srv *HTTPServer) Start() error {
 			"id", srv.options.ID,
 			"name", srv.options.Name,
 		)
+
+		srv.Unlock()
 
 		return ErrIncompleteTLSConfig
 	}
@@ -266,6 +280,7 @@ func (srv *HTTPServer) Start() error {
 			},
 		)
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"Network listen with TLS certificate failed",
@@ -283,6 +298,7 @@ func (srv *HTTPServer) Start() error {
 			srv.addr.String(),
 		)
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"Network listen failed",
@@ -340,6 +356,8 @@ func (srv *HTTPServer) Start() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = true
+	srv.Unlock()
+
 	srv.options.RunAfterStart()
 
 	return nil
@@ -358,10 +376,13 @@ func (srv *HTTPServer) Stop() error {
 	}
 
 	srv.stopping = true
-	srv.options.RunBeforeStop()
 	app := srv.app
 	timeout := srv.config.ShutdownTimeout
 	srv.Unlock()
+
+	// Hooks run unlocked: they may call accessors which take the read
+	// lock and would self-deadlock under the write lock.
+	srv.options.RunBeforeStop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -470,8 +491,11 @@ func (srv *HTTPServer) AdvertisePort() int {
 
 // Metadata returns the metadata.
 func (srv *HTTPServer) Metadata() utils.Metadata {
-	// Snapshot: the map is written during Start while handlers may read
-	// it concurrently; returning the live map would race.
+	// Snapshot under the read lock: the map is written during Start while
+	// handlers may read it concurrently; returning the live map would race.
+	srv.RLock()
+	defer srv.RUnlock()
+
 	if srv.metadata == nil {
 		return utils.NewMetadata()
 	}

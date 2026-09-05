@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/fatih/color"
@@ -58,6 +59,7 @@ type Interactive struct {
 	brokers    []broker.Broker
 	jobs       []job.Job
 	registries []registry.Registry
+	startOnce  sync.Once
 	tracers    []tracer.Tracer
 	handlers   []Handler
 }
@@ -112,17 +114,21 @@ func (s *Interactive) Start() []error {
 		fmt.Println(s.config.StartupInfo)
 	}
 
-	go func() {
-		for {
-			exit := s.interact()
-			if exit {
-				break
+	// One stdin-reading goroutine per service: repeated Start calls must
+	// not pile up concurrent os.Stdin readers.
+	s.startOnce.Do(func() {
+		go func() {
+			for {
+				exit := s.interact()
+				if exit {
+					break
+				}
 			}
-		}
 
-		fmt.Println()
-		_ = syscall.Kill(syscall.Getpid(), syscall.SIGQUIT)
-	}()
+			fmt.Println()
+			_ = syscall.Kill(syscall.Getpid(), syscall.SIGQUIT)
+		}()
+	})
 
 	return errs
 }

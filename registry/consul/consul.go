@@ -33,8 +33,10 @@ package consul
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
@@ -50,6 +52,11 @@ type Consul struct {
 	options *registry.Options
 	client  *api.Client
 	watcher *Watcher
+
+	// watchOnce makes Watch idempotent: the orchestrator calls it both
+	// directly (concrete type) and through registry.Watch() (default
+	// registry), and a double watch would run two blocking-query loops.
+	watchOnce sync.Once
 }
 
 // New creates a new instance (nil on invalid config).
@@ -145,14 +152,24 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 	}
 
 	if ins.Servers != nil {
-		for _, v := range ins.Servers {
-			reg.Tags = append(reg.Tags, utils.JSONAnyString(v))
+		for name, v := range ins.Servers {
+			data, merr := json.Marshal(v)
+			if merr != nil {
+				return fmt.Errorf("consul register marshal (server %s): %w", name, merr)
+			}
+
+			reg.Tags = append(reg.Tags, string(data))
 		}
 	}
 
 	if ins.Topics != nil {
 		for n, v := range ins.Topics {
-			reg.Meta["topic-"+n] = utils.JSONAnyString(v)
+			data, merr := json.Marshal(v)
+			if merr != nil {
+				return fmt.Errorf("consul register marshal (topic %s): %w", n, merr)
+			}
+
+			reg.Meta["topic-"+n] = string(data)
 		}
 	}
 
@@ -355,29 +372,34 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 
 // Watch watches for changes.
 func (rg *Consul) Watch() error {
-	if rg.watcher != nil {
-		if err := rg.watcher.Start(); err != nil {
-			return err
+	var werr error
+	rg.watchOnce.Do(func() {
+		if rg.watcher != nil {
+			if err := rg.watcher.Start(); err != nil {
+				werr = err
+
+				return
+			}
+
+			rg.options.Logger.InfoContext(
+				rg.ctx,
+				"Consul registry watcher start",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+			)
+		} else {
+			rg.options.Logger.WarnContext(
+				rg.ctx,
+				"Consul registry has no watcher",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+			)
 		}
+	})
 
-		rg.options.Logger.InfoContext(
-			rg.ctx,
-			"Consul registry watcher start",
-			"registry", rg.String(),
-			"id", rg.options.ID,
-			"name", rg.options.Name,
-		)
-	} else {
-		rg.options.Logger.WarnContext(
-			rg.ctx,
-			"Consul registry has no watcher",
-			"registry", rg.String(),
-			"id", rg.options.ID,
-			"name", rg.options.Name,
-		)
-	}
-
-	return nil
+	return werr
 }
 
 // Stop stops the component and releases resources.

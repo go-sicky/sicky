@@ -97,6 +97,9 @@ func (o *Options) Ensure() *Options {
 }
 
 /* {{{ [Wrappers]. */
+// Deprecated: lifecycle wrappers are registered but never invoked by any
+// client implementation. Kept for API compatibility; wiring them is a
+// silent no-op.
 func (o *Options) BeforeConnect(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.beforeConnect = append(o.beforeConnect, wrappers...)
@@ -106,6 +109,10 @@ func (o *Options) BeforeConnect(wrappers ...ClientWrapper) *Options {
 }
 
 // AfterConnect is part of the public API.
+//
+// Deprecated: lifecycle wrappers are registered but never invoked by any
+// client implementation. Kept for API compatibility; wiring them is a
+// silent no-op.
 func (o *Options) AfterConnect(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.afterConnect = append(o.afterConnect, wrappers...)
@@ -115,6 +122,10 @@ func (o *Options) AfterConnect(wrappers ...ClientWrapper) *Options {
 }
 
 // BeforeClose is part of the public API.
+//
+// Deprecated: lifecycle wrappers are registered but never invoked by any
+// client implementation. Kept for API compatibility; wiring them is a
+// silent no-op.
 func (o *Options) BeforeClose(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.beforeClose = append(o.beforeClose, wrappers...)
@@ -124,6 +135,10 @@ func (o *Options) BeforeClose(wrappers ...ClientWrapper) *Options {
 }
 
 // AfterClose is part of the public API.
+//
+// Deprecated: lifecycle wrappers are registered but never invoked by any
+// client implementation. Kept for API compatibility; wiring them is a
+// silent no-op.
 func (o *Options) AfterClose(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.afterClose = append(o.afterClose, wrappers...)

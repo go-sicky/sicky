@@ -234,7 +234,26 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 
 	return func() error {
 		done := make(chan error, 1)
-		go func() { done <- h() }()
+		go func() {
+			// A panicking handler must not leave the watchdog hanging
+			// forever with an invisible failure.
+			defer func() {
+				if rec := recover(); rec != nil {
+					job.options.Logger.ErrorContext(
+						job.ctx,
+						"Cron task panicked",
+						"job", job.String(),
+						"id", job.options.ID,
+						"name", job.options.Name,
+						"task_id", task.ID.String(),
+						"panic", rec,
+					)
+					done <- fmt.Errorf("cron task %s panicked: %v", task.ID.String(), rec)
+				}
+			}()
+
+			done <- h()
+		}()
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		select {

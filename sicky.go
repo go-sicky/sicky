@@ -47,6 +47,8 @@ import (
 	"github.com/spf13/viper"
 	_ "github.com/spf13/viper/remote"
 
+	"github.com/google/uuid"
+
 	brkJetstream "github.com/go-sicky/sicky/broker/jetstream"
 	brkNats "github.com/go-sicky/sicky/broker/nats"
 	brkNsq "github.com/go-sicky/sicky/broker/nsq"
@@ -193,8 +195,6 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 	if verSw {
 		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
 
-		initialized = true
-
 		return ErrVersionShown
 	}
 
@@ -284,12 +284,17 @@ func Viper() *viper.Viper {
 }
 
 // ConfigUnmarshal is part of the public API.
+// ErrConfigNilTarget is returned when ConfigUnmarshal is asked to
+// unmarshal into a nil target, so callers can distinguish "nothing
+// provided" from "unmarshaled".
+var ErrConfigNilTarget = errors.New("config unmarshal target is nil")
+
 func ConfigUnmarshal(raw any) error {
-	if raw != nil {
-		return configIns.Unmarshal(raw)
+	if raw == nil {
+		return ErrConfigNilTarget
 	}
 
-	return nil
+	return configIns.Unmarshal(raw)
 }
 
 func registryName() string {
@@ -370,6 +375,7 @@ func Run(cfg *Config) error {
 		rgLocalIns   *rgLocal.Local
 		rgTicker     *time.Ticker
 		rgTickerDone chan struct{}
+		rgTickerWg   sync.WaitGroup
 
 		brkNatsIns      *brkNats.Nats
 		brkNsqIns       *brkNsq.NSQ
@@ -378,6 +384,9 @@ func Run(cfg *Config) error {
 		// failedSvcs tracks services whose Start failed so the shutdown
 		// path does not Stop them twice (already stopped inline).
 		failedSvcs = make(map[service.Service]struct{})
+		// startedIDs tracks services whose Start succeeded: the shutdown
+		// path only Stops/Deregisters those, never never-started ones.
+		startedIDs = make(map[uuid.UUID]struct{})
 
 		beforeStart []SickyWrapper
 		afterStart  []SickyWrapper
@@ -444,6 +453,7 @@ func Run(cfg *Config) error {
 				"Before start wrapper failed",
 				"error", err.Error(),
 			)
+			runErr = errors.Join(runErr, fmt.Errorf("before start wrapper: %w", err))
 		}
 	}
 
@@ -760,7 +770,7 @@ func Run(cfg *Config) error {
 		(rgRedisIns != nil || rgConsulIns != nil || rgLocalIns != nil) {
 		rgTicker = time.NewTicker(time.Duration(cfg.Registry.PoolPurgeInterval) * time.Second)
 		rgTickerDone = make(chan struct{})
-		go func() {
+		rgTickerWg.Go(func() {
 			for {
 				select {
 				case <-rgTickerDone:
@@ -782,7 +792,7 @@ func Run(cfg *Config) error {
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	// Brokers
@@ -954,8 +964,24 @@ func Run(cfg *Config) error {
 				"registry", registryName(),
 				"error", err.Error(),
 			)
+
+			// A service nobody can discover is worse than a stopped one:
+			// deregister best-effort and stop it so startup is not half-broken.
+			if derr := registry.Deregister(id); derr != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("deregister service %s: %w", id, derr))
+			}
+
+			if stopErrs := svc.Stop(); len(stopErrs) > 0 {
+				runErr = errors.Join(runErr, errors.Join(stopErrs...))
+			}
+
+			failedSvcs[svc] = struct{}{}
 			runErr = errors.Join(runErr, fmt.Errorf("registry register %s: %w", id, err))
+
+			continue
 		}
+
+		startedIDs[id] = struct{}{}
 	}
 
 	// Wrappers
@@ -974,6 +1000,7 @@ func Run(cfg *Config) error {
 				"After start wrapper failed",
 				"error", err.Error(),
 			)
+			runErr = errors.Join(runErr, fmt.Errorf("after start wrapper: %w", err))
 		}
 	}
 
@@ -989,8 +1016,14 @@ shutdown:
 		defer signal.Stop(hupCh)
 
 		reloadDone := make(chan struct{})
-		defer close(reloadDone)
-		go func() {
+		var reloadCloseOnce sync.Once
+		reloadDoneClose := func() {
+			reloadCloseOnce.Do(func() { close(reloadDone) })
+		}
+
+		defer reloadDoneClose()
+		var reloadWg sync.WaitGroup
+		reloadWg.Go(func() {
 			for {
 				select {
 				case <-reloadDone:
@@ -1014,12 +1047,17 @@ shutdown:
 					}
 				}
 			}
-		}()
+		})
 
 		select {
 		case <-ch:
 		case <-options.Context.Done():
 		}
+
+		// Join the reload goroutine so it cannot outlive Run() while
+		// wrappers still touch options.Context.
+		reloadDoneClose()
+		reloadWg.Wait()
 
 		forceTimeout := 30 * time.Second
 		if cfg.Manager != nil && cfg.Manager.ShutdownTimeout > 0 {
@@ -1045,7 +1083,8 @@ shutdown:
 		}()
 	}
 
-	// Stop the purge ticker before tearing down registries.
+	// Stop the purge ticker and join its goroutine before tearing down
+	// registries (Load() must not race registry.Stop()).
 	if rgTickerDone != nil {
 		close(rgTickerDone)
 	}
@@ -1053,6 +1092,8 @@ shutdown:
 	if rgTicker != nil {
 		rgTicker.Stop()
 	}
+
+	rgTickerWg.Wait()
 
 	// Wrappers
 	wrapperMu.RLock()
@@ -1070,12 +1111,19 @@ shutdown:
 				"Before stop wrapper failed",
 				"error", err.Error(),
 			)
+			runErr = errors.Join(runErr, fmt.Errorf("before stop wrapper: %w", err))
 		}
 	}
 
 	for id, svc := range service.Services() {
 		if _, failed := failedSvcs[svc]; failed {
 			// Already stopped inline at Start failure; do not stop twice.
+			continue
+		}
+
+		if _, started := startedIDs[id]; !started {
+			// Never started (e.g. shutdown from an infra/broker failure):
+			// skip entirely instead of stopping a service that was not up.
 			continue
 		}
 
@@ -1284,6 +1332,7 @@ shutdown:
 				"After stop wrapper failed",
 				"error", err.Error(),
 			)
+			runErr = errors.Join(runErr, fmt.Errorf("after stop wrapper: %w", err))
 		}
 	}
 

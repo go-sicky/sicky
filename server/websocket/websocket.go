@@ -33,13 +33,17 @@ package websocket
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	recovermiddleware "github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/metrics"
@@ -58,12 +62,13 @@ type WebsocketServer struct {
 	ctx           context.Context
 	options       *server.Options
 	app           *fiber.App
+	listener      net.Listener
 	running       bool
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
-	handlers      []Handler
-	// pool          *Pool
+	handlers      atomic.Pointer[[]Handler]
+	reaperDone    chan struct{}
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -115,9 +120,9 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		running:       false,
 		options:       opts,
 		metadata:      utils.NewMetadata(),
-		// pool:          NewPool(cfg.PingDuration, cfg.MaxIdleDuration),
-		handlers: make([]Handler, 0),
 	}
+
+	srv.handlers.Store(&[]Handler{})
 
 	app := fiber.New(
 		fiber.Config{
@@ -128,7 +133,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 			Network:               cfg.Network,
 		},
 	)
-	app.Use(recover.New(recover.ConfigDefault))
+	app.Use(recovermiddleware.New(recovermiddleware.ConfigDefault))
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -142,6 +147,19 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 
 	app.Use(cfg.Path, func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
+			if !srv.checkOrigin(c) {
+				srv.options.Logger.WarnContext(
+					srv.ctx,
+					"Websocket origin rejected",
+					"server", srv.String(),
+					"id", srv.options.ID,
+					"name", srv.options.Name,
+					"origin", string(c.Request().Header.Peek("Origin")),
+				)
+
+				return fiber.ErrForbidden
+			}
+
 			c.Locals("allowed", true)
 
 			return c.Next()
@@ -149,15 +167,65 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 
 		return fiber.ErrUpgradeRequired
 	})
-	app.Get(cfg.Path, websocket.New(srv.operator))
+	app.Get(cfg.Path, websocket.New(srv.operator, websocket.Config{
+		RecoverHandler: srv.recoverConn,
+	}))
 	server.Set(srv)
 
 	// Generate pool
+	poolMu.Lock()
 	if SessionPool == nil {
 		SessionPool = NewPool(cfg.PingDuration, cfg.MaxIdleDuration)
 	}
 
+	poolMu.Unlock()
+
 	return srv
+}
+
+// checkOrigin validates the Origin header of an upgrade request.
+// Non-browser clients (no Origin header) are always allowed. With an empty
+// Origins list the default same-origin policy applies: the Origin must match
+// the request Host. An explicit list whitelists exact origins; "*" allows all.
+func (srv *WebsocketServer) checkOrigin(c *fiber.Ctx) bool {
+	origin := string(c.Request().Header.Peek("Origin"))
+	if origin == "" {
+		return true
+	}
+
+	for _, allowed := range srv.config.Origins {
+		if allowed == "*" || allowed == origin {
+			return true
+		}
+	}
+
+	if len(srv.config.Origins) == 0 {
+		host := string(c.Request().Header.Peek("Host"))
+
+		return origin == "http://"+host || origin == "https://"+host
+	}
+
+	return false
+}
+
+// recoverConn isolates operator panics: log the stack server-side and drop
+// the pool entry instead of leaking the panic value to the client.
+func (srv *WebsocketServer) recoverConn(conn *websocket.Conn) {
+	if r := recover(); r != nil {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Websocket operator panicked",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"panic", r,
+			"stack", string(debug.Stack()),
+		)
+
+		if SessionPool != nil {
+			SessionPool.RemoveByConn(conn)
+		}
+	}
 }
 
 // Context returns the component context.
@@ -187,26 +255,49 @@ func (srv *WebsocketServer) Name() string {
 
 // Start starts the component.
 func (srv *WebsocketServer) Start() error {
-	var (
-		listener net.Listener
-		cert     tls.Certificate
-		err      error
-	)
+	// Half TLS configuration must never silently degrade to plaintext.
+	if (srv.config.TLSCertPEM == "") != (srv.config.TLSKeyPEM == "") {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"TLS certification incomplete",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+		)
 
-	srv.Lock()
-	defer srv.Unlock()
+		return ErrIncompleteTLSConfig
+	}
 
-	if srv.running {
+	srv.RLock()
+	running := srv.running
+	srv.RUnlock()
+	if running {
 		// running
 		return nil
 	}
 
 	srv.options.RunBeforeStart()
 
+	srv.Lock()
+
+	if srv.running {
+		// double-checked: concurrent Start won the race
+		srv.Unlock()
+
+		return nil
+	}
+
+	var (
+		listener net.Listener
+		cert     tls.Certificate
+		err      error
+	)
+
 	// Try TLS first
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"TLS certification failed",
@@ -228,6 +319,7 @@ func (srv *WebsocketServer) Start() error {
 			},
 		)
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"Network listen with TLS certificate failed",
@@ -245,6 +337,7 @@ func (srv *WebsocketServer) Start() error {
 			srv.addr.String(),
 		)
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"Network listen failed",
@@ -258,6 +351,7 @@ func (srv *WebsocketServer) Start() error {
 		}
 	}
 
+	srv.listener = listener
 	srv.addr = listener.Addr()
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
@@ -288,6 +382,8 @@ func (srv *WebsocketServer) Start() error {
 		)
 	})
 
+	srv.reaperDone = srv.startReaper()
+
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"Websocket server listened",
@@ -298,9 +394,42 @@ func (srv *WebsocketServer) Start() error {
 		"path", srv.config.Path,
 	)
 	srv.running = true
+	srv.Unlock()
+
 	srv.options.RunAfterStart()
 
 	return nil
+}
+
+// startReaper launches the idle-session recycler. Callers must hold the
+// server Lock (Start) so the done channel cannot race with Stop.
+func (srv *WebsocketServer) startReaper() chan struct{} {
+	if srv.config.MaxIdleDuration <= 0 {
+		return nil
+	}
+
+	interval := time.Duration(srv.config.PingDuration) * time.Second
+	if interval <= 0 {
+		interval = time.Duration(srv.config.MaxIdleDuration) * time.Second
+	}
+
+	done := make(chan struct{})
+	srv.wg.Go(func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if SessionPool != nil {
+					SessionPool.Purge()
+				}
+			}
+		}
+	})
+
+	return done
 }
 
 // Stop stops the component and releases resources.
@@ -315,18 +444,42 @@ func (srv *WebsocketServer) Stop() error {
 
 	srv.running = false
 	app := srv.app
+	listener := srv.listener
+	reaperDone := srv.reaperDone
+	timeout := time.Duration(srv.config.ShutdownTimeout) * time.Second
 	srv.Unlock()
 
 	srv.options.RunBeforeStop()
 
 	var stopErr error
+	if reaperDone != nil {
+		close(reaperDone)
+	}
+
 	if app != nil && app.Server() != nil {
-		if serr := app.Server().Shutdown(); serr != nil {
-			stopErr = serr
+		if serr := app.ShutdownWithTimeout(timeout); serr != nil {
+			stopErr = errors.Join(stopErr, serr)
 		}
 	}
 
-	srv.wg.Wait()
+	// Backstop against the shutdown-vs-Serve registration race.
+	if listener != nil {
+		_ = listener.Close()
+	}
+
+	// Bound the wait: a blocking handler must never wedge shutdown forever.
+	waitDone := make(chan struct{})
+	go func() {
+		srv.wg.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(timeout + time.Second):
+		stopErr = errors.Join(stopErr, errors.New("websocket server shutdown timed out"))
+	}
+
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"Websocket server shutdown",
@@ -395,7 +548,10 @@ func (srv *WebsocketServer) AdvertisePort() int {
 
 // Metadata returns the metadata.
 func (srv *WebsocketServer) Metadata() utils.Metadata {
-	return srv.metadata
+	srv.RLock()
+	defer srv.RUnlock()
+
+	return srv.metadata.Clone()
 }
 
 // App returns the app.
@@ -405,8 +561,19 @@ func (srv *WebsocketServer) App() *fiber.App {
 
 // Handle registers handlers.
 func (srv *WebsocketServer) Handle(hdls ...Handler) {
+	// Lock-free append: publish a new slice so concurrent I/O
+	// goroutines keep iterating a stable snapshot.
+	for {
+		old := srv.snapshotHandlers()
+		next := make([]Handler, 0, len(old)+len(hdls))
+		next = append(next, old...)
+		next = append(next, hdls...)
+		if srv.handlers.CompareAndSwap(srv.handlers.Load(), &next) {
+			break
+		}
+	}
+
 	for _, hdl := range hdls {
-		srv.handlers = append(srv.handlers, hdl)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"Websocket handler registered",
@@ -418,12 +585,58 @@ func (srv *WebsocketServer) Handle(hdls ...Handler) {
 	}
 }
 
+// snapshotHandlers returns the current handler snapshot.
+func (srv *WebsocketServer) snapshotHandlers() []Handler {
+	return *srv.handlers.Load()
+}
+
+// safelyInvoke runs a handler callback with panic isolation: a panicking
+// business handler must never kill the connection goroutine.
+func (srv *WebsocketServer) safelyInvoke(op string, sess *Session, fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			srv.options.Logger.ErrorContext(
+				srv.ctx,
+				"Websocket handler panicked",
+				"server", srv.String(),
+				"id", srv.options.ID,
+				"name", srv.options.Name,
+				"handler_op", op,
+				"session", sess.ID,
+				"panic", r,
+				"stack", string(debug.Stack()),
+			)
+			err = fmt.Errorf("handler panicked: %v", r)
+		}
+	}()
+
+	if e := fn(); e != nil {
+		srv.options.Logger.ErrorContext(
+			srv.ctx,
+			"Websocket handler error",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"handler_op", op,
+			"session", sess.ID,
+			"error", e.Error(),
+		)
+		err = e
+	}
+
+	return err
+}
+
 func (srv *WebsocketServer) operator(c *websocket.Conn) {
 	var (
 		mt   int
 		body []byte
 		err  error
 	)
+
+	if srv.config.MaxMessageBytes > 0 {
+		c.SetReadLimit(int64(srv.config.MaxMessageBytes))
+	}
 
 	// OnConnect
 	srv.options.Logger.DebugContext(
@@ -440,19 +653,25 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 		SessionPool.Put(sess)
 	}
 
-	for _, hdl := range srv.handlers {
-		err = hdl.OnConnect(sess)
-		if err != nil {
-			srv.options.Logger.ErrorContext(
-				srv.ctx,
-				"Websocket connect error",
-				"server", srv.String(),
-				"id", srv.options.ID,
-				"name", srv.options.Name,
-				"client", c.RemoteAddr().String(),
-				"error", err.Error(),
-			)
+	handlers := srv.snapshotHandlers()
+
+	// A failing OnConnect rejects the connection instead of letting it
+	// proceed into the read loop.
+	connectFailed := false
+	for _, hdl := range handlers {
+		if herr := srv.safelyInvoke("connect", sess, func() error {
+			return hdl.OnConnect(sess)
+		}); herr != nil {
+			connectFailed = true
+
+			break
 		}
+	}
+
+	if connectFailed {
+		_ = sess.Close()
+
+		return
 	}
 
 read:
@@ -460,25 +679,17 @@ read:
 		mt, body, err = c.ReadMessage()
 		if err != nil {
 			// Read error
-			for _, hdl := range srv.handlers {
-				if herr := hdl.OnError(sess, err); herr != nil {
-					srv.options.Logger.ErrorContext(
-						srv.ctx,
-						"Websocket error-handler error",
-						"server", srv.String(),
-						"id", srv.options.ID,
-						"name", srv.options.Name,
-						"client", c.RemoteAddr().String(),
-						"error", herr.Error(),
-					)
-				}
+			for _, hdl := range handlers {
+				_ = srv.safelyInvoke("error", sess, func() error {
+					return hdl.OnError(sess, err)
+				})
 			}
 
 			break read
 		} else {
 			switch mt {
 			case websocket.TextMessage, websocket.BinaryMessage:
-				sess.LastActive = time.Now()
+				sess.touch()
 				srv.options.Logger.DebugContext(
 					srv.ctx,
 					"Websocket data received",
@@ -492,23 +703,14 @@ read:
 
 				// OnData
 				metrics.NumWebsocketServerAccessCounter.Inc()
-				for _, hdl := range srv.handlers {
-					err = hdl.OnData(sess, mt, body)
-					if err != nil {
-						srv.options.Logger.ErrorContext(
-							srv.ctx,
-							"Websocket data process error",
-							"server", srv.String(),
-							"id", srv.options.ID,
-							"name", srv.options.Name,
-							"client", c.RemoteAddr().String(),
-							"error", err.Error(),
-						)
-					}
+				for _, hdl := range handlers {
+					_ = srv.safelyInvoke("data", sess, func() error {
+						return hdl.OnData(sess, mt, body)
+					})
 				}
 			case websocket.PongMessage:
 				// Ignore typo
-				sess.LastActive = time.Now()
+				sess.touch()
 			case websocket.CloseMessage:
 				// Close
 				break read
@@ -543,20 +745,10 @@ read:
 		)
 	}
 
-	for _, hdl := range srv.handlers {
-		err = hdl.OnClose(sess)
-		if err != nil {
-			srv.options.Logger.ErrorContext(
-				srv.ctx,
-				"Websocket close error",
-				"server", srv.String(),
-				"id", srv.options.ID,
-				"name", srv.options.Name,
-				"client", c.RemoteAddr().String(),
-				"session", sess.ID,
-				"error", err.Error(),
-			)
-		}
+	for _, hdl := range handlers {
+		_ = srv.safelyInvoke("close", sess, func() error {
+			return hdl.OnClose(sess)
+		})
 	}
 }
 

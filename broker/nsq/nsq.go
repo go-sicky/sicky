@@ -43,6 +43,7 @@ import (
 	"github.com/nsqio/go-nsq"
 
 	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/infra"
 )
 
 var (
@@ -142,6 +143,16 @@ func (brk *NSQ) Name() string {
 }
 
 // Connect connects to the backend.
+// safeEndpoint redacts the endpoint for logs/errors only when it embeds
+// userinfo; a plain host:port stays visible for debugging.
+func safeEndpoint(ep string) string {
+	if strings.Contains(ep, "@") {
+		return infra.RedactDSN(ep)
+	}
+
+	return ep
+}
+
 func (brk *NSQ) Connect() error {
 	p, err := nsq.NewProducer(brk.config.Endpoint, brk.nsqCfg)
 	if err != nil {
@@ -154,12 +165,15 @@ func (brk *NSQ) Connect() error {
 			"error", err.Error(),
 		)
 
-		return fmt.Errorf("nsq broker create producer (endpoint %s): %w", brk.config.Endpoint, err)
+		return fmt.Errorf("nsq broker create producer (endpoint %s): %w", safeEndpoint(brk.config.Endpoint), err)
 	}
 
 	p.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
 	err = p.Ping()
 	if err != nil {
+		// The producer keeps its connection goroutine alive after a ping
+		// failure; stop it before returning.
+		p.Stop()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Nsq broker producer ping failed",
@@ -169,7 +183,7 @@ func (brk *NSQ) Connect() error {
 			"error", err.Error(),
 		)
 
-		return fmt.Errorf("nsq broker producer ping (endpoint %s): %w", brk.config.Endpoint, err)
+		return fmt.Errorf("nsq broker producer ping (endpoint %s): %w", safeEndpoint(brk.config.Endpoint), err)
 	}
 
 	brk.options.Logger.InfoContext(
@@ -178,17 +192,15 @@ func (brk *NSQ) Connect() error {
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
-		"addr", brk.config.Endpoint,
+		"addr", safeEndpoint(brk.config.Endpoint),
 	)
 
+	brk.mu.Lock()
 	brk.producer = p
+	snapshot := maps.Clone(brk.handlers)
+	brk.mu.Unlock()
 
 	// Handlers
-	brk.mu.RLock()
-	snapshot := make(map[string]broker.Handler, len(brk.handlers))
-	maps.Copy(snapshot, brk.handlers)
-
-	brk.mu.RUnlock()
 	for topic, hdl := range snapshot {
 		err := brk.Subscribe(topic, hdl)
 		if err != nil {
@@ -211,15 +223,21 @@ func (brk *NSQ) Connect() error {
 func (brk *NSQ) Disconnect() error {
 	var unsubErr error
 
-	for topic := range brk.subscriptions {
+	brk.mu.Lock()
+	subs := maps.Clone(brk.subscriptions)
+	brk.mu.Unlock()
+	for topic := range subs {
 		if err := brk.Unsubscribe(topic); err != nil {
 			unsubErr = errors.Join(unsubErr, fmt.Errorf("nsq broker unsubscribe (topic %s): %w", topic, err))
 		}
 	}
 
-	if brk.producer != nil {
-		brk.producer.Stop()
-		brk.producer = nil
+	brk.mu.Lock()
+	p := brk.producer
+	brk.producer = nil
+	brk.mu.Unlock()
+	if p != nil {
+		p.Stop()
 	}
 
 	brk.options.Logger.InfoContext(
@@ -281,11 +299,11 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		return nil
 	}
 
-	consummer, err := nsq.NewConsumer(topic, brk.config.Channel, brk.nsqCfg)
+	consumer, err := nsq.NewConsumer(topic, brk.config.Channel, brk.nsqCfg)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker create consummer failed",
+			"Nsq broker create consumer failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -297,7 +315,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		return fmt.Errorf("nsq broker create consumer (topic %s channel %s): %w", topic, brk.config.Channel, err)
 	}
 
-	consummer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
+	consumer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
 	// Register handler before dialing so Connect() replay sees it.
 	if h != nil {
 		brk.mu.Lock()
@@ -305,16 +323,19 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		brk.mu.Unlock()
 	}
 
-	consummer.AddHandler(&nsqHandler{
+	consumer.AddHandler(&nsqHandler{
 		Topic:   topic,
 		Channel: brk.config.Channel,
 		Broker:  brk,
 	})
-	err = consummer.ConnectToNSQD(brk.config.Endpoint)
+	err = consumer.ConnectToNSQD(brk.config.Endpoint)
 	if err != nil {
+		// The consumer already spawned connection goroutines: stop it so
+		// the half-open dial loop does not leak.
+		consumer.Stop()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker consummer connection failed",
+			"Nsq broker consumer connection failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -323,11 +344,11 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 			"error", err.Error(),
 		)
 
-		return fmt.Errorf("nsq broker consumer connect (topic %s channel %s endpoint %s): %w", topic, brk.config.Channel, brk.config.Endpoint, err)
+		return fmt.Errorf("nsq broker consumer connect (topic %s channel %s endpoint %s): %w", topic, brk.config.Channel, safeEndpoint(brk.config.Endpoint), err)
 	}
 
 	brk.mu.Lock()
-	brk.subscriptions[topic] = consummer
+	brk.subscriptions[topic] = consumer
 	brk.mu.Unlock()
 	brk.options.Logger.DebugContext(
 		brk.ctx,
@@ -346,9 +367,9 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 func (brk *NSQ) Unsubscribe(topic string) error {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
-	consummer := brk.subscriptions[topic]
-	if consummer != nil {
-		consummer.Stop()
+	consumer := brk.subscriptions[topic]
+	if consumer != nil {
+		consumer.Stop()
 		delete(brk.subscriptions, topic)
 		brk.options.Logger.DebugContext(
 			brk.ctx,
@@ -394,9 +415,23 @@ type nsqHandler struct {
 }
 
 // HandleMessage is part of the public API.
-func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
+func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
+	// A panicking handler must not ack the message (it would be
+	// permanently lost): return an error so nsq requeues it.
 	defer func() {
-		_ = recover()
+		if r := recover(); r != nil {
+			h.Broker.options.Logger.ErrorContext(
+				h.Broker.ctx,
+				"Nsq broker handler panicked",
+				"broker", h.Broker.String(),
+				"id", h.Broker.options.ID,
+				"name", h.Broker.options.Name,
+				"topic", h.Topic,
+				"channel", h.Channel,
+				"panic", r,
+			)
+			err = fmt.Errorf("nsq broker handler panicked: %v", r)
+		}
 	}()
 	h.Broker.options.Logger.DebugContext(
 		h.Broker.ctx,

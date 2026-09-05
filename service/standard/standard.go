@@ -238,7 +238,7 @@ func (s *Standard) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 
 /* }}} */
 
-/*/*
+/*
  * Local variables:
  * tab-width: 4
  * c-basic-offset: 4

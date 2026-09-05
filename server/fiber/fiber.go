@@ -271,15 +271,27 @@ func (srv *FiberServer) Start() error {
 		err      error
 	)
 
-	srv.Lock()
-	defer srv.Unlock()
-
-	if srv.running || srv.stopping {
+	srv.RLock()
+	running := srv.running
+	stopping := srv.stopping
+	srv.RUnlock()
+	if running || stopping {
 		// running
 		return nil
 	}
 
+	// Hooks run unlocked: they may call accessors (Addr/Port/...) which
+	// take the read lock and would self-deadlock under the write lock.
 	srv.options.RunBeforeStart()
+
+	srv.Lock()
+
+	if srv.running || srv.stopping {
+		srv.Unlock()
+
+		// running
+		return nil
+	}
 
 	// A half-configured TLS must never silently fall back to plaintext.
 	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
@@ -291,6 +303,8 @@ func (srv *FiberServer) Start() error {
 			"name", srv.options.Name,
 		)
 
+		srv.Unlock()
+
 		return ErrIncompleteTLSConfig
 	}
 
@@ -298,6 +312,7 @@ func (srv *FiberServer) Start() error {
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"TLS certification failed",
@@ -319,6 +334,7 @@ func (srv *FiberServer) Start() error {
 			},
 		)
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"Network listen with TLS certificate failed",
@@ -336,6 +352,7 @@ func (srv *FiberServer) Start() error {
 			srv.addr.String(),
 		)
 		if err != nil {
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"Network listen failed",
@@ -395,6 +412,8 @@ func (srv *FiberServer) Start() error {
 		"addr", srv.addr.String(),
 	)
 	srv.running = true
+	srv.Unlock()
+
 	srv.options.RunAfterStart()
 
 	return nil
@@ -413,10 +432,13 @@ func (srv *FiberServer) Stop() error {
 	}
 
 	srv.stopping = true
-	srv.options.RunBeforeStop()
 	app := srv.app
 	timeout := srv.config.ShutdownTimeout
 	srv.Unlock()
+
+	// Hooks run unlocked: they may call accessors which take the read
+	// lock and would self-deadlock under the write lock.
+	srv.options.RunBeforeStop()
 
 	// Use the fiber-level shutdown, then close our own listener as a
 	// backstop: if Stop wins the race against Serve registering the
@@ -546,8 +568,11 @@ func (srv *FiberServer) AdvertisePort() int {
 
 // Metadata returns the metadata.
 func (srv *FiberServer) Metadata() utils.Metadata {
-	// Snapshot: the map is written during Start while handlers may read
-	// it concurrently; returning the live map would race.
+	// Snapshot under the read lock: the map is written during Start while
+	// handlers may read it concurrently; returning the live map would race.
+	srv.RLock()
+	defer srv.RUnlock()
+
 	if srv.metadata == nil {
 		return utils.NewMetadata()
 	}

@@ -121,56 +121,74 @@ func Clear() {
 
 /* {{{ [Helpers]. */
 func Register(ins *Instance) error {
-	if defaultRegistry == nil {
+	rgMu.RLock()
+	rg := defaultRegistry
+	rgMu.RUnlock()
+	if rg == nil {
 		return nil
 	}
 
-	return defaultRegistry.Register(ins)
+	return rg.Register(ins)
 }
 
 // Deregister removes the registration.
 func Deregister(id uuid.UUID) error {
-	if defaultRegistry == nil {
+	rgMu.RLock()
+	rg := defaultRegistry
+	rgMu.RUnlock()
+	if rg == nil {
 		return nil
 	}
 
-	return defaultRegistry.Deregister(id)
+	return rg.Deregister(id)
 }
 
 // CheckInstance checks instance liveness.
 func CheckInstance(id uuid.UUID) bool {
-	if defaultRegistry == nil {
+	rgMu.RLock()
+	rg := defaultRegistry
+	rgMu.RUnlock()
+	if rg == nil {
 		return false
 	}
 
-	return defaultRegistry.CheckInstance(id)
+	return rg.CheckInstance(id)
 }
 
 // Load loads persisted state.
 func Load() ([]*Instance, error) {
-	if defaultRegistry == nil {
+	rgMu.RLock()
+	rg := defaultRegistry
+	rgMu.RUnlock()
+	if rg == nil {
 		return nil, nil
 	}
 
-	return defaultRegistry.Load()
+	return rg.Load()
 }
 
 // Watch watches for changes.
 func Watch() error {
-	if defaultRegistry == nil {
+	rgMu.RLock()
+	rg := defaultRegistry
+	rgMu.RUnlock()
+	if rg == nil {
 		return nil
 	}
 
-	return defaultRegistry.Watch()
+	return rg.Watch()
 }
 
 // Stop stops the component and releases resources.
 func Stop() error {
-	if defaultRegistry == nil {
+	rgMu.RLock()
+	rg := defaultRegistry
+	rgMu.RUnlock()
+	if rg == nil {
 		return nil
 	}
 
-	return defaultRegistry.Stop()
+	return rg.Stop()
 }
 
 /* }}} */

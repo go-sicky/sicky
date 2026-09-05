@@ -366,15 +366,14 @@ func (clt *GRPCClient) ID() uuid.UUID {
 
 // For GRPC client connection.
 func (clt *GRPCClient) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
-	// Invoke logger
+	// Invoke logger. Request/reply payloads carry credentials/PII and are
+	// never logged, not even at debug level.
 	clt.options.Logger.DebugContext(
 		ctx,
 		"Invoke GRPC call",
 		"client", clt.options.ID,
 		"name", clt.options.Name,
 		"method", method,
-		"args", args,
-		"reply", reply,
 	)
 	metrics.NumGRPCClientCallCounter.Inc()
 	err := clt.conn.Invoke(ctx, method, args, reply, opts...)

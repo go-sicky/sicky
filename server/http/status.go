@@ -31,7 +31,11 @@
 package http
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 
 	"github.com/uptrace/bunrouter"
@@ -74,6 +78,33 @@ func (w *statusRecorder) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack is part of the public API.
+func (w *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+
+	return nil, nil, fmt.Errorf("hijack not supported by wrapped ResponseWriter %T", w.ResponseWriter)
+}
+
+// Push is part of the public API.
+func (w *statusRecorder) Push(target string, opts *http.PushOptions) error {
+	if p, ok := w.ResponseWriter.(http.Pusher); ok {
+		return p.Push(target, opts)
+	}
+
+	return http.ErrNotSupported
+}
+
+// ReadFrom is part of the public API.
+func (w *statusRecorder) ReadFrom(r io.Reader) (int64, error) {
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
+	}
+
+	return io.Copy(w, r)
 }
 
 // NewStatusMiddleware records the response status into the request

@@ -40,7 +40,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/utils"
 )
 
 // Local is a local component.
@@ -136,7 +135,12 @@ func (rg *Local) Register(ins *registry.Instance) error {
 	}
 
 	file := filepath.Join(dir, ins.ID.String()+".json")
-	data := utils.JSONAnyBytes(ins)
+	data, merr := json.Marshal(ins)
+	if merr != nil {
+		// Never write a 0-byte file that every later Load() cannot parse.
+		return fmt.Errorf("local registry marshal (instance %s): %w", ins.ID, merr)
+	}
+
 	err := os.WriteFile(file, data, 0o600)
 	if err != nil {
 		rg.options.Logger.ErrorContext(

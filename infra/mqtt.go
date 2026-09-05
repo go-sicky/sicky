@@ -175,6 +175,9 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 			"broker", redactDSN(c.Broker),
 			"error", token.Error().Error(),
 		)
+		// paho auto-retries failed connects in the background; a
+		// permanently bad broker must not keep that goroutine alive.
+		client.Disconnect(0)
 
 		return nil, token.Error()
 	}

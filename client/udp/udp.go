@@ -33,6 +33,7 @@ package udp
 import (
 	"context"
 	"net"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -48,6 +49,8 @@ type UDPClient struct {
 	conn      *net.UDPConn
 	connected bool
 	addr      *net.UDPAddr
+
+	mu sync.Mutex
 }
 
 // New creates a new instance (nil on invalid config).
@@ -119,6 +122,8 @@ func (clt *UDPClient) Name() string {
 
 // Connect connects to the backend.
 func (clt *UDPClient) Connect() error {
+	clt.mu.Lock()
+	defer clt.mu.Unlock()
 	if clt.connected {
 		return nil
 	}
@@ -136,6 +141,8 @@ func (clt *UDPClient) Connect() error {
 
 // Disconnect disconnects from the backend.
 func (clt *UDPClient) Disconnect() error {
+	clt.mu.Lock()
+	defer clt.mu.Unlock()
 	if !clt.connected {
 		return nil
 	}

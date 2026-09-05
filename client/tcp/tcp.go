@@ -33,6 +33,7 @@ package tcp
 import (
 	"context"
 	"net"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -48,6 +49,8 @@ type TCPClient struct {
 	conn      net.TCPConn
 	connected bool
 	addr      *net.TCPAddr
+
+	mu sync.Mutex
 }
 
 // New creates a new instance (nil on invalid config).
@@ -119,6 +122,8 @@ func (clt *TCPClient) Name() string {
 
 // Connect connects to the backend.
 func (clt *TCPClient) Connect() error {
+	clt.mu.Lock()
+	defer clt.mu.Unlock()
 	if clt.connected {
 		return nil
 	}
@@ -136,6 +141,8 @@ func (clt *TCPClient) Connect() error {
 
 // Disconnect disconnects from the backend.
 func (clt *TCPClient) Disconnect() error {
+	clt.mu.Lock()
+	defer clt.mu.Unlock()
 	if !clt.connected {
 		return nil
 	}

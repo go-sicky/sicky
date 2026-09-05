@@ -96,9 +96,10 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 		av := c.Locals(cfg.AccessLoggerConfig.SampledContextKey)
 		sampled, _ := av.(string)
 		chainErr := c.Next()
-		if chainErr != nil {
-			_ = c.App().Config().ErrorHandler(c, chainErr)
-		}
+		// The fiber core invokes ErrorHandler exactly once for a chain
+		// error; calling it here as well would run the handler 2-3 times
+		// per failing request (logger + tracer + core).
+		_ = chainErr
 
 		end := time.Now()
 		status := c.Response().Header.StatusCode()

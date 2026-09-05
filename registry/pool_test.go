@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 
@@ -78,5 +79,33 @@ func TestNotifyChanStableAcrossPurge(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected pool change notification")
+	}
+}
+
+// TestCloneInstanceNoJSONCycle guards the Topic->Instance back-reference
+// removal: a cycle would make /services and every JSON registry backend
+// fail to marshal.
+func TestCloneInstanceNoJSONCycle(t *testing.T) {
+	ins := &Instance{
+		ID:          uuid.New(),
+		ServiceName: "svc",
+	}
+
+	ins.Topics = map[string]*Topic{
+		"events": {Name: "events", Type: "nats", Instance: ins},
+	}
+
+	dup := cloneInstance(ins)
+	if dup.Topics["events"] == nil {
+		t.Fatal("topic lost in clone")
+	}
+
+	raw, err := json.Marshal(dup)
+	if err != nil {
+		t.Fatalf("clone must marshal without cycle: %v", err)
+	}
+
+	if len(raw) == 0 {
+		t.Fatal("empty marshal")
 	}
 }

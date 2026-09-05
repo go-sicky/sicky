@@ -195,3 +195,83 @@ func TestValidateClamp(t *testing.T) {
 		t.Fatal("tracer not clamped")
 	}
 }
+
+func TestSanitizeRedactsPEMAndEndpoint(t *testing.T) {
+	for _, k := range []string{"tls_key_pem", "tls_cert_pem", "endpoint", "cloud_url", "key_pem", "cert_pem", "privatekey"} {
+		if got := sanitizeValue(k, "-----BEGIN PRIVATE KEY-----secret"); got != "***redacted***" {
+			t.Fatalf("%s not redacted: %v", k, got)
+		}
+	}
+
+	m := NewManager(nil, "app", "v1")
+	m.cfgVar = &Config{
+		Manager: &ManagerConfig{
+			TLSCertPEM: "CERT",
+			TLSKeyPEM:  "KEY-PRIVATE-MATERIAL",
+		},
+	}
+
+	raw, _ := json.Marshal(m.sanitizedConfig())
+	if strings.Contains(string(raw), "KEY-PRIVATE-MATERIAL") {
+		t.Fatalf("tls private key leaked in sanitized config: %s", raw)
+	}
+}
+
+func TestManagerPathValidation(t *testing.T) {
+	bad := []*ManagerConfig{
+		{Address: "127.0.0.1:0", MetricsPath: "metrics"},
+		{Address: "127.0.0.1:0", HealthPath: "/metrics"},
+		{Address: "127.0.0.1:0", LivePath: "/health"},
+	}
+
+	for i, c := range bad {
+		if err := c.Ensure().Validate(); err == nil {
+			t.Errorf("case %d: invalid path must fail validation", i)
+		}
+	}
+
+	ok := (&ManagerConfig{Address: "127.0.0.1:0", MetricsPath: "/m"}).Ensure()
+	if err := ok.Validate(); err != nil {
+		t.Errorf("valid paths must pass: %v", err)
+	}
+
+	// Invalid path must fail Start fast instead of panicking the process.
+	m := NewManager(&ManagerConfig{Address: "127.0.0.1:0", HealthPath: "health"}, "app", "v1")
+	if err := m.Start(); err == nil {
+		_ = m.Stop()
+		t.Fatal("invalid path Start must fail")
+	}
+}
+
+func TestManagerBindFailureReturnsError(t *testing.T) {
+	m1 := NewManager(&ManagerConfig{Address: "127.0.0.1:0"}, "app", "v1")
+	if err := m1.Start(); err != nil {
+		t.Fatalf("first bind failed: %v", err)
+	}
+
+	defer func() { _ = m1.Stop() }()
+	addr := m1.Addr()
+
+	m2 := NewManager(&ManagerConfig{Address: addr}, "app2", "v2")
+	if err := m2.Start(); err == nil {
+		_ = m2.Stop()
+		t.Fatal("conflicting bind must return an error")
+	}
+}
+
+func TestManagerStartStopRestart(t *testing.T) {
+	m := NewManager(&ManagerConfig{Address: "127.0.0.1:0"}, "app", "v1")
+	for i := range 3 {
+		if err := m.Start(); err != nil {
+			t.Fatalf("start %d failed: %v", i, err)
+		}
+
+		if err := m.Stop(); err != nil {
+			t.Fatalf("stop %d failed: %v", i, err)
+		}
+	}
+
+	if err := m.Stop(); err != nil {
+		t.Fatal("double stop must be nil")
+	}
+}

@@ -33,12 +33,13 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/utils"
 )
 
 // Redis is a redis component.
@@ -69,7 +70,11 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 		DB:       cfg.DB,
 		PoolSize: cfg.PoolSize,
 	})
-	err := rdb.Ping(context.Background()).Err()
+	// Bound the ping: a server that accepts TCP but never answers must not
+	// hang startup forever.
+	pingCtx, pingCancel := context.WithTimeout(rg.ctx, 5*time.Second)
+	err := rdb.Ping(pingCtx).Err()
+	pingCancel()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
@@ -79,6 +84,10 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 			"name", rg.options.Name,
 			"error", err.Error(),
 		)
+
+		// Close the half-open client: its pool and background goroutines
+		// must not leak.
+		_ = rdb.Close()
 
 		return nil
 	}
@@ -124,7 +133,14 @@ func (rg *Redis) Name() string {
 
 // Register registers the collector.
 func (rg *Redis) Register(ins *registry.Instance) error {
-	_, err := rg.client.HSet(rg.ctx, rg.config.InstanceKey, ins.ID.String(), utils.JSONAnyString(ins)).Result()
+	data, merr := json.Marshal(ins)
+	if merr != nil {
+		// A marshal failure must fail the registration instead of storing
+		// an empty/corrupt value that every later Load() cannot parse.
+		return fmt.Errorf("redis registry marshal (instance %s): %w", ins.ID, merr)
+	}
+
+	_, err := rg.client.HSet(rg.ctx, rg.config.InstanceKey, ins.ID.String(), string(data)).Result()
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,

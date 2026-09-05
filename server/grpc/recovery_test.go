@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -14,7 +15,7 @@ func TestUnaryRecoveryInterceptor(t *testing.T) {
 	_, err := iv(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/svc/Panic"},
 		func(ctx context.Context, req any) (any, error) {
-			panic("boom")
+			panic("secret-credential-boom")
 		})
 	if err == nil {
 		t.Fatal("panic must convert to error")
@@ -22,6 +23,16 @@ func TestUnaryRecoveryInterceptor(t *testing.T) {
 
 	if got := status.Code(err); got != codes.Internal {
 		t.Fatalf("code = %v, want Internal", got)
+	}
+
+	// Neither the panic value nor the stack trace may reach the client.
+	msg := status.Convert(err).Message()
+	if strings.Contains(msg, "secret-credential-boom") {
+		t.Fatalf("panic value leaked to client: %q", msg)
+	}
+
+	if strings.Contains(msg, "goroutine") || strings.Contains(msg, "recovery.go") {
+		t.Fatalf("stack trace leaked to client: %q", msg)
 	}
 
 	// Non-panicking handler passes through untouched.
@@ -38,7 +49,7 @@ func TestStreamRecoveryInterceptor(t *testing.T) {
 	err := iv(nil, &stubServerStream{ctx: context.Background()},
 		&grpc.StreamServerInfo{FullMethod: "/svc/Panic"},
 		func(srv any, ss grpc.ServerStream) error {
-			panic("boom")
+			panic("secret-credential-boom")
 		})
 	if err == nil {
 		t.Fatal("panic must convert to error")
@@ -46,5 +57,14 @@ func TestStreamRecoveryInterceptor(t *testing.T) {
 
 	if got := status.Code(err); got != codes.Internal {
 		t.Fatalf("code = %v, want Internal", got)
+	}
+
+	msg := status.Convert(err).Message()
+	if strings.Contains(msg, "secret-credential-boom") {
+		t.Fatalf("panic value leaked to client: %q", msg)
+	}
+
+	if strings.Contains(msg, "goroutine") || strings.Contains(msg, "recovery.go") {
+		t.Fatalf("stack trace leaked to client: %q", msg)
 	}
 }

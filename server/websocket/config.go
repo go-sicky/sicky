@@ -25,10 +25,12 @@
  * @file config.go
  * @package websocket
  * @author Dr.NP <np@herewe.tech>
- * @since 11/22/2023
+ * @since 11/20/2023
  */
 
 package websocket
+
+import "errors"
 
 const (
 	// DefaultNetwork is a websocket constant.
@@ -41,18 +43,28 @@ const (
 	DefaultPingDuration = 5
 	// DefaultMaxIdleDuration is a websocket constant.
 	DefaultMaxIdleDuration = 60
+	// DefaultShutdownTimeout is a websocket constant.
+	DefaultShutdownTimeout = 10
 )
+
+// ErrIncompleteTLSConfig is returned when only one of tls_cert_pem and
+// tls_key_pem is set. Serving plaintext with a half TLS configuration is
+// never intended.
+var ErrIncompleteTLSConfig = errors.New("websocket: tls_cert_pem and tls_key_pem must both be set or both empty")
 
 // Config is a websocket component.
 type Config struct {
-	Network          string `json:"network"           mapstructure:"network"           yaml:"network"`
-	Address          string `json:"address"           mapstructure:"address"           yaml:"address"`
-	AdvertiseAddress string `json:"advertise_address" mapstructure:"advertise_address" yaml:"advertise_address"`
-	TLSCertPEM       string `json:"tls_cert_pem"      mapstructure:"tls_cert_pem"      yaml:"tls_cert_pem"`
-	TLSKeyPEM        string `json:"tls_key_pem"       mapstructure:"tls_key_pem"       yaml:"tls_key_pem"`
-	Path             string `json:"path"              mapstructure:"path"              yaml:"path"`
-	PingDuration     int    `json:"ping_duration"     mapstructure:"ping_duration"     yaml:"ping_duration"`
-	MaxIdleDuration  int    `json:"max_idle_duration" mapstructure:"max_idle_duration" yaml:"max_idle_duration"`
+	Network          string   `json:"network"           mapstructure:"network"           yaml:"network"`
+	Address          string   `json:"address"           mapstructure:"address"           yaml:"address"`
+	AdvertiseAddress string   `json:"advertise_address" mapstructure:"advertise_address" yaml:"advertise_address"`
+	TLSCertPEM       string   `json:"tls_cert_pem"      mapstructure:"tls_cert_pem"      yaml:"tls_cert_pem"`
+	TLSKeyPEM        string   `json:"tls_key_pem"       mapstructure:"tls_key_pem"       yaml:"tls_key_pem"`
+	Path             string   `json:"path"              mapstructure:"path"              yaml:"path"`
+	PingDuration     int      `json:"ping_duration"     mapstructure:"ping_duration"     yaml:"ping_duration"`
+	MaxIdleDuration  int      `json:"max_idle_duration" mapstructure:"max_idle_duration" yaml:"max_idle_duration"`
+	ShutdownTimeout  int      `json:"shutdown_timeout"  mapstructure:"shutdown_timeout"  yaml:"shutdown_timeout"`
+	Origins          []string `json:"origins"           mapstructure:"origins"           yaml:"origins"`
+	MaxMessageBytes  int      `json:"max_message_bytes" mapstructure:"max_message_bytes" yaml:"max_message_bytes"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -63,6 +75,7 @@ func DefaultConfig() *Config {
 		Path:            DefaultPath,
 		PingDuration:    DefaultPingDuration,
 		MaxIdleDuration: DefaultMaxIdleDuration,
+		ShutdownTimeout: DefaultShutdownTimeout,
 	}
 }
 
@@ -84,13 +97,21 @@ func (c *Config) Ensure() *Config {
 		c.Path = DefaultPath
 	}
 
-	if c.PingDuration == 0 {
+	if c.PingDuration <= 0 {
 		c.PingDuration = DefaultPingDuration
 	}
 
-	if c.MaxIdleDuration == 0 {
+	if c.MaxIdleDuration <= 0 {
 		c.MaxIdleDuration = DefaultMaxIdleDuration
 	}
+
+	if c.ShutdownTimeout <= 0 {
+		c.ShutdownTimeout = DefaultShutdownTimeout
+	}
+
+	// Origins: empty means same-origin enforcement (browser clients only),
+	// non-browser clients without an Origin header are always allowed.
+	// MaxMessageBytes: 0 means unlimited (read limit disabled).
 
 	return c
 }

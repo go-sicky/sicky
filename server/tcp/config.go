@@ -47,6 +47,8 @@ const (
 	// MinReapIntervalSeconds floors the idle-session reaper tick.
 	// MinReapIntervalSeconds is a tcp constant.
 	MinReapIntervalSeconds = 5
+	// DefaultShutdownTimeout is a tcp constant.
+	DefaultShutdownTimeout = 10
 )
 
 // Config is a tcp component.
@@ -66,6 +68,9 @@ type Config struct {
 	// unlimited. Streaming/long-lived connections must set this high
 	// enough or leave it 0 — exceeding it closes the connection.
 	MaxMessageBytes int64 `json:"max_message_bytes" mapstructure:"max_message_bytes" yaml:"max_message_bytes"`
+	// ShutdownTimeout bounds the Stop drain in seconds. A blocking
+	// handler must never wedge shutdown forever.
+	ShutdownTimeout int `json:"shutdown_timeout" mapstructure:"shutdown_timeout" yaml:"shutdown_timeout"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -75,6 +80,7 @@ func DefaultConfig() *Config {
 		Address:         DefaultAddress,
 		BufferSize:      DefaultBufferSize,
 		MaxIdleDuration: DefaultMaxIdleDuration,
+		ShutdownTimeout: DefaultShutdownTimeout,
 	}
 }
 
@@ -106,6 +112,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.ReadTimeout < 0 {
 		c.ReadTimeout = 0
+	}
+
+	if c.ShutdownTimeout <= 0 {
+		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 
 	if c.WriteTimeout < 0 {

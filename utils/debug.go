@@ -78,6 +78,10 @@ func JSONAny(d any) {
 }
 
 // JSONAnyString is a debugging helper.
+//
+// Deprecated: it silently returns "" on marshal failure, which corrupts
+// any persisted caller data (registry registrations). Production callers
+// must use json.Marshal and handle the error explicitly.
 func JSONAnyString(d any) string {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -88,6 +92,10 @@ func JSONAnyString(d any) string {
 }
 
 // JSONAnyBytes is a debugging helper.
+//
+// Deprecated: it silently returns nil on marshal failure, which corrupts
+// any persisted caller data (registry registrations). Production callers
+// must use json.Marshal and handle the error explicitly.
 func JSONAnyBytes(d any) []byte {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {

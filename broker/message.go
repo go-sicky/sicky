@@ -182,8 +182,14 @@ func (m *Message) Format(v any, mime ...int) error {
 }
 
 // Raw is part of the public API.
+//
+// A msgpack marshal failure (e.g. an unmarshalable Body) falls back to the
+// original wire bytes so publishers never silently send an empty payload.
 func (m *Message) Raw() []byte {
-	b, _ := msgpack.Marshal(m)
+	b, err := msgpack.Marshal(m)
+	if err != nil && m.Body != nil {
+		return m.Body
+	}
 
 	return b
 }

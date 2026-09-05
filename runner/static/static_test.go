@@ -119,3 +119,37 @@ func TestLenTracksQueue(t *testing.T) {
 
 	close(release)
 }
+
+func TestStartStopRestart(t *testing.T) {
+	r := newTestRunner(4, 1)
+	processed := make(chan string, 8)
+	r.options.Handler = func(task *runner.Task) error {
+		processed <- task.Data.(string)
+
+		return nil
+	}
+
+	for i := range 3 {
+		if err := r.Start(); err != nil {
+			t.Fatalf("Start %d: %v", i, err)
+		}
+
+		tk := &runner.Task{Data: "v"}
+		if err := r.TryTask(tk, time.Second); err != nil {
+			t.Fatalf("TryTask %d: %v", i, err)
+		}
+
+		select {
+		case got := <-processed:
+			if got != "v" {
+				t.Fatalf("task not processed: %q", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("task %d not processed", i)
+		}
+
+		if err := r.Stop(); err != nil {
+			t.Fatalf("Stop %d: %v", i, err)
+		}
+	}
+}

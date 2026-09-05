@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/service/mcp/protocol"
@@ -49,6 +50,8 @@ type MCPServer struct {
 	transport    protocol.Transport
 	initialized  bool
 	log          logger.GeneralLogger
+
+	mu sync.RWMutex
 }
 
 // NewMCPServer creates a new MCPServer.
@@ -67,7 +70,18 @@ func (s *MCPServer) SetLogger(l logger.GeneralLogger) {
 
 // Handle registers handlers.
 func (s *MCPServer) Handle(hdls ...Handler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.handlers = append(s.handlers, hdls...)
+}
+
+// snapshotHandlers returns a stable handler snapshot.
+func (s *MCPServer) snapshotHandlers() []Handler {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return append([]Handler(nil), s.handlers...)
 }
 
 // Serve serves requests until stopped.
@@ -190,7 +204,9 @@ func (s *MCPServer) dispatchRequest(ctx context.Context, req *protocol.Request) 
 func (s *MCPServer) dispatchNotification(ctx context.Context, notif *protocol.Notification) {
 	switch notif.Method {
 	case protocol.MethodInitialized:
+		s.mu.Lock()
 		s.initialized = true
+		s.mu.Unlock()
 		s.log.InfoContext(ctx, "MCP client initialized")
 
 	default:
@@ -225,7 +241,7 @@ func (s *MCPServer) handlePing(_ context.Context, req *protocol.Request) *protoc
 
 func (s *MCPServer) handleToolsList(_ context.Context, req *protocol.Request) *protocol.Response {
 	tools := make([]protocol.Tool, 0)
-	for _, h := range s.handlers {
+	for _, h := range s.snapshotHandlers() {
 		tools = append(tools, h.Tools()...)
 	}
 
@@ -238,7 +254,7 @@ func (s *MCPServer) handleToolsCall(_ context.Context, req *protocol.Request) *p
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
 	}
 
-	for _, h := range s.handlers {
+	for _, h := range s.snapshotHandlers() {
 		for _, t := range h.Tools() {
 			if t.Name == params.Name {
 				result, err := h.CallTool(params.Name, params.Arguments)
@@ -256,7 +272,7 @@ func (s *MCPServer) handleToolsCall(_ context.Context, req *protocol.Request) *p
 
 func (s *MCPServer) handleResourcesList(_ context.Context, req *protocol.Request) *protocol.Response {
 	resources := make([]protocol.Resource, 0)
-	for _, h := range s.handlers {
+	for _, h := range s.snapshotHandlers() {
 		resources = append(resources, h.Resources()...)
 	}
 
@@ -269,7 +285,7 @@ func (s *MCPServer) handleResourcesRead(_ context.Context, req *protocol.Request
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
 	}
 
-	for _, h := range s.handlers {
+	for _, h := range s.snapshotHandlers() {
 		for _, r := range h.Resources() {
 			if r.URI == params.URI {
 				result, err := h.ReadResource(params.URI)
@@ -287,7 +303,7 @@ func (s *MCPServer) handleResourcesRead(_ context.Context, req *protocol.Request
 
 func (s *MCPServer) handlePromptsList(_ context.Context, req *protocol.Request) *protocol.Response {
 	prompts := make([]protocol.Prompt, 0)
-	for _, h := range s.handlers {
+	for _, h := range s.snapshotHandlers() {
 		prompts = append(prompts, h.Prompts()...)
 	}
 
@@ -300,7 +316,7 @@ func (s *MCPServer) handlePromptsGet(_ context.Context, req *protocol.Request) *
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
 	}
 
-	for _, h := range s.handlers {
+	for _, h := range s.snapshotHandlers() {
 		for _, p := range h.Prompts() {
 			if p.Name == params.Name {
 				result, err := h.GetPrompt(params.Name, params.Arguments)

@@ -134,13 +134,19 @@ func NewMetadataMiddleware(config ...MetadataConfig) bunrouter.MiddlewareFunc {
 
 			ctx := r.Context()
 
-			requestID := sanitizePropagatedValue(r.Header.Get(cfg.RequestIDHeader))
+			// The outer Propagation middleware already generated a UUID
+			// for header-less requests and stored it under the same key:
+			// only overwrite when the client actually sent a value, so
+			// the generated request-id survives to the access log.
+			if headerID := sanitizePropagatedValue(r.Header.Get(cfg.RequestIDHeader)); headerID != "" {
+				ctx = context.WithValue(ctx, cfg.RequestIDContextKey, headerID)
+			}
+
 			traceID := sanitizePropagatedValue(r.Header.Get(cfg.TraceIDHeader))
 			spanID := sanitizePropagatedValue(r.Header.Get(cfg.SpanIDHeader))
 			parentSpanID := sanitizePropagatedValue(r.Header.Get(cfg.ParentSpanIDHeader))
 			sampled := sanitizePropagatedValue(r.Header.Get(cfg.SampledHeader))
 
-			ctx = context.WithValue(ctx, cfg.RequestIDContextKey, requestID)
 			ctx = context.WithValue(ctx, cfg.TraceIDContextKey, traceID)
 			ctx = context.WithValue(ctx, cfg.SpanIDContextKey, spanID)
 			ctx = context.WithValue(ctx, cfg.ParentSpanIDContextKey, parentSpanID)

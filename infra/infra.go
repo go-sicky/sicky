@@ -211,10 +211,12 @@ func ClearS3() {
 	s3Bucket = ""
 }
 
-// redactDSN strips credentials (userinfo and common password query keys)
-// from DSN/URI strings before they are written to logs. Clickhouse DSN and
-// Mongo URI both embed user:password, so they must never be logged raw.
-func redactDSN(raw string) string {
+// RedactDSN strips credentials (userinfo and common password query keys)
+// from DSN/URI strings before they are written to logs or error strings.
+// Clickhouse DSN and Mongo URI both embed user:password, so they must
+// never be logged raw. Callers outside the infra package (broker,
+// registry) use this exported form.
+func RedactDSN(raw string) string {
 	if raw == "" {
 		return ""
 	}
@@ -245,4 +247,9 @@ func redactDSN(raw string) string {
 	}
 
 	return s
+}
+
+// redactDSN is the package-internal alias kept for existing call sites.
+func redactDSN(raw string) string {
+	return RedactDSN(raw)
 }

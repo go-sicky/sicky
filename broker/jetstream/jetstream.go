@@ -41,6 +41,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/go-sicky/sicky/broker"
+	"github.com/go-sicky/sicky/infra"
 )
 
 var (
@@ -140,7 +141,7 @@ func (brk *JetStream) Connect() error {
 			"error", err.Error(),
 		)
 
-		return fmt.Errorf("jetstream broker connect (url %s): %w", brk.config.URL, err)
+		return fmt.Errorf("jetstream broker connect (url %s): %w", infra.RedactDSN(brk.config.URL), err)
 	}
 
 	brk.options.Logger.InfoContext(
@@ -149,11 +150,14 @@ func (brk *JetStream) Connect() error {
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
-		"url", brk.config.URL,
+		"url", infra.RedactDSN(brk.config.URL),
 	)
 
 	jc, err := nc.JetStream()
 	if err != nil {
+		// The freshly dialed connection owns reconnect goroutines and a
+		// socket: a failed stream context must not leak them.
+		nc.Close()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Jetstream create stream context failed",
@@ -172,6 +176,7 @@ func (brk *JetStream) Connect() error {
 		MaxConsumers: brk.config.Stream.MaxConsumers,
 	})
 	if err != nil {
+		nc.Close()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"Jetstream create stream info failed",
@@ -184,16 +189,14 @@ func (brk *JetStream) Connect() error {
 		return fmt.Errorf("jetstream broker create stream (stream %s): %w", brk.config.Stream.Name, err)
 	}
 
+	brk.mu.Lock()
 	brk.conn = nc
 	brk.streamer = jc
 	brk.streamInfo = si
+	snapshot := maps.Clone(brk.handlers)
+	brk.mu.Unlock()
 
 	// Handlers
-	brk.mu.RLock()
-	snapshot := make(map[string]broker.Handler, len(brk.handlers))
-	maps.Copy(snapshot, brk.handlers)
-
-	brk.mu.RUnlock()
 	for topic, hdl := range snapshot {
 		err := brk.Subscribe(topic, hdl)
 		if err != nil {
@@ -216,29 +219,32 @@ func (brk *JetStream) Connect() error {
 func (brk *JetStream) Disconnect() error {
 	var unsubErr error
 
-	if brk.conn != nil && !brk.conn.IsClosed() {
-		brk.mu.RLock()
-		topics := make([]string, 0, len(brk.handlers))
-		for topic := range brk.handlers {
-			topics = append(topics, topic)
-		}
+	brk.mu.Lock()
+	conn := brk.conn
+	topics := make([]string, 0, len(brk.handlers))
+	for topic := range brk.handlers {
+		topics = append(topics, topic)
+	}
 
-		brk.mu.RUnlock()
+	brk.mu.Unlock()
+	if conn != nil && !conn.IsClosed() {
 		for _, topic := range topics {
 			if err := brk.Unsubscribe(topic); err != nil {
 				unsubErr = errors.Join(unsubErr, fmt.Errorf("jetstream broker unsubscribe (topic %s): %w", topic, err))
 			}
 		}
 
-		brk.conn.Close()
+		conn.Close()
+		brk.mu.Lock()
 		brk.conn = nil
+		brk.mu.Unlock()
 		brk.options.Logger.InfoContext(
 			brk.ctx,
 			"Jetstream broker disconnected",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
-			"url", brk.config.URL,
+			"url", infra.RedactDSN(brk.config.URL),
 		)
 	}
 
@@ -291,20 +297,35 @@ func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 
 // Subscribe subscribes a handler.
 func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
+	brk.mu.Lock()
+	defer brk.mu.Unlock()
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return ErrBrokerNotConnected
 	}
 
-	brk.mu.RLock()
+	// Check-and-insert under the same lock: two concurrent Subscribe calls
+	// for one topic must not both pass the existence check.
 	_, exists := brk.subscriptions[topic]
-	brk.mu.RUnlock()
 	if exists {
 		return ErrTopicAlreadySubscribed
 	}
 
 	sub, err := brk.streamer.Subscribe(topic, func(msg *nats.Msg) {
 		defer func() {
-			_ = recover()
+			if r := recover(); r != nil {
+				brk.options.Logger.ErrorContext(
+					brk.ctx,
+					"Jetstream broker handler panicked",
+					"broker", brk.String(),
+					"id", brk.options.ID,
+					"name", brk.options.Name,
+					"topic", topic,
+					"panic", r,
+				)
+				// A panicking handler must not silently consume the
+				// message: NAK so it stays in-flight until AckWait.
+				_ = msg.Nak()
+			}
 		}()
 		if h != nil {
 			m := broker.NewMessage(msg.Data)
@@ -358,9 +379,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 		"topic", topic,
 	)
 
-	brk.mu.Lock()
 	brk.subscriptions[topic] = sub
-	brk.mu.Unlock()
 
 	return nil
 }

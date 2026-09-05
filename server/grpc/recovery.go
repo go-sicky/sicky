@@ -37,18 +37,27 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
 // NewRecoveryInterceptor recovers panicking unary handlers and converts
 // them to Internal errors. It must sit outermost in the interceptor chain
 // so panics from tracing/logging/handler code are all contained: without
 // it a single bad request crashes the whole Serve loop.
-func NewRecoveryInterceptor() grpc.UnaryServerInterceptor {
+//
+// The stack trace and panic value are logged server-side only; the client
+// receives a generic Internal status so request data, credentials or SQL
+// embedded in the panic can never leak off the box.
+func NewRecoveryInterceptor(config ...LoggerConfig) grpc.UnaryServerInterceptor {
+	cfg := loggerConfigDefault(config...)
+
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if r := recover(); r != nil {
+				logPanic(cfg, ctx, info.FullMethod, "unary", r)
 				resp = nil
-				err = status.Errorf(codes.Internal, "grpc handler panicked: %v\n%s", r, debug.Stack())
+				err = status.Error(codes.Internal, "grpc handler panicked")
 			}
 		}()
 
@@ -59,16 +68,34 @@ func NewRecoveryInterceptor() grpc.UnaryServerInterceptor {
 // NewStreamRecoveryInterceptor is the streaming counterpart of
 // NewRecoveryInterceptor: a panicking stream handler must not kill the
 // server either.
-func NewStreamRecoveryInterceptor() grpc.StreamServerInterceptor {
+func NewStreamRecoveryInterceptor(config ...LoggerConfig) grpc.StreamServerInterceptor {
+	cfg := loggerConfigDefault(config...)
+
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				err = status.Errorf(codes.Internal, "grpc stream handler panicked: %v\n%s", r, debug.Stack())
+				logPanic(cfg, ss.Context(), info.FullMethod, "stream", r)
+				err = status.Error(codes.Internal, "grpc stream handler panicked")
 			}
 		}()
 
 		return handler(srv, ss)
 	}
+}
+
+func logPanic(cfg LoggerConfig, ctx context.Context, method, kind string, r any) {
+	if cfg.Logger == nil {
+		cfg.Logger = logger.Logger
+	}
+
+	cfg.Logger.ErrorContext(
+		ctx,
+		"grpc handler panicked",
+		"method", method,
+		"kind", kind,
+		"panic", r,
+		"stack", string(debug.Stack()),
+	)
 }
 
 /*

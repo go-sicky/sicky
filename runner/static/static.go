@@ -110,9 +110,19 @@ func (r *Static) Name() string {
 func (r *Static) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.started {
+	if r.started && !r.stopped {
 		return nil
 	}
+
+	// Restart support: Stop tears the channel/done down, so rebuild them
+	// before re-spawning workers. Without this a restarted runner would
+	// silently drop every Task (nil channel) while Start reported success.
+	if r.stopped || r.task == nil {
+		r.task = make(chan *runner.Task, r.options.BufferSize)
+		r.done = make(chan struct{})
+	}
+
+	r.stopped = false
 
 	n := r.options.NThreads
 	if n <= 0 {
@@ -300,7 +310,18 @@ func (r *Static) _worker() {
 	for t := range ch {
 		func() {
 			defer func() {
-				_ = recover()
+				if rec := recover(); rec != nil {
+					r.options.Logger.ErrorContext(
+						r.ctx,
+						"Runner task panicked",
+						"runner", r.String(),
+						"id", r.options.ID,
+						"name", r.options.Name,
+						"worker", self,
+						"task", t.ID.String(),
+						"panic", rec,
+					)
+				}
 			}()
 			r.options.Logger.TraceContext(
 				r.ctx,

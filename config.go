@@ -33,6 +33,7 @@ package sicky
 import (
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/broker/jetstream"
@@ -80,6 +81,11 @@ const (
 // ErrManagerIncompleteTLSConfig is returned when only one of
 // ManagerConfig.TLSCertPEM/TLSKeyPEM is set.
 var ErrManagerIncompleteTLSConfig = errors.New("manager: tls_cert_pem and tls_key_pem must both be set or both empty")
+
+// ErrManagerInvalidPath is returned when a config-driven endpoint path is
+// not a valid http.ServeMux pattern (must start with "/") or conflicts
+// with another path.
+var ErrManagerInvalidPath = errors.New("manager: invalid endpoint path")
 
 // ManagerConfig is a sicky component.
 type ManagerConfig struct {
@@ -201,7 +207,7 @@ func (c *ManagerConfig) Ensure() *ManagerConfig {
 	return c
 }
 
-// Validate rejects a half-configured TLS pair.
+// Validate rejects a half-configured TLS pair and invalid endpoint paths.
 func (c *ManagerConfig) Validate() error {
 	if c == nil {
 		return nil
@@ -209,6 +215,34 @@ func (c *ManagerConfig) Validate() error {
 
 	if (c.TLSCertPEM != "") != (c.TLSKeyPEM != "") {
 		return ErrManagerIncompleteTLSConfig
+	}
+
+	return c.validatePaths()
+}
+
+// validatePaths dry-runs the mux registration for every config-driven
+// endpoint path. http.ServeMux panics on patterns not starting with "/"
+// and on conflicting patterns; catching it here turns a process-killing
+// panic into a Start error.
+func (c *ManagerConfig) validatePaths() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrManagerInvalidPath, r)
+		}
+	}()
+
+	mux := http.NewServeMux()
+	for _, p := range []string{
+		c.MetricsPath,
+		c.HealthPath,
+		c.LivePath,
+		c.ReadyPath,
+		c.VersionPath,
+		c.InfoPath,
+		c.ConfigPath,
+		c.ServicePoolPath,
+	} {
+		mux.Handle(p, http.NotFoundHandler())
 	}
 
 	return nil

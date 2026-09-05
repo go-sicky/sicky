@@ -33,6 +33,7 @@ package grpc
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
@@ -97,6 +98,35 @@ func NewClientTracingInterceptor(tracer trace.Tracer) grpc.UnaryClientIntercepto
 type tracingClientStream struct {
 	grpc.ClientStream
 	span trace.Span
+
+	// endOnce bounds the span lifetime: it ends when the stream finishes
+	// (RecvMsg EOF/CloseSend) or when the caller context is done,
+	// whichever comes first — never later.
+	endOnce sync.Once
+}
+
+func (cs *tracingClientStream) endSpan() {
+	if cs.span != nil {
+		cs.endOnce.Do(func() { cs.span.End() })
+	}
+}
+
+func (cs *tracingClientStream) RecvMsg(m any) error {
+	err := cs.ClientStream.RecvMsg(m)
+	if err != nil {
+		cs.endSpan()
+
+		return err
+	}
+
+	return nil
+}
+
+func (cs *tracingClientStream) CloseSend() error {
+	err := cs.ClientStream.CloseSend()
+	cs.endSpan()
+
+	return err
 }
 
 // NewClientStreamTracingInterceptor creates a new ClientStreamTracingInterceptor.
@@ -119,7 +149,9 @@ func NewClientStreamTracingInterceptor(tracer trace.Tracer) grpc.StreamClientInt
 		wrapped := &tracingClientStream{ClientStream: cs, span: span}
 		go func() {
 			<-streamCtx.Done()
-			span.End()
+			// Backstop for streams never closed by the caller: the span
+			// and goroutine both end when the context goes away.
+			wrapped.endSpan()
 		}()
 
 		return wrapped, nil

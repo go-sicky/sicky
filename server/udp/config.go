@@ -47,6 +47,8 @@ const (
 	// MinReapIntervalSeconds floors the idle-session reaper tick.
 	// MinReapIntervalSeconds is a udp constant.
 	MinReapIntervalSeconds = 5
+	// DefaultShutdownTimeout is a udp constant.
+	DefaultShutdownTimeout = 10
 )
 
 // Config is a udp component.
@@ -66,6 +68,9 @@ type Config struct {
 	// MaxPacketsPerSecond caps datagrams per source per second
 	// (reflection/amplification guard). 0 means unlimited.
 	MaxPacketsPerSecond int `json:"max_packets_per_second" mapstructure:"max_packets_per_second" yaml:"max_packets_per_second"`
+	// ShutdownTimeout bounds the Stop drain in seconds. A blocking
+	// handler must never wedge shutdown forever.
+	ShutdownTimeout int `json:"shutdown_timeout" mapstructure:"shutdown_timeout" yaml:"shutdown_timeout"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -75,6 +80,7 @@ func DefaultConfig() *Config {
 		Address:         DefaultAddress,
 		BufferSize:      DefaultBufferSize,
 		MaxIdleDuration: DefaultMaxIdleDuration,
+		ShutdownTimeout: DefaultShutdownTimeout,
 	}
 }
 
@@ -118,6 +124,10 @@ func (c *Config) Ensure() *Config {
 
 	if c.MaxPacketsPerSecond < 0 {
 		c.MaxPacketsPerSecond = 0
+	}
+
+	if c.ShutdownTimeout <= 0 {
+		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 
 	return c

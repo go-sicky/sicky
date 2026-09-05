@@ -153,7 +153,9 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		err := c.Next()
 		if err != nil {
 			span.RecordError(err)
-			_ = c.App().Config().ErrorHandler(c, err)
+			// The fiber core invokes ErrorHandler exactly once for a
+			// chain error; calling it here as well would run the handler
+			// 2-3 times per failing request.
 		}
 
 		return err

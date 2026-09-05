@@ -108,6 +108,19 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		)
 	}
 
+	if cfg.ReadTimeout == 0 && cfg.MaxSessions == 0 {
+		// Defaults keep 0 = off, but a production TCP endpoint without
+		// read deadlines or a session cap is exposed to Slowloris
+		// connection drip: warn loudly, never silently change the
+		// default.
+		opts.Logger.WarnContext(
+			opts.Context,
+			"TCP flood protections disabled: set read_timeout and max_sessions for production",
+			"read_timeout", cfg.ReadTimeout,
+			"max_sessions", cfg.MaxSessions,
+		)
+	}
+
 	var (
 		addr          net.Addr
 		advertiseAddr net.Addr
@@ -250,8 +263,11 @@ func (srv *TCPServer) AdvertisePort() int {
 
 // Metadata returns the metadata.
 func (srv *TCPServer) Metadata() utils.Metadata {
-	// Snapshot: the map is written during Start while handlers may read
-	// it concurrently; returning the live map would race.
+	// Snapshot under the read lock: the map is written during Start while
+	// handlers may read it concurrently; returning the live map would race.
+	srv.RLock()
+	defer srv.RUnlock()
+
 	if srv.metadata == nil {
 		return utils.NewMetadata()
 	}
@@ -389,14 +405,24 @@ func (srv *TCPServer) Send(c net.Conn, data []byte) error {
 func (srv *TCPServer) Start() error {
 	var err error
 
-	srv.Lock()
-	defer srv.Unlock()
-
-	if srv.running || srv.stopping {
+	srv.RLock()
+	running := srv.running
+	stopping := srv.stopping
+	srv.RUnlock()
+	if running || stopping {
 		return nil
 	}
 
+	// Hooks run unlocked: they may call accessors (Addr/Port/...) which
+	// take the read lock and would self-deadlock under the write lock.
 	srv.options.RunBeforeStart()
+
+	srv.Lock()
+	if srv.running || srv.stopping {
+		srv.Unlock()
+
+		return nil
+	}
 
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
@@ -407,6 +433,7 @@ func (srv *TCPServer) Start() error {
 
 	srv.conn, err = net.Listen(srv.addr.Network(), srv.addr.String())
 	if err != nil {
+		srv.Unlock()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"Network listen failed",
@@ -520,13 +547,17 @@ func (srv *TCPServer) Start() error {
 			srv.conns[client] = struct{}{}
 			srv.connsMu.Unlock()
 			srv.wg.Add(1)
-			go func(c net.Conn) {
+			go func(c net.Conn, sess *Session) {
 				defer srv.wg.Done()
 				defer func() {
 					srv.connsMu.Lock()
 					delete(srv.conns, c)
 					srv.connsMu.Unlock()
 				}()
+				// Remove the session from the pool immediately: ghost
+				// entries pollute MaxSessions accounting and keep dead
+				// connections alive until the idle reaper fires.
+				defer srv.pool.RemoveByID(sess.ID)
 				defer func() { _ = c.Close() }()
 				// Last-resort panic guard; per-callback guards above
 				// already isolate handler panics.
@@ -623,7 +654,7 @@ func (srv *TCPServer) Start() error {
 						return h.OnClose(sess)
 					})
 				}
-			}(client)
+			}(client, sess)
 		}
 	})
 
@@ -637,6 +668,8 @@ func (srv *TCPServer) Start() error {
 		"address", srv.addr.String(),
 	)
 	srv.running = true
+	srv.Unlock()
+
 	srv.options.RunAfterStart()
 
 	return nil
@@ -654,9 +687,12 @@ func (srv *TCPServer) Stop() error {
 	}
 
 	srv.stopping = true
-	srv.options.RunBeforeStop()
 	listener := srv.conn
 	srv.Unlock()
+
+	// Hooks run unlocked: they may call accessors which take the read
+	// lock and would self-deadlock under the write lock.
+	srv.options.RunBeforeStop()
 
 	var errs []error
 	if err := listener.Close(); err != nil {
@@ -689,7 +725,18 @@ func (srv *TCPServer) Stop() error {
 
 	srv.connsMu.Unlock()
 
-	srv.wg.Wait()
+	// Bound the drain: a blocking handler must never wedge Stop forever.
+	waitDone := make(chan struct{})
+	go func() {
+		srv.wg.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(time.Duration(srv.config.ShutdownTimeout) * time.Second):
+		errs = append(errs, errors.New("tcp server shutdown timed out"))
+	}
 
 	srv.Lock()
 	srv.running = false

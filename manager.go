@@ -191,9 +191,6 @@ func (m *Manager) Start() error {
 		return nil
 	}
 
-	// Reserve running flag before releasing lock so concurrent Start/Stop
-	// serialize. Real work (ListenAndServe, logging) happens unlocked.
-	m.running = true
 	if m.config == nil {
 		m.config = DefaultManagerConfig()
 	} else {
@@ -203,16 +200,14 @@ func (m *Manager) Start() error {
 	cfg := m.config
 	m.Unlock()
 
-	// A half-configured TLS must never silently serve plaintext.
+	// A half-configured TLS must never silently serve plaintext, and
+	// config-driven paths must never panic the mux registration.
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.ErrorContext(
 			m.ctx,
-			"Manager TLS configuration incomplete",
+			"Manager configuration invalid",
 			"error", err.Error(),
 		)
-		m.Lock()
-		m.running = false
-		m.Unlock()
 
 		return err
 	}
@@ -236,9 +231,6 @@ func (m *Manager) Start() error {
 				"Manager TLS certification failed",
 				"error", err.Error(),
 			)
-			m.Lock()
-			m.running = false
-			m.Unlock()
 
 			return err
 		}
@@ -261,9 +253,39 @@ func (m *Manager) Start() error {
 	mux.Handle(cfg.ConfigPath, m.guardSensitive(m.cfg()))
 	mux.Handle(cfg.ServicePoolPath, m.guardSensitive(m.servicePool()))
 	srv.Handler = mux
+
+	// Bind synchronously so a port conflict is a real Start error instead
+	// of a log-only failure the orchestrator never learns about.
+	listener, err := net.Listen("tcp", cfg.Address)
+	if err != nil {
+		logger.Logger.ErrorContext(
+			m.ctx,
+			"Manager listen failed",
+			"address", cfg.Address,
+			"error", err.Error(),
+		)
+
+		return err
+	}
+
+	srv.Addr = listener.Addr().String()
+
+	// Publish server + running atomically so a concurrent Stop can never
+	// orphan the listener (Stop either sees running=false and returns, or
+	// sees the full state and shuts it down).
 	m.Lock()
+	if m.running {
+		// A concurrent Start raced in and won; discard this listener.
+		m.Unlock()
+		_ = listener.Close()
+
+		return nil
+	}
+
 	m.srv = srv
+	m.running = true
 	m.Unlock()
+
 	if cfg.AuthToken == "" && isExternalListen(cfg.Address) {
 		logger.Logger.WarnContext(
 			m.ctx,
@@ -273,16 +295,16 @@ func (m *Manager) Start() error {
 	}
 
 	m.wg.Add(1)
-	go func(s *http.Server, useTLS bool) {
+	go func(s *http.Server, l net.Listener, useTLS bool) {
 		defer m.wg.Done()
 
 		var err error
 		if useTLS {
 			// Certificates are already loaded into s.TLSConfig;
 			// empty cert/key file names keep ServeTLS from touching disk.
-			err = s.ServeTLS(nil, "", "")
+			err = s.ServeTLS(l, "", "")
 		} else {
-			err = s.ListenAndServe()
+			err = s.Serve(l)
 		}
 
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -302,7 +324,7 @@ func (m *Manager) Start() error {
 			m.ctx,
 			"Manager server closed",
 		)
-	}(srv, !servePlaintext)
+	}(srv, listener, !servePlaintext)
 
 	logger.Logger.InfoContext(
 		m.ctx,
@@ -343,17 +365,27 @@ func (m *Manager) Stop() error {
 
 	// Defensive: never block forever on a cancelless context.
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	if serr := srv.Shutdown(ctx); serr != nil && !errors.Is(serr, http.ErrServerClosed) {
-		m.wg.Wait()
-		m.Lock()
-		m.running = false
-		m.Unlock()
-
-		return serr
+	serr := srv.Shutdown(ctx)
+	cancel()
+	if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
+		// Force-close the listener and remaining connections so the
+		// serve goroutine and the wait below always terminate.
+		_ = srv.Close()
 	}
 
-	m.wg.Wait()
+	// Bound the wait: a stuck handler must never wedge shutdown forever.
+	waitDone := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(timeout + time.Second):
+		serr = errors.Join(serr, errors.New("manager shutdown timed out"))
+	}
+
 	logger.Logger.InfoContext(
 		m.ctx,
 		"Manager server shutdown",
@@ -362,6 +394,10 @@ func (m *Manager) Stop() error {
 	m.Lock()
 	m.running = false
 	m.Unlock()
+
+	if serr != nil && !errors.Is(serr, http.ErrServerClosed) {
+		return serr
+	}
 
 	return nil
 }
@@ -439,7 +475,7 @@ func isExternalListen(addr string) bool {
 // for debugging (/config itself is already auth-or-loopback gated).
 func sanitizeValue(key string, val any) any {
 	lk := strings.ToLower(key)
-	for _, sub := range []string{"dsn", "password", "passwd", "pwd", "secret", "token", "apikey", "api_key", "api-key", "auth", "private_key", "accesskey", "access_key", "secret_key", "session_token", "uri", "url", "broker", "addresses", "cloud_id", "creds_file", "nkey_file", "ca_file", "ca_cert_file", "root_ca_file"} {
+	for _, sub := range []string{"dsn", "password", "passwd", "pwd", "secret", "token", "apikey", "api_key", "api-key", "auth", "private_key", "privatekey", "accesskey", "access_key", "secret_key", "session_token", "uri", "url", "broker", "addresses", "cloud_id", "cloud_url", "creds_file", "nkey_file", "ca_file", "ca_cert_file", "root_ca_file", "tls_key", "tls_cert", "key_pem", "cert_pem", "private_key_pem", "endpoint"} {
 		if strings.Contains(lk, sub) {
 			if s, ok := val.(string); ok && s != "" {
 				return "***redacted***"
@@ -590,50 +626,56 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 
 	defs := []checkDef{
 		{name: componentRedis, ping: func(ctx context.Context) error {
-			if infra.GetRedis() == nil {
+			rdb := infra.GetRedis()
+			if rdb == nil {
 				return nil
 			}
 
-			return infra.GetRedis().Ping(ctx).Err()
+			return rdb.Ping(ctx).Err()
 		}},
 		{name: componentBun, ping: func(ctx context.Context) error {
-			if infra.GetBun() == nil {
+			db := infra.GetBun()
+			if db == nil {
 				return nil
 			}
 
-			return infra.GetBun().PingContext(ctx)
+			return db.PingContext(ctx)
 		}},
 		{name: componentClickhouse, ping: func(ctx context.Context) error {
-			if infra.GetClickHouse() == nil {
+			ch := infra.GetClickHouse()
+			if ch == nil {
 				return nil
 			}
 
-			return infra.GetClickHouse().Ping(ctx)
+			return ch.Ping(ctx)
 		}},
 		{name: componentMongo, ping: func(ctx context.Context) error {
-			if infra.GetMongo() == nil {
+			mg := infra.GetMongo()
+			if mg == nil {
 				return nil
 			}
 
-			return infra.GetMongo().Ping(ctx, readpref.Primary())
+			return mg.Ping(ctx, readpref.Primary())
 		}},
 		{name: componentElastic, ping: infra.PingElastic},
 		{name: componentS3, ping: infra.PingS3},
 		{name: componentRistretto, local: func() (bool, bool) { return infra.GetRistretto() != nil, false }},
 		{name: componentBadger, local: func() (bool, bool) { return infra.GetBadger() != nil, false }},
 		{name: componentNATS, local: func() (bool, bool) {
-			if infra.GetNATS() == nil {
+			nc := infra.GetNATS()
+			if nc == nil {
 				return false, false
 			}
 
-			return true, !infra.GetNATS().IsConnected()
+			return true, !nc.IsConnected()
 		}},
 		{name: componentMQTT, local: func() (bool, bool) {
-			if infra.GetMQTT() == nil {
+			mc := infra.GetMQTT()
+			if mc == nil {
 				return false, false
 			}
 
-			return true, !infra.GetMQTT().IsConnected()
+			return true, !mc.IsConnected()
 		}},
 	}
 
@@ -784,7 +826,15 @@ func (m *Manager) cfg() http.Handler {
 func (m *Manager) servicePool() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(registry.GetPool())
+		if err := json.NewEncoder(w).Encode(registry.GetPool()); err != nil {
+			// A marshal failure (e.g. a non-serializable instance) must
+			// not silently produce an empty body.
+			logger.Logger.ErrorContext(
+				m.ctx,
+				"Service pool marshal failed",
+				"error", err.Error(),
+			)
+		}
 	})
 }
 

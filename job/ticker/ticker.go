@@ -162,7 +162,16 @@ func (job *Ticker) Start() error {
 					if count%hdl.Inteval == 0 {
 						func() {
 							defer func() {
-								_ = recover()
+								if rec := recover(); rec != nil {
+									job.options.Logger.ErrorContext(
+										job.ctx,
+										"Ticker handler panicked",
+										"job", job.String(),
+										"id", job.options.ID,
+										"name", job.options.Name,
+										"panic", rec,
+									)
+								}
 							}()
 							err := job.runWithTimeout(hdl, t, count)
 							if err != nil {

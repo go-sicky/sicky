@@ -31,6 +31,7 @@
 package websocket
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -47,6 +48,12 @@ type Session struct {
 
 	conn *websocket.Conn
 	pool *Pool
+
+	// mu guards LastActive/Valid/Key. Meta stays handler-owned after
+	// OnConnect, matching the pre-existing exported-field contract.
+	mu sync.RWMutex
+	// sendMu serializes concurrent Write calls so frames never interleave.
+	sendMu sync.Mutex
 }
 
 // NewSession creates a new Session.
@@ -63,11 +70,37 @@ func NewSession(conn *websocket.Conn) *Session {
 	}
 }
 
+func (s *Session) touch() {
+	s.mu.Lock()
+	s.LastActive = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *Session) lastActive() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.LastActive
+}
+
 // Send sends data.
 func (s *Session) Send(mt int, data []byte) error {
-	s.LastActive = time.Now()
+	s.touch()
 	if mt <= 0 {
 		mt = websocket.TextMessage
+	}
+
+	if s.conn == nil {
+		return errors.New("websocket session has no connection")
+	}
+
+	// Serialize writes: the underlying websocket connection requires a
+	// single concurrent writer.
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
+	if err := s.conn.SetWriteDeadline(time.Now().Add(ControlDeadline)); err != nil {
+		return err
 	}
 
 	return s.conn.WriteMessage(mt, data)
@@ -116,7 +149,12 @@ func (s *Session) SetKey(key string) {
 /* }}} */
 
 /* {{{ [Pool]. */
-var SessionPool *Pool
+var (
+	// SessionPool is the package-wide session pool singleton.
+	SessionPool *Pool
+	// poolMu serializes SessionPool initialization across concurrent New calls.
+	poolMu sync.Mutex
+)
 
 // Pool is a websocket component.
 type Pool struct {
@@ -292,12 +330,13 @@ func (p *Pool) Purge() {
 
 	now := time.Now()
 	for _, sess := range snapshot {
-		if now.Sub(sess.LastActive) > p.pingDuration {
+		last := sess.lastActive()
+		if now.Sub(last) > p.pingDuration {
 			// Write ping
 			_ = sess.conn.WriteMessage(websocket.PingMessage, nil)
 		}
 
-		if now.Sub(sess.LastActive) > p.maxIdleDuration {
+		if now.Sub(last) > p.maxIdleDuration {
 			_ = sess.Close()
 		}
 	}
