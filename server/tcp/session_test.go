@@ -55,6 +55,7 @@ func TestSessionSetKey(t *testing.T) {
 	if got := p.GetByKey("alpha"); got != nil {
 		t.Fatal("old key still indexed after re-key")
 	}
+
 	if got := p.GetByKey("beta"); got != s {
 		t.Fatal("GetByKey(beta) missed after re-key")
 	}
@@ -62,9 +63,11 @@ func TestSessionSetKey(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
+
 	if got := p.GetByKey("beta"); got != nil {
 		t.Fatal("key still indexed after Close")
 	}
+
 	// Idempotent: second close is a no-op.
 	if err := s.Close(); err != nil {
 		t.Fatalf("second close: %v", err)
@@ -80,6 +83,7 @@ func TestServerMaxSessions(t *testing.T) {
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+
 	defer func() {
 		if err := srv.Stop(); err != nil {
 			t.Fatalf("stop: %v", err)
@@ -91,6 +95,7 @@ func TestServerMaxSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial 1: %v", err)
 	}
+
 	defer c1.Close()
 
 	// Give the accept loop a moment to register the session.
@@ -98,6 +103,7 @@ func TestServerMaxSessions(t *testing.T) {
 	for srv.pool.Length() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
+
 	if srv.pool.Length() != 1 {
 		t.Fatalf("pool length = %d, want 1", srv.pool.Length())
 	}
@@ -106,6 +112,7 @@ func TestServerMaxSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial 2: %v", err)
 	}
+
 	defer c2.Close()
 
 	// The over-cap connection must be rejected promptly.
@@ -114,6 +121,7 @@ func TestServerMaxSessions(t *testing.T) {
 	if _, err := c2.Read(buf); err == nil {
 		t.Fatal("over-cap connection not rejected")
 	}
+
 	if srv.pool.Length() != 1 {
 		t.Fatalf("pool length = %d, want 1 (no leak)", srv.pool.Length())
 	}
@@ -129,6 +137,7 @@ func TestServerMaxMessageBytes(t *testing.T) {
 	if err := srv.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+
 	defer func() {
 		if err := srv.Stop(); err != nil {
 			t.Fatalf("stop: %v", err)
@@ -139,16 +148,19 @@ func TestServerMaxMessageBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+
 	defer c.Close()
 
 	// Under the cap: dispatched.
 	if _, err := c.Write(make([]byte, 60)); err != nil {
 		t.Fatalf("write 1: %v", err)
 	}
+
 	deadline := time.Now().Add(2 * time.Second)
 	for h.sum() == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
+
 	if got := h.sum(); got != 60 {
 		t.Fatalf("delivered = %d, want 60", got)
 	}
@@ -157,11 +169,13 @@ func TestServerMaxMessageBytes(t *testing.T) {
 	if _, err := c.Write(make([]byte, 60)); err != nil {
 		t.Fatalf("write 2: %v", err)
 	}
+
 	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
 	buf := make([]byte, 1)
 	if _, err := c.Read(buf); err == nil {
 		t.Fatal("over-cap connection not closed")
 	}
+
 	if got := h.sum(); got != 60 {
 		t.Fatalf("delivered = %d, want 60 (excess must be dropped)", got)
 	}

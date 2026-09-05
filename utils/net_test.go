@@ -42,6 +42,7 @@ func TestAddrToIP(t *testing.T) {
 		if ip == nil {
 			t.Fatal("expected non-nil IP")
 		}
+
 		if !ip.Equal(net.ParseIP("192.168.1.1")) {
 			t.Errorf("expected 192.168.1.1, got %s", ip)
 		}
@@ -53,6 +54,7 @@ func TestAddrToIP(t *testing.T) {
 		if ip == nil {
 			t.Fatal("expected non-nil IP for IPv6")
 		}
+
 		if !ip.Equal(net.ParseIP("::1")) {
 			t.Errorf("expected ::1, got %s", ip)
 		}
@@ -64,6 +66,7 @@ func TestAddrToIP(t *testing.T) {
 		if ip == nil {
 			t.Fatal("expected non-nil IP for UDP")
 		}
+
 		if !ip.Equal(net.ParseIP("10.0.0.1")) {
 			t.Errorf("expected 10.0.0.1, got %s", ip)
 		}
@@ -75,6 +78,7 @@ func TestAddrToIP(t *testing.T) {
 		if ip == nil {
 			t.Fatal("expected non-nil IP for IPAddr")
 		}
+
 		if !ip.Equal(net.ParseIP("172.16.0.1")) {
 			t.Errorf("expected 172.16.0.1, got %s", ip)
 		}
@@ -87,7 +91,6 @@ func TestAddrToIP(t *testing.T) {
 			t.Errorf("expected nil IP for unsupported network type, got %s", ip)
 		}
 	})
-
 }
 
 func TestAddrToPort(t *testing.T) {
@@ -114,12 +117,11 @@ func TestAddrToPort(t *testing.T) {
 			t.Errorf("expected port 0 for unsupported network type, got %d", port)
 		}
 	})
-
 }
 
 func TestErrNilConnection(t *testing.T) {
-	if ErrNilConnection.Error() != "nil connection" {
-		t.Errorf("expected 'nil connection', got %q", ErrNilConnection.Error())
+	if ErrNilConnection.Error() != "utils: nil connection" {
+		t.Errorf("expected 'utils: nil connection', got %q", ErrNilConnection.Error())
 	}
 }
 

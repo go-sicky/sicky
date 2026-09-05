@@ -85,7 +85,8 @@ func Sanitize(v string) string {
 	if len(v) > maxSanitizedValueLen {
 		v = v[:maxSanitizedValueLen]
 	}
-	for i := 0; i < len(v); i++ {
+
+	for i := range len(v) {
 		c := v[i]
 		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
 			c == '-' || c == '_' || c == '.' || c == ':' {
@@ -105,6 +106,7 @@ func RedactDSN(dsn string) string {
 	if at < 0 {
 		return dsn
 	}
+
 	scheme := ""
 	rest := dsn[at+1:]
 	if i := strings.Index(dsn[:at], "://"); i >= 0 {

@@ -31,105 +31,136 @@
 package protocol
 
 const (
-	MethodInitialize    = "initialize"
-	MethodInitialized   = "notifications/initialized"
-	MethodToolsList     = "tools/list"
-	MethodToolsCall     = "tools/call"
+	// MethodInitialize is a protocol constant.
+	MethodInitialize = "initialize"
+	// MethodInitialized is a protocol constant.
+	MethodInitialized = "notifications/initialized"
+	// MethodToolsList is a protocol constant.
+	MethodToolsList = "tools/list"
+	// MethodToolsCall is a protocol constant.
+	MethodToolsCall = "tools/call"
+	// MethodResourcesList is a protocol constant.
 	MethodResourcesList = "resources/list"
+	// MethodResourcesRead is a protocol constant.
 	MethodResourcesRead = "resources/read"
-	MethodPromptsList   = "prompts/list"
-	MethodPromptsGet    = "prompts/get"
-	MethodPing          = "ping"
+	// MethodPromptsList is a protocol constant.
+	MethodPromptsList = "prompts/list"
+	// MethodPromptsGet is a protocol constant.
+	MethodPromptsGet = "prompts/get"
+	// MethodPing is a protocol constant.
+	MethodPing = "ping"
 
+	// ProtocolVersion is a protocol constant.
 	ProtocolVersion = "2024-11-05"
 )
 
 const (
-	ContentTypeText     = "text"
-	ContentTypeImage    = "image"
+	// ContentTypeText is a protocol constant.
+	ContentTypeText = "text"
+	// ContentTypeImage is a protocol constant.
+	ContentTypeImage = "image"
+	// ContentTypeResource is a protocol constant.
 	ContentTypeResource = "resource"
 
-	RoleUser      = "user"
+	// RoleUser is a protocol constant.
+	RoleUser = "user"
+	// RoleAssistant is a protocol constant.
 	RoleAssistant = "assistant"
 )
 
+// ToolsCapability is a protocol component.
 type ToolsCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
+// ResourcesCapability is a protocol component.
 type ResourcesCapability struct {
 	Subscribe   bool `json:"subscribe,omitempty"`
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
+// PromptsCapability is a protocol component.
 type PromptsCapability struct {
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
+// ServerCapabilities is a protocol component.
 type ServerCapabilities struct {
 	Tools     *ToolsCapability     `json:"tools,omitempty"`
 	Resources *ResourcesCapability `json:"resources,omitempty"`
 	Prompts   *PromptsCapability   `json:"prompts,omitempty"`
 }
 
+// ImplementationInfo is a protocol component.
 type ImplementationInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
+// InitializeParams is a protocol component.
 type InitializeParams struct {
 	ProtocolVersion string             `json:"protocolVersion"`
 	Capabilities    ClientCapabilities `json:"capabilities"`
 	ClientInfo      ImplementationInfo `json:"clientInfo"`
 }
 
+// ClientCapabilities is a protocol component.
 type ClientCapabilities struct {
 	Roots    *struct{} `json:"roots,omitempty"`
 	Sampling *struct{} `json:"sampling,omitempty"`
 }
 
+// InitializeResult is a protocol component.
 type InitializeResult struct {
 	ProtocolVersion string             `json:"protocolVersion"`
 	Capabilities    ServerCapabilities `json:"capabilities"`
 	ServerInfo      ImplementationInfo `json:"serverInfo"`
 }
 
+// Tool is a protocol component.
 type Tool struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	InputSchema InputSchema `json:"inputSchema"`
 }
 
+// InputSchema is a protocol component.
 type InputSchema struct {
 	Type       string              `json:"type"`
 	Properties map[string]Property `json:"properties,omitempty"`
 	Required   []string            `json:"required,omitempty"`
 }
 
+// Property is a protocol component.
 type Property struct {
 	Type        string `json:"type"`
 	Description string `json:"description,omitempty"`
 }
 
+// ToolsListParams is a protocol component.
 type ToolsListParams struct {
 	Cursor *string `json:"cursor,omitempty"`
 }
 
+// ToolsListResult is a protocol component.
 type ToolsListResult struct {
 	Tools      []Tool  `json:"tools"`
 	NextCursor *string `json:"nextCursor,omitempty"`
 }
 
+// ToolsCallParams is a protocol component.
 type ToolsCallParams struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments,omitempty"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
+// ToolsCallResult is a protocol component.
 type ToolsCallResult struct {
 	Content []ContentBlock `json:"content"`
 	IsError bool           `json:"isError,omitempty"`
 }
 
+// ContentBlock is a protocol component.
 type ContentBlock struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
@@ -138,6 +169,7 @@ type ContentBlock struct {
 	URI      string `json:"uri,omitempty"`
 }
 
+// Resource is a protocol component.
 type Resource struct {
 	URI         string `json:"uri"`
 	Name        string `json:"name"`
@@ -145,23 +177,28 @@ type Resource struct {
 	MimeType    string `json:"mimeType,omitempty"`
 }
 
+// ResourcesListParams is a protocol component.
 type ResourcesListParams struct {
 	Cursor *string `json:"cursor,omitempty"`
 }
 
+// ResourcesListResult is a protocol component.
 type ResourcesListResult struct {
 	Resources  []Resource `json:"resources"`
 	NextCursor *string    `json:"nextCursor,omitempty"`
 }
 
+// ResourcesReadParams is a protocol component.
 type ResourcesReadParams struct {
 	URI string `json:"uri"`
 }
 
+// ResourcesReadResult is a protocol component.
 type ResourcesReadResult struct {
 	Contents []ResourceContent `json:"contents"`
 }
 
+// ResourceContent is a protocol component.
 type ResourceContent struct {
 	URI      string `json:"uri"`
 	MimeType string `json:"mimeType,omitempty"`
@@ -169,48 +206,57 @@ type ResourceContent struct {
 	Blob     string `json:"blob,omitempty"`
 }
 
+// Prompt is a protocol component.
 type Prompt struct {
 	Name        string           `json:"name"`
 	Description string           `json:"description,omitempty"`
 	Arguments   []PromptArgument `json:"arguments,omitempty"`
 }
 
+// PromptArgument is a protocol component.
 type PromptArgument struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
 }
 
+// PromptsListParams is a protocol component.
 type PromptsListParams struct {
 	Cursor *string `json:"cursor,omitempty"`
 }
 
+// PromptsListResult is a protocol component.
 type PromptsListResult struct {
 	Prompts    []Prompt `json:"prompts"`
 	NextCursor *string  `json:"nextCursor,omitempty"`
 }
 
+// PromptsGetParams is a protocol component.
 type PromptsGetParams struct {
 	Name      string            `json:"name"`
 	Arguments map[string]string `json:"arguments,omitempty"`
 }
 
+// PromptsGetResult is a protocol component.
 type PromptsGetResult struct {
 	Description string          `json:"description,omitempty"`
 	Messages    []PromptMessage `json:"messages"`
 }
 
+// PromptMessage is a protocol component.
 type PromptMessage struct {
 	Role    string        `json:"role"`
 	Content PromptContent `json:"content"`
 }
 
+// PromptContent is a protocol component.
 type PromptContent struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
 }
 
+// PingResult is a protocol component.
 type PingResult struct {
 	Message string `json:"message"`
 }

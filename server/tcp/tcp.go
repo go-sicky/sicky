@@ -34,18 +34,21 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
+// TCPServer is a tcp component.
 type TCPServer struct {
 	config        *Config
 	ctx           context.Context
@@ -73,6 +76,7 @@ type TCPServer struct {
 	acceptWg sync.WaitGroup
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *server.Options, cfg *Config) *TCPServer {
 	opts = opts.Ensure()
 	negRead, negWrite, negSessions, negMsg := cfg.ReadTimeout, cfg.WriteTimeout, cfg.MaxSessions, cfg.MaxMessageBytes
@@ -87,6 +91,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 			"write_timeout", negWrite,
 		)
 	}
+
 	if negSessions < 0 {
 		opts.Logger.ErrorContext(
 			opts.Context,
@@ -94,6 +99,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 			"max_sessions", negSessions,
 		)
 	}
+
 	if negMsg < 0 {
 		opts.Logger.ErrorContext(
 			opts.Context,
@@ -115,6 +121,8 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
 
 	if cfg.AdvertiseAddress != "" {
@@ -125,6 +133,8 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
+
+			return nil
 		}
 	} else {
 		advertiseAddr = addr
@@ -141,6 +151,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		pool:          NewPool(cfg.MaxIdleDuration),
 		conns:         make(map[net.Conn]struct{}),
 	}
+
 	srv.handlers.Store(&[]Handler{})
 
 	srv.options.Logger.InfoContext(
@@ -158,26 +169,32 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 	return srv
 }
 
+// Context returns the component context.
 func (srv *TCPServer) Context() context.Context {
 	return srv.ctx
 }
 
+// Options returns the runtime options.
 func (srv *TCPServer) Options() *server.Options {
 	return srv.options
 }
 
+// String returns a human-readable name.
 func (srv *TCPServer) String() string {
 	return "tcp"
 }
 
+// ID returns the unique instance ID.
 func (srv *TCPServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
+// Name returns the component name.
 func (srv *TCPServer) Name() string {
 	return srv.options.Name
 }
 
+// Running reports whether the component is running.
 func (srv *TCPServer) Running() bool {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -185,6 +202,7 @@ func (srv *TCPServer) Running() bool {
 	return srv.running
 }
 
+// Addr returns the address.
 func (srv *TCPServer) Addr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -192,6 +210,7 @@ func (srv *TCPServer) Addr() net.Addr {
 	return srv.addr
 }
 
+// IP returns the IP.
 func (srv *TCPServer) IP() net.IP {
 	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
@@ -201,10 +220,12 @@ func (srv *TCPServer) IP() net.IP {
 	return try
 }
 
+// Port returns the port.
 func (srv *TCPServer) Port() int {
 	return utils.AddrToPort(srv.Addr())
 }
 
+// AdvertiseAddr returns the advertise address.
 func (srv *TCPServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -212,6 +233,7 @@ func (srv *TCPServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
+// AdvertiseIP returns the advertise IP.
 func (srv *TCPServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
@@ -221,10 +243,12 @@ func (srv *TCPServer) AdvertiseIP() net.IP {
 	return try
 }
 
+// AdvertisePort returns the advertise port.
 func (srv *TCPServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
+// Metadata returns the metadata.
 func (srv *TCPServer) Metadata() utils.Metadata {
 	// Snapshot: the map is written during Start while handlers may read
 	// it concurrently; returning the live map would race.
@@ -235,10 +259,12 @@ func (srv *TCPServer) Metadata() utils.Metadata {
 	return srv.metadata.Clone()
 }
 
+// App returns the app.
 func (srv *TCPServer) App() net.Listener {
 	return srv.conn
 }
 
+// Handle registers handlers.
 func (srv *TCPServer) Handle(hdls ...Handler) {
 	// Lock-free append: publish a new slice so concurrent I/O
 	// goroutines keep iterating a stable snapshot.
@@ -251,6 +277,7 @@ func (srv *TCPServer) Handle(hdls ...Handler) {
 			break
 		}
 	}
+
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
@@ -271,17 +298,13 @@ func (srv *TCPServer) startReaper() {
 	}
 
 	interval := time.Duration(srv.config.MaxIdleDuration) * time.Second / 2
-	if min := time.Duration(MinReapIntervalSeconds) * time.Second; interval < min {
-		interval = min
-	}
+	interval = max(interval, time.Duration(MinReapIntervalSeconds)*time.Second)
 
 	srv.purgeDone = make(chan struct{})
 	done := srv.purgeDone
-	srv.acceptWg.Add(1)
-	go func() {
-		defer srv.acceptWg.Done()
+	srv.acceptWg.Go(func() {
 		srv.pool.RunReaper(interval, done)
-	}()
+	})
 }
 
 // stopReaper halts the recycler started by startReaper.
@@ -301,16 +324,20 @@ func (srv *TCPServer) snapshotHandlers() []Handler {
 	return nil
 }
 
+// unknownRemote labels endpoints whose address is unavailable.
+const unknownRemote = "unknown"
+
 // remoteAddrString nil-guards addresses of half-closed connections.
 func remoteAddrString(c net.Conn) string {
 	if c == nil {
-		return "unknown"
+		return unknownRemote
 	}
+
 	if addr := c.RemoteAddr(); addr != nil {
 		return addr.String()
 	}
 
-	return "unknown"
+	return unknownRemote
 }
 
 // safelyInvoke runs a handler callback with panic isolation: a panicking
@@ -349,12 +376,16 @@ func (srv *TCPServer) safelyInvoke(op string, sess *Session, fn func() error) (e
 	return nil
 }
 
+// Send sends data.
 func (srv *TCPServer) Send(c net.Conn, data []byte) error {
-	_, err := c.Write(data)
+	if _, err := c.Write(data); err != nil {
+		return fmt.Errorf("tcp send (remote %s): %w", remoteAddrString(c), err)
+	}
 
-	return err
+	return nil
 }
 
+// Start starts the component.
 func (srv *TCPServer) Start() error {
 	var err error
 
@@ -387,15 +418,12 @@ func (srv *TCPServer) Start() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("tcp listen (network %s address %s): %w", srv.addr.Network(), srv.addr.String(), err)
 	}
 
 	srv.addr = srv.conn.Addr()
 	srv.startReaper()
-	srv.acceptWg.Add(1)
-	go func() {
-		defer srv.acceptWg.Done()
-
+	srv.acceptWg.Go(func() {
 		backoff := utils.NewBackoff(50*time.Millisecond, time.Second)
 		errLog := utils.NewLogSampler(5, time.Second)
 		capLog := utils.NewLogSampler(1, time.Second)
@@ -417,6 +445,7 @@ func (srv *TCPServer) Start() error {
 
 					break
 				}
+
 				// Transient errors (EMFILE/EINTR/…) must not kill the
 				// accept loop: capped exponential backoff with jitter,
 				// sampled logging so a persistent failure cannot log-DoS.
@@ -429,21 +458,26 @@ func (srv *TCPServer) Start() error {
 						"address", srv.addr.String(),
 						"error", err.Error(),
 					}
+
 					if suppressed > 0 {
 						args = append(args, "suppressed", suppressed)
 					}
+
 					srv.options.Logger.ErrorContext(srv.ctx, "TCP Accept failed", args...)
 				}
+
 				time.Sleep(backoff.Next())
 
 				continue
 			}
+
 			backoff.Reset()
 
 			var writeTimeout time.Duration
 			if srv.config.WriteTimeout > 0 {
 				writeTimeout = time.Duration(srv.config.WriteTimeout) * time.Second
 			}
+
 			// Enforce the session cap before allocating anything for
 			// the peer (mirrors the UDP datagram-drop policy).
 			if srv.config.MaxSessions > 0 && srv.pool.Length() >= srv.config.MaxSessions {
@@ -456,15 +490,19 @@ func (srv *TCPServer) Start() error {
 						"remote", remoteAddrString(client),
 						"max_sessions", srv.config.MaxSessions,
 					}
+
 					if suppressed > 0 {
 						args = append(args, "suppressed", suppressed)
 					}
+
 					srv.options.Logger.ErrorContext(srv.ctx, "TCP session cap reached, rejecting connection", args...)
 				}
-				client.Close()
+
+				_ = client.Close()
 
 				continue
 			}
+
 			sess := NewSessionWithTimeout(client, writeTimeout)
 			srv.pool.Put(sess)
 			hdls := srv.snapshotHandlers()
@@ -489,7 +527,7 @@ func (srv *TCPServer) Start() error {
 					delete(srv.conns, c)
 					srv.connsMu.Unlock()
 				}()
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				// Last-resort panic guard; per-callback guards above
 				// already isolate handler panics.
 				defer func() {
@@ -509,22 +547,25 @@ func (srv *TCPServer) Start() error {
 				buff := make([]byte, srv.config.BufferSize)
 				reader := bufio.NewReader(c)
 				var totalBytes int64
-			read:
+			read: //nolint:gocritic // unlabelStmt: label documents the connection-read loop; break reads span 60 lines
 				for {
 					if srv.config.ReadTimeout > 0 {
 						_ = c.SetReadDeadline(time.Now().Add(time.Duration(srv.config.ReadTimeout) * time.Second))
 					}
+
 					n, err := reader.Read(buff)
 					if err != nil {
 						if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) {
 							break read
 						}
+
 						var nerr net.Error
 						if errors.As(err, &nerr) && nerr.Timeout() {
 							// Idle read deadline: keep the connection
 							// until the pool reaper recycles it.
 							continue
 						}
+
 						srv.options.Logger.ErrorContext(
 							srv.ctx,
 							"TCP Read error",
@@ -562,6 +603,7 @@ func (srv *TCPServer) Start() error {
 
 								break read
 							}
+
 							dst := make([]byte, n)
 							copy(dst, buff)
 							metrics.NumTCPServerAccessCounter.Inc()
@@ -583,7 +625,7 @@ func (srv *TCPServer) Start() error {
 				}
 			}(client)
 		}
-	}()
+	})
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -600,6 +642,7 @@ func (srv *TCPServer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (srv *TCPServer) Stop() error {
 	// Check-and-flag under lock, then release: holding Lock across the
 	// waits would starve all RLock readers for the whole drain.
@@ -609,6 +652,7 @@ func (srv *TCPServer) Stop() error {
 
 		return nil
 	}
+
 	srv.stopping = true
 	srv.options.RunBeforeStop()
 	listener := srv.conn
@@ -642,6 +686,7 @@ func (srv *TCPServer) Stop() error {
 			errs = append(errs, err)
 		}
 	}
+
 	srv.connsMu.Unlock()
 
 	srv.wg.Wait()
@@ -665,14 +710,14 @@ func (srv *TCPServer) Stop() error {
 	return errors.Join(errs...)
 }
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
-	OnConnect(*Session) error
-	OnClose(*Session) error
-	OnError(*Session, error) error
-	OnData(*Session, []byte) error
+	OnConnect(sess *Session) error
+	OnClose(sess *Session) error
+	OnError(sess *Session, err error) error
+	OnData(sess *Session, data []byte) error
 }
 
 /* }}} */

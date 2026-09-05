@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/job"
 )
 
 func TestRunWithTimeoutExpiry(t *testing.T) {
@@ -14,6 +15,7 @@ func TestRunWithTimeoutExpiry(t *testing.T) {
 	task := &Task{ID: uuid.New(), Timeout: 20 * time.Millisecond}
 	wrapped := j.runWithTimeout(task, func() error {
 		time.Sleep(500 * time.Millisecond)
+
 		return nil
 	})
 	start := time.Now()
@@ -21,6 +23,7 @@ func TestRunWithTimeoutExpiry(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout error, got %v", err)
 	}
+
 	if time.Since(start) > 400*time.Millisecond {
 		t.Fatal("watchdog did not fire promptly")
 	}

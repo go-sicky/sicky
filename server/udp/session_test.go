@@ -16,6 +16,7 @@ func TestSessionSetKey(t *testing.T) {
 	if got := p.GetByAddr(addr); got != s {
 		t.Fatal("GetByAddr missed: pointer-keyed index would fail here")
 	}
+
 	// A fresh *UDPAddr with the same address must hit the same session
 	// (ReadFromUDP allocates a new pointer per datagram).
 	dup := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41001}
@@ -31,9 +32,11 @@ func TestSessionSetKey(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
+
 	if got := p.GetByAddr(addr); got != nil {
 		t.Fatal("addr still indexed after Close")
 	}
+
 	if err := s.Close(); err != nil {
 		t.Fatalf("second close: %v", err)
 	}
@@ -46,12 +49,16 @@ func TestAllowPacketRateLimit(t *testing.T) {
 	)
 	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41002}
 
-	if !srv.allowPacket(addr) || !srv.allowPacket(addr) {
+	// Two calls: the first two packets in the window must pass.
+	first, second := srv.allowPacket(addr), srv.allowPacket(addr)
+	if !first || !second {
 		t.Fatal("first two packets must pass")
 	}
+
 	if srv.allowPacket(addr) {
 		t.Fatal("third packet in window must drop")
 	}
+
 	// Other sources have independent budgets.
 	other := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41003}
 	if !srv.allowPacket(other) {
@@ -60,7 +67,7 @@ func TestAllowPacketRateLimit(t *testing.T) {
 
 	// Disabled limiter passes everything.
 	srv.config.MaxPacketsPerSecond = 0
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		if !srv.allowPacket(addr) {
 			t.Fatal("disabled limiter must pass")
 		}

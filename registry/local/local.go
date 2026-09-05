@@ -33,14 +33,17 @@ package local
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
+// Local is a local component.
 type Local struct {
 	config  *Config
 	ctx     context.Context
@@ -49,6 +52,7 @@ type Local struct {
 	watcher *Watcher
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *registry.Options, cfg *Config) *Local {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -89,26 +93,32 @@ func New(opts *registry.Options, cfg *Config) *Local {
 	return rg
 }
 
+// Context returns the component context.
 func (rg *Local) Context() context.Context {
 	return rg.ctx
 }
 
+// Options returns the runtime options.
 func (rg *Local) Options() *registry.Options {
 	return rg.options
 }
 
+// String returns a human-readable name.
 func (rg *Local) String() string {
 	return "local"
 }
 
+// ID returns the unique instance ID.
 func (rg *Local) ID() uuid.UUID {
 	return rg.options.ID
 }
 
+// Name returns the component name.
 func (rg *Local) Name() string {
 	return rg.options.Name
 }
 
+// Register registers the collector.
 func (rg *Local) Register(ins *registry.Instance) error {
 	dir := rg.config.RegistryFilePath
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -121,7 +131,7 @@ func (rg *Local) Register(ins *registry.Instance) error {
 				"error", err.Error(),
 			)
 
-			return err
+			return fmt.Errorf("local registry mkdir (dir %s): %w", dir, err)
 		}
 	}
 
@@ -138,7 +148,7 @@ func (rg *Local) Register(ins *registry.Instance) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("local registry write (file %s): %w", file, err)
 	}
 
 	rg.options.Logger.InfoContext(
@@ -156,6 +166,7 @@ func (rg *Local) Register(ins *registry.Instance) error {
 	return nil
 }
 
+// Deregister removes the registration.
 func (rg *Local) Deregister(id uuid.UUID) error {
 	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
 	err := os.Remove(file)
@@ -169,7 +180,7 @@ func (rg *Local) Deregister(id uuid.UUID) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("local registry remove (file %s): %w", file, err)
 	}
 
 	rg.options.Logger.InfoContext(
@@ -184,6 +195,7 @@ func (rg *Local) Deregister(id uuid.UUID) error {
 	return nil
 }
 
+// CheckInstance checks instance liveness.
 func (rg *Local) CheckInstance(id uuid.UUID) bool {
 	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
 	_, err := os.Stat(file)
@@ -191,6 +203,7 @@ func (rg *Local) CheckInstance(id uuid.UUID) bool {
 	return err == nil
 }
 
+// Load loads persisted state.
 func (rg *Local) Load() ([]*registry.Instance, error) {
 	var instances []*registry.Instance
 	dir := rg.config.RegistryFilePath
@@ -200,7 +213,7 @@ func (rg *Local) Load() ([]*registry.Instance, error) {
 			return instances, nil
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("local registry read dir (dir %s): %w", dir, err)
 	}
 
 	for _, file := range files {
@@ -209,6 +222,7 @@ func (rg *Local) Load() ([]*registry.Instance, error) {
 		}
 
 		path := filepath.Join(dir, file.Name())
+		//nolint:gosec // G304: name comes from a ReadDir listing under the validated absolute registry dir, not user input
 		data, err := os.ReadFile(path)
 		if err != nil {
 			rg.options.Logger.ErrorContext(
@@ -239,6 +253,7 @@ func (rg *Local) Load() ([]*registry.Instance, error) {
 	return instances, nil
 }
 
+// Watch watches for changes.
 func (rg *Local) Watch() error {
 	w, err := newWatcher(rg)
 	if err != nil {
@@ -251,7 +266,7 @@ func (rg *Local) Watch() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("local registry create watcher: %w", err)
 	}
 
 	rg.watcher = w
@@ -268,6 +283,7 @@ func (rg *Local) Watch() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (rg *Local) Stop() error {
 	if rg.watcher != nil {
 		rg.watcher.Stop()

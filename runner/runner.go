@@ -33,6 +33,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
@@ -42,6 +43,7 @@ import (
 // runner task queue has no room.
 var ErrPoolFull = errors.New("runner: task queue full")
 
+// Runner is a runner component.
 type Runner interface {
 	// Get context
 	Context() context.Context
@@ -58,9 +60,10 @@ type Runner interface {
 	// Stop runner
 	Stop() error
 	// Consume task
-	Task(*Task)
+	Task(task *Task)
 }
 
+// Task is a runner component.
 type Task struct {
 	ID   uuid.UUID
 	Data any
@@ -72,6 +75,7 @@ var (
 	runMu         sync.RWMutex
 )
 
+// Set registers runner instances; the first one becomes the default.
 func Set(rs ...Runner) {
 	runMu.Lock()
 	defer runMu.Unlock()
@@ -84,6 +88,7 @@ func Set(rs ...Runner) {
 	}
 }
 
+// Get looks up a runner instance by ID.
 func Get(id uuid.UUID) Runner {
 	runMu.RLock()
 	defer runMu.RUnlock()
@@ -91,6 +96,7 @@ func Get(id uuid.UUID) Runner {
 	return runners[id]
 }
 
+// Default returns the default runner instance.
 func Default() Runner {
 	runMu.RLock()
 	defer runMu.RUnlock()
@@ -98,14 +104,13 @@ func Default() Runner {
 	return defaultRunner
 }
 
+// Runners returns a copy of the runner registry.
 func Runners() map[uuid.UUID]Runner {
 	runMu.RLock()
 	defer runMu.RUnlock()
 
 	out := make(map[uuid.UUID]Runner, len(runners))
-	for id, r := range runners {
-		out[id] = r
-	}
+	maps.Copy(out, runners)
 
 	return out
 }

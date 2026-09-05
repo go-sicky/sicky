@@ -34,19 +34,22 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/go-sicky/sicky/tracer"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/go-sicky/sicky/tracer"
 )
 
+// TracerConfig is a grpc component.
 type TracerConfig struct {
 	Tracer            trace.Tracer
 	SpanIDContextKey  string
 	TraceIDContextKey string
 }
 
+// TracerConfigDefault is a shared grpc value.
 var TracerConfigDefault = TracerConfig{
 	Tracer:            nil,
 	SpanIDContextKey:  "spanid",
@@ -57,6 +60,7 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 	if len(config) < 1 {
 		return TracerConfigDefault
 	}
+
 	cfg := config[0]
 	if cfg.Tracer == nil {
 		cfg.Tracer = TracerConfigDefault.Tracer
@@ -73,13 +77,12 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 	return cfg
 }
 
+// NewTracingInterceptor creates a new TracingInterceptor.
 func NewTracingInterceptor(config ...TracerConfig) grpc.UnaryServerInterceptor {
 	cfg := tracerConfigDefault(config...)
 
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if cfg.Tracer == nil {
-			//ctx := context.WithValue(ctx, cfg.SpanIDContextKey, fmt.Sprintf("%x", utils.RandomHex(8)))
-
 			return handler(ctx, req)
 		}
 
@@ -90,6 +93,7 @@ func NewTracingInterceptor(config ...TracerConfig) grpc.UnaryServerInterceptor {
 				if len(v) == 0 {
 					continue
 				}
+
 				reqHeader.Set(k, v[0])
 			}
 		}
@@ -115,9 +119,9 @@ func NewTracingInterceptor(config ...TracerConfig) grpc.UnaryServerInterceptor {
 			"tracestate", w3c.Get("tracestate"),
 			"baggage", w3c.Get("baggage"),
 		)
-		//savedCtx := metadata.NewOutgoingContext(spanedCtx, nmd)
-		//savedCtx = context.WithValue(savedCtx, cfg.SpanIDContextKey, spanID)
-		//savedCtx = context.WithValue(savedCtx, cfg.TraceIDContextKey, traceID)
+		// savedCtx := metadata.NewOutgoingContext(spanedCtx, nmd)
+		// savedCtx = context.WithValue(savedCtx, cfg.SpanIDContextKey, spanID)
+		// savedCtx = context.WithValue(savedCtx, cfg.TraceIDContextKey, traceID)
 		// New span values go first: downstream readers take index 0,
 		// so client-supplied (spoofable) values must not shadow them.
 		joined := metadata.Join(nmd, md)
@@ -137,10 +141,12 @@ type wrappedServerStream struct {
 	ctx context.Context
 }
 
+// Context returns the component context.
 func (w *wrappedServerStream) Context() context.Context {
 	return w.ctx
 }
 
+// NewStreamTracingInterceptor creates a new StreamTracingInterceptor.
 func NewStreamTracingInterceptor(config ...TracerConfig) grpc.StreamServerInterceptor {
 	cfg := tracerConfigDefault(config...)
 
@@ -157,6 +163,7 @@ func NewStreamTracingInterceptor(config ...TracerConfig) grpc.StreamServerInterc
 				if len(v) == 0 {
 					continue
 				}
+
 				reqHeader.Set(k, v[0])
 			}
 		}

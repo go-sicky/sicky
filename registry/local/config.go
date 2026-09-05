@@ -37,6 +37,7 @@ import (
 )
 
 const (
+	// DefaultRegistryFilePath is a local constant.
 	DefaultRegistryFilePath = "/tmp/sicky/registry"
 )
 
@@ -45,11 +46,13 @@ const (
 // directory, which is a config-hijack vector.
 var ErrLocalPathNotAbsolute = errors.New("local registry: registry_file_path must be absolute")
 
+// Config is a local component.
 type Config struct {
-	RegistryFilePath string `json:"registry_file_path" yaml:"registry_file_path" mapstructure:"registry_file_path"`
-	CleanupOnStart   bool   `json:"cleanup_on_start" yaml:"cleanup_on_start" mapstructure:"cleanup_on_start"`
+	RegistryFilePath string `json:"registry_file_path" mapstructure:"registry_file_path" yaml:"registry_file_path"`
+	CleanupOnStart   bool   `json:"cleanup_on_start"   mapstructure:"cleanup_on_start"   yaml:"cleanup_on_start"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		RegistryFilePath: DefaultRegistryFilePath,
@@ -57,6 +60,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
@@ -77,6 +81,7 @@ func (c *Config) Validate() error {
 	if c == nil {
 		return nil
 	}
+
 	if !filepath.IsAbs(filepath.Clean(c.RegistryFilePath)) {
 		return ErrLocalPathNotAbsolute
 	}

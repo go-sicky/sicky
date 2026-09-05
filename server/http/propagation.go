@@ -34,9 +34,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"github.com/uptrace/bunrouter"
+
+	"github.com/go-sicky/sicky/tracer"
 )
 
 // sanitizePropagatedValue delegates to the shared tracer sanitizer.
@@ -44,6 +45,7 @@ func sanitizePropagatedValue(v string) string {
 	return tracer.Sanitize(v)
 }
 
+// PropagationConfig is a http component.
 type PropagationConfig struct {
 	Next                   func(c context.Context) bool
 	RequestIDContextKey    string
@@ -58,18 +60,19 @@ type PropagationConfig struct {
 	SampledHeader          string
 }
 
+// PropagationConfigDefault is a shared http value.
 var PropagationConfigDefault = PropagationConfig{
 	Next:                   nil,
 	RequestIDContextKey:    "requestid",
-	TraceIDContextKey:      "traceid",
-	SpanIDContextKey:       "spanid",
-	ParentSpanIDContextKey: "parentspanid",
-	SampledContextKey:      "sampled",
+	TraceIDContextKey:      DefaultTraceIDContextKey,
+	SpanIDContextKey:       DefaultSpanIDContextKey,
+	ParentSpanIDContextKey: DefaultParentSpanIDContextKey,
+	SampledContextKey:      DefaultSampledContextKey,
 	RequestIDHeader:        "X-Request-ID",
-	TraceIDHeader:          "X-B3-Traceid",
-	SpanIDHeader:           "X-B3-Spanid",
-	ParentSpanIDHeader:     "X-B3-Parentspanid",
-	SampledHeader:          "X-B3-Sampled",
+	TraceIDHeader:          DefaultB3TraceIDHeader,
+	SpanIDHeader:           DefaultB3SpanIDHeader,
+	ParentSpanIDHeader:     DefaultB3ParentSpanIDHeader,
+	SampledHeader:          DefaultB3SampledHeader,
 }
 
 func propagationConfigDefault(config ...PropagationConfig) PropagationConfig {
@@ -125,6 +128,7 @@ func propagationConfigDefault(config ...PropagationConfig) PropagationConfig {
 	return cfg
 }
 
+// NewPropagationMiddleware creates a new PropagationMiddleware.
 func NewPropagationMiddleware(config ...PropagationConfig) bunrouter.MiddlewareFunc {
 	cfg := propagationConfigDefault(config...)
 	if cfg.Next == nil {

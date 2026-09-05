@@ -33,12 +33,17 @@ package sicky
 import "context"
 
 const (
-	DefaultAppName   = "sicky"
-	DefaultVersion   = "latest"
-	DefaultBranch    = "main"
+	// DefaultAppName is a sicky constant.
+	DefaultAppName = "sicky"
+	// DefaultVersion is a sicky constant.
+	DefaultVersion = "latest"
+	// DefaultBranch is a sicky constant.
+	DefaultBranch = "main"
+	// DefaultEnvPrefix is a sicky constant.
 	DefaultEnvPrefix = "SICKY"
 )
 
+// Options is a sicky component.
 type Options struct {
 	AppName        string
 	Version        string
@@ -56,6 +61,7 @@ type Options struct {
 	Context      context.Context
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (o *Options) Ensure() *Options {
 	if o == nil {
 		o = new(Options)

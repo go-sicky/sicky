@@ -33,10 +33,12 @@ package consul
 import (
 	"sync"
 
-	"github.com/go-sicky/sicky/registry"
 	"github.com/hashicorp/consul/api/watch"
+
+	"github.com/go-sicky/sicky/registry"
 )
 
+// Watcher is a consul component.
 type Watcher struct {
 	endpoint  string
 	watchPlan *watch.Plan
@@ -48,6 +50,7 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 	w := &Watcher{
 		endpoint: rg.config.Endpoint,
 	}
+
 	params := map[string]any{
 		"type": "services",
 	}
@@ -155,12 +158,16 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 	return w, nil
 }
 
+// Start starts the component.
 func (w *Watcher) Start() error {
-	go w.watchPlan.Run(w.endpoint)
+	// Run blocks until Stop; its error is terminal for the watch loop and
+	// has nowhere to propagate from a detached goroutine.
+	go func() { _ = w.watchPlan.Run(w.endpoint) }()
 
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (w *Watcher) Stop() error {
 	if w.watchPlan != nil {
 		w.watchPlan.Stop()

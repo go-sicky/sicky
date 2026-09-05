@@ -34,15 +34,16 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/metrics"
-	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/tracer"
 )
 
-// HTTPClient : Client definition
+// HTTPClient : Client definition.
 type HTTPClient struct {
 	config  *Config
 	options *client.Options
@@ -66,7 +67,7 @@ type HTTPClient struct {
 // 	return clients[name]
 // }
 
-// New HTTP client
+// New HTTP client.
 func New(opts *client.Options, cfg *Config) *HTTPClient {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -77,30 +78,6 @@ func New(opts *client.Options, cfg *Config) *HTTPClient {
 		options: opts,
 	}
 
-	// for _, opt := range opts {
-	// 	opt(clt.options)
-	// }
-
-	// // Set logger
-	// if clt.options.Logger() == nil {
-	// 	client.Logger(logger.Logger)(clt.options)
-	// }
-
-	// // Set global context
-	// if clt.options.Context() != nil {
-	// 	clt.ctx = clt.options.Context()
-	// } else {
-	// 	client.Context(ctx)(clt.options)
-	// }
-
-	// // Set tracer
-	// if clt.options.TraceProvider() != nil {
-	// 	clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
-	// }
-
-	// client.Instance(clt.Name(), clt)
-	// Instance(clt.Name(), clt)
-	// clt.options.Logger().InfoContext(clt.ctx, "HTTP client created", "id", clt.ID(), "name", clt.Name())
 	clt.options.Logger.InfoContext(
 		clt.ctx,
 		"Client created",
@@ -119,29 +96,37 @@ func New(opts *client.Options, cfg *Config) *HTTPClient {
 	return clt
 }
 
+// Options returns the runtime options.
 func (clt *HTTPClient) Options() *client.Options {
 	return clt.options
 }
 
+// Context returns the component context.
 func (clt *HTTPClient) Context() context.Context {
 	return clt.ctx
 }
 
+// Connect connects to the backend.
 func (clt *HTTPClient) Connect() error {
 	return nil
 }
 
+// Disconnect disconnects from the backend.
 func (clt *HTTPClient) Disconnect() error {
 	return nil
 }
 
+// Call executes a call.
 func (clt *HTTPClient) Call() error {
 	metrics.NumHTTPClientCallCounter.Inc()
+
 	return nil
 }
 
 // StartSpan starts a client span for an outbound request. The caller must
 // propagate the returned ctx via InjectHTTP (or Do, which does both).
+//
+//nolint:spancheck // span ownership transfers to the caller; Do ends it after the round-trip
 func (clt *HTTPClient) StartSpan(ctx context.Context, name string) (context.Context, trace.Span) {
 	if clt.tracer == nil {
 		return ctx, trace.SpanFromContext(ctx)
@@ -160,8 +145,10 @@ func InjectHTTP(ctx context.Context, h http.Header) {
 		if v == "" {
 			continue
 		}
+
 		h.Set(k, v)
 	}
+
 	if h.Get("X-Request-ID") == "" {
 		h.Set("X-Request-ID", uuid.New().String())
 	}
@@ -181,8 +168,10 @@ func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 		defer span.End()
 		req = req.WithContext(ctx)
 	}
+
 	InjectHTTP(ctx, req.Header)
 
+	//nolint:gosec // G704: outbound client library — the request URL is the caller's explicit input by design
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil && span != nil {
 		span.RecordError(err)
@@ -191,14 +180,17 @@ func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
+// String returns a human-readable name.
 func (clt *HTTPClient) String() string {
 	return "http"
 }
 
+// Name returns the component name.
 func (clt *HTTPClient) Name() string {
 	return clt.options.Name
 }
 
+// ID returns the unique instance ID.
 func (clt *HTTPClient) ID() uuid.UUID {
 	return clt.options.ID
 }

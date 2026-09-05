@@ -1,5 +1,7 @@
 # Go-Sicky
 
+> 中文文档：[README-cn.md](./README-cn.md)
+
 A modular, extensible Go framework for building robust microservices and networked applications.
 
 [![Go Version](https://img.shields.io/badge/Go-1.26.0-00ADD8?style=flat&logo=go)](https://go.dev/)

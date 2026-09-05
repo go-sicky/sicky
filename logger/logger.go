@@ -37,30 +37,41 @@ import (
 	"strings"
 )
 
+// Logger is a shared logger value.
 var Logger GeneralLogger
 
+// Level is a logger component.
 type Level int8
 
 const (
 	// TraceLevel level. Designates finer-grained informational events than the Debug.
+	// TraceLevel is a logger constant.
 	TraceLevel Level = iota - 2
 	// DebugLevel level. Usually only enabled when debugging. Very verbose logging.
+	// DebugLevel is a logger constant.
 	DebugLevel
 	// InfoLevel is the default logging priority.
 	// General operational entries about what's going on inside the application.
+	// InfoLevel is a logger constant.
 	InfoLevel
 	// NoticeLevel level. Notice messages
+	// NoticeLevel is a logger constant.
 	NoticeLevel
 	// WarnLevel level. Non-critical entries that deserve eyes.
+	// WarnLevel is a logger constant.
 	WarnLevel
 	// ErrorLevel level. Logs. Used for errors that should definitely be noted.
+	// ErrorLevel is a logger constant.
 	ErrorLevel
 	// FatalLevel level. Logs and then calls `logger.Exit(1)`. highest level of severity.
+	// FatalLevel is a logger constant.
 	FatalLevel
 	// SilenceLevel level. Logs nothing.
+	// SilenceLevel is a logger constant.
 	SilenceLevel
 )
 
+// String returns a human-readable name.
 func (l Level) String() string {
 	switch l {
 	case TraceLevel:
@@ -84,6 +95,7 @@ func (l Level) String() string {
 	return "unknown"
 }
 
+// LogLevel is part of the public API.
 func LogLevel(l string) Level {
 	switch strings.ToLower(l) {
 	case "trace":
@@ -105,7 +117,7 @@ func LogLevel(l string) Level {
 	}
 }
 
-// Hack for log/slog
+// Hack for log/slog.
 var (
 	lTrace   = slog.Level(-8)
 	lNotice  = slog.Level(2)
@@ -144,119 +156,145 @@ func level2slog(level Level) slog.Level {
 }
 
 /* {{{ [Default logger operation ] */
-// Helpers
+// Helpers.
 func Trace(msg string, args ...any) {
 	Logger.Log(TraceLevel, msg, args...)
 }
 
+// Tracef logs at trace level.
 func Tracef(format string, args ...any) {
 	Logger.Logf(TraceLevel, format, args...)
 }
 
+// Debug logs at debug level.
 func Debug(msg string, args ...any) {
 	Logger.Log(DebugLevel, msg, args...)
 }
 
+// Debugf logs at debug level.
 func Debugf(format string, args ...any) {
 	Logger.Logf(DebugLevel, format, args...)
 }
 
+// Info logs at info level.
 func Info(msg string, args ...any) {
 	Logger.Log(InfoLevel, msg, args...)
 }
 
+// Infof logs at info level.
 func Infof(format string, args ...any) {
 	Logger.Logf(InfoLevel, format, args...)
 }
 
+// Notice logs at notice level.
 func Notice(msg string, args ...any) {
 	Logger.Log(NoticeLevel, msg, args...)
 }
 
+// Noticef logs at notice level.
 func Noticef(format string, args ...any) {
 	Logger.Logf(NoticeLevel, format, args...)
 }
 
+// Warn logs at warn level.
 func Warn(msg string, args ...any) {
 	Logger.Log(WarnLevel, msg, args...)
 }
 
+// Warnf logs at warn level.
 func Warnf(format string, args ...any) {
 	Logger.Logf(WarnLevel, format, args...)
 }
 
+// Error returns the error string.
 func Error(msg string, args ...any) {
 	Logger.Log(ErrorLevel, msg, args...)
 }
 
+// Errorf logs at error level.
 func Errorf(format string, args ...any) {
 	Logger.Logf(ErrorLevel, format, args...)
 }
 
+// Fatal logs at fatal level and exits.
 func Fatal(msg string, args ...any) {
 	Logger.Log(FatalLevel, msg, args...)
 	os.Exit(-1)
 }
 
+// Fatalf logs at fatal level and exits.
 func Fatalf(format string, args ...any) {
 	Logger.Logf(FatalLevel, format, args...)
 	os.Exit(-1)
 }
 
-// Helpers with context
+// Helpers with context.
 func TraceContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, TraceLevel, msg, args...)
 }
 
+// TracefContext logs at trace level.
 func TracefContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, TraceLevel, format, args...)
 }
 
+// DebugContext logs at debug level.
 func DebugContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, DebugLevel, msg, args...)
 }
 
+// DebugfContext logs at debug level.
 func DebugfContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, DebugLevel, format, args...)
 }
 
+// InfoContext logs at info level.
 func InfoContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, InfoLevel, msg, args...)
 }
 
+// InfofContext logs at info level.
 func InfofContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, InfoLevel, format, args...)
 }
 
+// NoticeContext logs at notice level.
 func NoticeContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, NoticeLevel, msg, args...)
 }
 
+// NoticefContext logs at notice level.
 func NoticefContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, NoticeLevel, format, args...)
 }
 
+// WarnContext logs at warn level.
 func WarnContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, WarnLevel, msg, args...)
 }
 
+// WarnfContext logs at warn level.
 func WarnfContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, WarnLevel, format, args...)
 }
 
+// ErrorContext logs at error level.
 func ErrorContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, ErrorLevel, msg, args...)
 }
 
+// ErrorfContext logs at error level.
 func ErrorfContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, ErrorLevel, format, args...)
 }
 
+// FatalContext logs at fatal level and exits.
 func FatalContext(ctx context.Context, msg string, args ...any) {
 	Logger.LogContext(ctx, FatalLevel, msg, args...)
 	os.Exit(-1)
 }
 
+// FatalfContext logs at fatal level and exits.
 func FatalfContext(ctx context.Context, format string, args ...any) {
 	Logger.LogfContext(ctx, FatalLevel, format, args...)
 	os.Exit(-1)

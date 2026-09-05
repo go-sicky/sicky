@@ -34,14 +34,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
-	"github.com/gofiber/fiber/v2"
 )
 
 // serverPID is cached: a syscall per request is pure overhead.
 var serverPID = os.Getpid()
 
+// AccessLoggerMiddlewareConfig is a fiber component.
 type AccessLoggerMiddlewareConfig struct {
 	AccessLoggerConfig *AccessLoggerConfig
 	Next               func(c *fiber.Ctx) bool
@@ -69,6 +71,7 @@ func accessLoggerMiddlewareConfigDefault(config ...AccessLoggerMiddlewareConfig)
 	return cfg
 }
 
+// NewAccessLoggerMiddleware creates a new AccessLoggerMiddleware.
 func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Handler {
 	cfg := accessLoggerMiddlewareConfigDefault(config...)
 	if cfg.Logger == nil {

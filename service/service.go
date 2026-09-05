@@ -32,16 +32,19 @@ package service
 
 import (
 	"context"
+	"maps"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/tracer"
-	"github.com/google/uuid"
 )
 
+// Service is a service component.
 type Service interface {
 	// Get context
 	Context() context.Context
@@ -55,11 +58,11 @@ type Service interface {
 	Stop() []error
 
 	// Subordinates
-	Servers(...server.Server) []server.Server
-	Brokers(...broker.Broker) []broker.Broker
-	Jobs(...job.Job) []job.Job
-	Registries(...registry.Registry) []registry.Registry
-	Tracers(...tracer.Tracer) []tracer.Tracer
+	Servers(srvs ...server.Server) []server.Server
+	Brokers(brks ...broker.Broker) []broker.Broker
+	Jobs(jobs ...job.Job) []job.Job
+	Registries(rgts ...registry.Registry) []registry.Registry
+	Tracers(trcs ...tracer.Tracer) []tracer.Tracer
 }
 
 var (
@@ -68,6 +71,7 @@ var (
 	svcMu          sync.RWMutex
 )
 
+// Set registers service instances; the first one becomes the default.
 func Set(svcs ...Service) {
 	svcMu.Lock()
 	defer svcMu.Unlock()
@@ -76,9 +80,11 @@ func Set(svcs ...Service) {
 		if svc == nil || svc.Options() == nil {
 			continue
 		}
+
 		if _, exists := services[svc.Options().ID]; exists {
 			continue
 		}
+
 		services[svc.Options().ID] = svc
 		if defaultService == nil {
 			defaultService = svc
@@ -86,6 +92,7 @@ func Set(svcs ...Service) {
 	}
 }
 
+// Get looks up a service instance by ID.
 func Get(id uuid.UUID) Service {
 	svcMu.RLock()
 	defer svcMu.RUnlock()
@@ -93,6 +100,7 @@ func Get(id uuid.UUID) Service {
 	return services[id]
 }
 
+// Default returns the default service instance.
 func Default() Service {
 	svcMu.RLock()
 	defer svcMu.RUnlock()
@@ -100,14 +108,14 @@ func Default() Service {
 	return defaultService
 }
 
+// Services returns a copy of the service registry.
 func Services() map[uuid.UUID]Service {
 	svcMu.RLock()
 	defer svcMu.RUnlock()
 
 	out := make(map[uuid.UUID]Service, len(services))
-	for id, svc := range services {
-		out[id] = svc
-	}
+	maps.Copy(out, services)
+
 	return out
 }
 

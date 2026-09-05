@@ -31,19 +31,23 @@
 package cron
 
 const (
+	// DefaultWithSecond is a cron constant.
 	DefaultWithSecond = false
 )
 
+// Config is a cron component.
 type Config struct {
-	WithSecond bool `json:"with_second" yaml:"with_second" mapstructure:"with_second"`
+	WithSecond bool `json:"with_second" mapstructure:"with_second" yaml:"with_second"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		WithSecond: DefaultWithSecond,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

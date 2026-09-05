@@ -32,16 +32,19 @@ package nats
 
 import "github.com/nats-io/nats.go"
 
+// Config is a nats component.
 type Config struct {
-	URL string `json:"url" yaml:"url" mapstructure:"url"`
+	URL string `json:"url" mapstructure:"url" yaml:"url"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		URL: nats.DefaultURL,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
@@ -52,6 +55,13 @@ func (c *Config) Ensure() *Config {
 	}
 
 	return c
+}
+
+// Validate reports whether the config is usable. The NATS config has no
+// invalid states (zero values fill defaults in Ensure), so this always
+// returns nil; it exists for API uniformity across broker configs.
+func (c *Config) Validate() error {
+	return nil
 }
 
 /*

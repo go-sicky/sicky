@@ -33,11 +33,13 @@ package grpc
 import (
 	"context"
 
+	"google.golang.org/grpc"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
-	"google.golang.org/grpc"
 )
 
+// NewClientLoggerInterceptor creates a new ClientLoggerInterceptor.
 func NewClientLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		attributes := map[string]any{
@@ -46,7 +48,7 @@ func NewClientLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryClientIntercep
 		}
 
 		// Extract attributes
-		var args []any
+		args := make([]any, 0, 2*len(attributes))
 		for k, v := range attributes {
 			args = append(args, k, v)
 		}
@@ -59,6 +61,7 @@ func NewClientLoggerInterceptor(l logger.GeneralLogger) grpc.UnaryClientIntercep
 	}
 }
 
+// NewClientStreamLoggerInterceptor creates a new ClientStreamLoggerInterceptor.
 func NewClientStreamLoggerInterceptor(l logger.GeneralLogger) grpc.StreamClientInterceptor {
 	if l == nil {
 		l = logger.Logger

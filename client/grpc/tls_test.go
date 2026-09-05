@@ -1,16 +1,18 @@
 package grpc
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
-	"github.com/google/uuid"
 )
 
 func TestConfigValidateHalfTLS(t *testing.T) {
 	half := &Config{TLSCertPEM: "cert"}
-	if err := half.Ensure().Validate(); err != ErrIncompleteTLSConfig {
+	if err := half.Ensure().Validate(); !errors.Is(err, ErrIncompleteTLSConfig) {
 		t.Fatalf("half-TLS must fail validation, got %v", err)
 	}
 
@@ -51,11 +53,13 @@ func TestCallIncrementsCounter(t *testing.T) {
 	if clt == nil {
 		t.Fatal("direct-addr client must be created")
 	}
+
 	defer func() { _ = clt.Disconnect() }()
 
 	if err := clt.Call(); err != nil {
 		t.Fatalf("Call: %v", err)
 	}
+
 	if got := counterValue(metrics.NumGRPCClientCallCounter); got != before+1 {
 		t.Fatalf("counter = %v, want %v", got, before+1)
 	}

@@ -34,14 +34,17 @@ import (
 	"context"
 	"runtime"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
 const (
+	// DefaultBufferSize is a runner constant.
 	DefaultBufferSize = 256
 )
 
+// Options is a runner component.
 type Options struct {
 	Name       string
 	ID         uuid.UUID
@@ -54,6 +57,7 @@ type Options struct {
 	Handler func(*Task) error
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (o *Options) Ensure() *Options {
 	if o == nil {
 		o = new(Options)

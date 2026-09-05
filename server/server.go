@@ -32,14 +32,16 @@ package server
 
 import (
 	"context"
+	"maps"
 	"net"
 	"sync"
 
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
-// Server : server abstraction
+// Server : server abstraction.
 type Server interface {
 	// Get context
 	Context() context.Context
@@ -61,7 +63,7 @@ type Server interface {
 	Addr() net.Addr
 	// Obtain IP
 	IP() net.IP
-	// Optain port
+	// Obtain port
 	Port() int
 	// Obtain advertise address
 	AdvertiseAddr() net.Addr
@@ -74,24 +76,58 @@ type Server interface {
 }
 
 var (
-	servers = make(map[uuid.UUID]Server)
-	srvMu   sync.RWMutex
+	servers       = make(map[uuid.UUID]Server)
+	defaultServer Server
+	srvMu         sync.RWMutex
 )
 
+// Set registers server instances; the first one becomes the default.
 func Set(srvs ...Server) {
 	srvMu.Lock()
 	defer srvMu.Unlock()
 
 	for _, srv := range srvs {
 		servers[srv.ID()] = srv
+		if defaultServer == nil {
+			defaultServer = srv
+		}
 	}
 }
 
+// Get looks up a server instance by ID.
 func Get(id uuid.UUID) Server {
 	srvMu.RLock()
 	defer srvMu.RUnlock()
 
 	return servers[id]
+}
+
+// Default returns the default server instance.
+func Default() Server {
+	srvMu.RLock()
+	defer srvMu.RUnlock()
+
+	return defaultServer
+}
+
+// Servers returns a copy of the server registry.
+func Servers() map[uuid.UUID]Server {
+	srvMu.RLock()
+	defer srvMu.RUnlock()
+
+	out := make(map[uuid.UUID]Server, len(servers))
+	maps.Copy(out, servers)
+
+	return out
+}
+
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	srvMu.Lock()
+	defer srvMu.Unlock()
+
+	servers = make(map[uuid.UUID]Server)
+	defaultServer = nil
 }
 
 /*

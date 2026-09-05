@@ -38,12 +38,13 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/uptrace/bunrouter"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/utils"
 )
 
 // ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
@@ -51,7 +52,7 @@ import (
 // startup fails fast instead.
 var ErrIncompleteTLSConfig = errors.New("incomplete TLS configuration: both tls_cert_pem and tls_key_pem must be set")
 
-/* {{{ [Server] */
+/* {{{ [Server]. */
 type HTTPServer struct {
 	config        *Config
 	ctx           context.Context
@@ -72,7 +73,7 @@ type HTTPServer struct {
 	wg sync.WaitGroup
 }
 
-// New HTTP server (net/http)
+// New HTTP server (net/http).
 func New(opts *server.Options, cfg *Config) *HTTPServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -91,6 +92,8 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
 
 	if cfg.AdvertiseAddress != "" {
@@ -101,6 +104,8 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
+
+			return nil
 		}
 	} else {
 		advertiseAddr = addr
@@ -124,6 +129,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 	}
+
 	app.SetKeepAlivesEnabled(!cfg.DisableKeepAlive)
 
 	srv.app = app
@@ -131,6 +137,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	if tracer.Default() != nil {
 		tr = tracer.Default().Tracer(srv.Name())
 	}
+
 	// Fail closed on illegal CORS (wildcard + credentials): deny all
 	// cross-origin requests rather than emitting the combination.
 	if err := cfg.CORS.Ensure().Validate(); err != nil {
@@ -144,6 +151,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		)
 		cfg.CORS = (&CORSConfig{}).Ensure()
 	}
+
 	srv.router = bunrouter.New(
 		bunrouter.Use(NewRecoveryMiddleware(opts.Logger)),
 		bunrouter.Use(NewCORSMiddleware(cfg.CORS)),
@@ -177,26 +185,32 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	return srv
 }
 
+// Context returns the component context.
 func (srv *HTTPServer) Context() context.Context {
 	return srv.ctx
 }
 
+// Options returns the runtime options.
 func (srv *HTTPServer) Options() *server.Options {
 	return srv.options
 }
 
+// String returns a human-readable name.
 func (srv *HTTPServer) String() string {
 	return "http"
 }
 
+// ID returns the unique instance ID.
 func (srv *HTTPServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
+// Name returns the component name.
 func (srv *HTTPServer) Name() string {
 	return srv.options.Name
 }
 
+// Start starts the component.
 func (srv *HTTPServer) Start() error {
 	var (
 		listener net.Listener
@@ -331,6 +345,7 @@ func (srv *HTTPServer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (srv *HTTPServer) Stop() error {
 	// Check-and-flag under lock, then release: holding Lock across
 	// Shutdown/Wait would starve all RLock readers for the whole drain.
@@ -341,6 +356,7 @@ func (srv *HTTPServer) Stop() error {
 
 		return nil
 	}
+
 	srv.stopping = true
 	srv.options.RunBeforeStop()
 	app := srv.app
@@ -361,6 +377,7 @@ func (srv *HTTPServer) Stop() error {
 		)
 		errs = errors.Join(errs, err)
 	}
+
 	// Backstop for the shutdown-vs-Serve registration race: closing our
 	// own socket unblocks Accept even if Shutdown ran before Serve
 	// tracked it. Double-close is harmless (logged at debug).
@@ -376,6 +393,7 @@ func (srv *HTTPServer) Stop() error {
 			)
 		}
 	}
+
 	srv.wg.Wait()
 
 	srv.Lock()
@@ -396,6 +414,7 @@ func (srv *HTTPServer) Stop() error {
 	return errs
 }
 
+// Running reports whether the component is running.
 func (srv *HTTPServer) Running() bool {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -403,6 +422,7 @@ func (srv *HTTPServer) Running() bool {
 	return srv.running
 }
 
+// Addr returns the address.
 func (srv *HTTPServer) Addr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -410,6 +430,7 @@ func (srv *HTTPServer) Addr() net.Addr {
 	return srv.addr
 }
 
+// IP returns the IP.
 func (srv *HTTPServer) IP() net.IP {
 	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
@@ -419,10 +440,12 @@ func (srv *HTTPServer) IP() net.IP {
 	return try
 }
 
+// Port returns the port.
 func (srv *HTTPServer) Port() int {
 	return utils.AddrToPort(srv.Addr())
 }
 
+// AdvertiseAddr returns the advertise address.
 func (srv *HTTPServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -430,6 +453,7 @@ func (srv *HTTPServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
+// AdvertiseIP returns the advertise IP.
 func (srv *HTTPServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
@@ -439,10 +463,12 @@ func (srv *HTTPServer) AdvertiseIP() net.IP {
 	return try
 }
 
+// AdvertisePort returns the advertise port.
 func (srv *HTTPServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
+// Metadata returns the metadata.
 func (srv *HTTPServer) Metadata() utils.Metadata {
 	// Snapshot: the map is written during Start while handlers may read
 	// it concurrently; returning the live map would race.
@@ -453,10 +479,12 @@ func (srv *HTTPServer) Metadata() utils.Metadata {
 	return srv.metadata.Clone()
 }
 
+// App returns the app.
 func (srv *HTTPServer) App() *http.Server {
 	return srv.app
 }
 
+// Handle registers handlers.
 func (srv *HTTPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		hdl.Register(srv.router)
@@ -473,11 +501,11 @@ func (srv *HTTPServer) Handle(hdls ...Handler) {
 
 /* }}} */
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
-	Register(*bunrouter.Router)
+	Register(router *bunrouter.Router)
 }
 
 /* }}} */

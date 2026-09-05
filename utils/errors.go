@@ -87,6 +87,7 @@ func RegisterErrorCode(code int, message string, httpStatus int) error {
 	if _, exists := codeInfos[code]; exists {
 		return fmt.Errorf("utils: error code %d already registered", code)
 	}
+
 	codeInfos[code] = errorCodeInfo{message: message, status: httpStatus}
 
 	return nil
@@ -120,14 +121,17 @@ type CodedError struct {
 	Err  error
 }
 
+// Error returns the error string.
 func (e *CodedError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
+
 	msg := e.Msg
 	if msg == "" {
 		msg = MessageOf(e.Code)
 	}
+
 	if e.Err != nil {
 		return fmt.Sprintf("code %d: %s: %v", e.Code, msg, e.Err)
 	}
@@ -135,6 +139,7 @@ func (e *CodedError) Error() string {
 	return fmt.Sprintf("code %d: %s", e.Code, msg)
 }
 
+// Unwrap returns the wrapped cause.
 func (e *CodedError) Unwrap() error { return e.Err }
 
 // NewCodedError builds a *CodedError with the registered message when msg
@@ -157,13 +162,13 @@ func CodeOf(err error) int {
 // EnvelopeT is the generic successor of Envelope (which stays untouched
 // for compatibility). Data is typed; Pagination is reused as-is.
 type EnvelopeT[T any] struct {
-	Code       int         `json:"code" yaml:"code" xml:"code"`
-	Status     int         `json:"status" yaml:"status" xml:"status"`
-	Timestamp  time.Time   `json:"timestamp" yaml:"timestamp" xml:"timestamp"`
-	Message    string      `json:"message" yaml:"message" xml:"message"`
-	RequestID  string      `json:"request_id,omitempty" yaml:"request_id,omitempty" xml:"request_id,omitempty"`
-	Pagination *Pagination `json:"pagination,omitempty" yaml:"pagination,omitempty" xml:"pagination,omitempty"`
-	Data       T           `json:"data,omitempty" yaml:"data,omitempty" xml:"data,omitempty"`
+	Code       int         `json:"code"                 xml:"code"                 yaml:"code"`
+	Status     int         `json:"status"               xml:"status"               yaml:"status"`
+	Timestamp  time.Time   `json:"timestamp"            xml:"timestamp"            yaml:"timestamp"`
+	Message    string      `json:"message"              xml:"message"              yaml:"message"`
+	RequestID  string      `json:"request_id,omitempty" xml:"request_id,omitempty" yaml:"request_id,omitempty"`
+	Pagination *Pagination `json:"pagination,omitempty" xml:"pagination,omitempty" yaml:"pagination,omitempty"`
+	Data       T           `json:"data,omitempty"       xml:"data,omitempty"       yaml:"data,omitempty"`
 }
 
 // NewEnvelopeT builds an envelope for code, filling message/status from

@@ -35,11 +35,13 @@ import (
 	"github.com/gofiber/swagger"
 )
 
+// Swagger is a fiber component.
 type Swagger struct {
 	pageTitle    string
 	validatorURL string
 }
 
+// NewSwagger creates a new Swagger.
 func NewSwagger(title, url string) *Swagger {
 	h := &Swagger{
 		pageTitle:    title,
@@ -49,6 +51,7 @@ func NewSwagger(title, url string) *Swagger {
 	return h
 }
 
+// Register registers the collector.
 func (h *Swagger) Register(app *fiber.App) {
 	cfg := swagger.ConfigDefault
 	if h.validatorURL != "" {
@@ -69,10 +72,12 @@ func (h *Swagger) Register(app *fiber.App) {
 	app.Get("/docs/*", swagger.New(cfg))
 }
 
+// Name returns the component name.
 func (h *Swagger) Name() string {
 	return "sicky.swagger"
 }
 
+// Type is part of the public API.
 func (h *Swagger) Type() string {
 	return "http"
 }

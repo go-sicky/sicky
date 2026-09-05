@@ -30,24 +30,46 @@
 
 package nsq
 
+import (
+	"errors"
+	"strings"
+)
+
+var (
+	// ErrNSQNegativeMaxInFlight aborts startup on a negative max_in_flight.
+	ErrNSQNegativeMaxInFlight = errors.New("nsq max_in_flight is negative")
+	// ErrNSQNegativeMsgTimeout aborts startup on a negative msg_timeout.
+	ErrNSQNegativeMsgTimeout = errors.New("nsq msg_timeout is negative")
+	// ErrNSQUnknownCompression aborts startup on an unknown compression.
+	ErrNSQUnknownCompression = errors.New("nsq compression must be one of none, deflate, snappy")
+)
+
 const (
-	DefaultEndpoint    = "127.0.0.1:4150"
-	DefaultChannel     = "sicky"
+	// DefaultEndpoint is a nsq constant.
+	DefaultEndpoint = "127.0.0.1:4150"
+	// DefaultChannel is a nsq constant.
+	DefaultChannel = "sicky"
+	// DefaultMaxInFlight is a nsq constant.
 	DefaultMaxInFlight = 10
-	DefaultMsgTimeout  = 60
+	// DefaultMsgTimeout is a nsq constant.
+	DefaultMsgTimeout = 60
+	// DefaultMaxAttempts is a nsq constant.
 	DefaultMaxAttempts = 10
+	// DefaultCompression is a nsq constant.
 	DefaultCompression = "none"
 )
 
+// Config is a nsq component.
 type Config struct {
-	Endpoint    string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
-	Channel     string `json:"channel" yaml:"channel" mapstructure:"channel"`
-	MaxInFlight int    `json:"max_in_flight" yaml:"max_in_flight" mapstructure:"max_in_flight"`
-	MsgTimeout  int    `json:"msg_timeout" yaml:"msg_timeout" mapstructure:"msg_timeout"`
-	MaxAttempts uint16 `json:"max_attempts" yaml:"max_attempts" mapstructure:"max_attempts"`
-	Compression string `json:"compression" yaml:"compression" mapstructure:"compression"`
+	Endpoint    string `json:"endpoint"      mapstructure:"endpoint"      yaml:"endpoint"`
+	Channel     string `json:"channel"       mapstructure:"channel"       yaml:"channel"`
+	MaxInFlight int    `json:"max_in_flight" mapstructure:"max_in_flight" yaml:"max_in_flight"`
+	MsgTimeout  int    `json:"msg_timeout"   mapstructure:"msg_timeout"   yaml:"msg_timeout"`
+	MaxAttempts uint16 `json:"max_attempts"  mapstructure:"max_attempts"  yaml:"max_attempts"`
+	Compression string `json:"compression"   mapstructure:"compression"   yaml:"compression"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Endpoint:    DefaultEndpoint,
@@ -59,6 +81,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
@@ -89,6 +112,30 @@ func (c *Config) Ensure() *Config {
 	}
 
 	return c
+}
+
+// Validate rejects negative timing/size values and unknown compression
+// names. Zero values are valid (Ensure fills defaults).
+func (c *Config) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if c.MaxInFlight < 0 {
+		return ErrNSQNegativeMaxInFlight
+	}
+
+	if c.MsgTimeout < 0 {
+		return ErrNSQNegativeMsgTimeout
+	}
+
+	switch strings.ToLower(c.Compression) {
+	case "", "none", "deflate", "snappy":
+	default:
+		return ErrNSQUnknownCompression
+	}
+
+	return nil
 }
 
 /*

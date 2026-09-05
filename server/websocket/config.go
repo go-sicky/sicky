@@ -31,24 +31,31 @@
 package websocket
 
 const (
-	DefaultNetwork         = "tcp"
-	DefaultAddress         = ":9991"
-	DefaultPath            = "/conn"
-	DefaultPingDuration    = 5
+	// DefaultNetwork is a websocket constant.
+	DefaultNetwork = "tcp"
+	// DefaultAddress is a websocket constant.
+	DefaultAddress = ":9991"
+	// DefaultPath is a websocket constant.
+	DefaultPath = "/conn"
+	// DefaultPingDuration is a websocket constant.
+	DefaultPingDuration = 5
+	// DefaultMaxIdleDuration is a websocket constant.
 	DefaultMaxIdleDuration = 60
 )
 
+// Config is a websocket component.
 type Config struct {
-	Network          string `json:"network" yaml:"network" mapstructure:"network"`
-	Address          string `json:"address" yaml:"address" mapstructure:"address"`
-	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
-	TLSCertPEM       string `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM        string `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	Path             string `json:"path" yaml:"path" mapstructure:"path"`
-	PingDuration     int    `json:"ping_duration" yaml:"ping_duration" mapstructure:"ping_duration"`
-	MaxIdleDuration  int    `json:"max_idle_duration" yaml:"max_idle_duration" mapstructure:"max_idle_duration"`
+	Network          string `json:"network"           mapstructure:"network"           yaml:"network"`
+	Address          string `json:"address"           mapstructure:"address"           yaml:"address"`
+	AdvertiseAddress string `json:"advertise_address" mapstructure:"advertise_address" yaml:"advertise_address"`
+	TLSCertPEM       string `json:"tls_cert_pem"      mapstructure:"tls_cert_pem"      yaml:"tls_cert_pem"`
+	TLSKeyPEM        string `json:"tls_key_pem"       mapstructure:"tls_key_pem"       yaml:"tls_key_pem"`
+	Path             string `json:"path"              mapstructure:"path"              yaml:"path"`
+	PingDuration     int    `json:"ping_duration"     mapstructure:"ping_duration"     yaml:"ping_duration"`
+	MaxIdleDuration  int    `json:"max_idle_duration" mapstructure:"max_idle_duration" yaml:"max_idle_duration"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Network:         DefaultNetwork,
@@ -59,6 +66,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

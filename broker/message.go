@@ -32,50 +32,107 @@ package broker
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 
-	"github.com/go-sicky/sicky/utils"
 	"github.com/vmihailenco/msgpack/v5"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/go-sicky/sicky/utils"
+)
+
+var (
+	// ErrScanNotProtoMessage signals Scan was given a non-proto.Message
+	// target for a protobuf payload. Match with errors.Is.
+	ErrScanNotProtoMessage = errors.New("broker: scan target is not a proto.Message")
+
+	// ErrFormatNotProtoMessage signals Format was given a non-proto.Message
+	// value for a protobuf mime. Match with errors.Is.
+	ErrFormatNotProtoMessage = errors.New("broker: format value is not a proto.Message")
+
+	// ErrFormatNotBytes signals Format was given a non-[]byte value for
+	// the raw mime. Match with errors.Is.
+	ErrFormatNotBytes = errors.New("broker: raw format value is not []byte")
 )
 
 const (
 	// Message data type
+	// MsgRaw is a broker constant.
 	MsgRaw = iota
-	MsgJson
-	MsgMsgpack
+	// MsgJSON is a broker constant.
+	MsgJSON
+	// MsgMessagePack is a broker constant.
+	MsgMessagePack
+	// MsgProtobuf is a broker constant.
 	MsgProtobuf
 )
 
 const (
+	// Deprecated: misspelled, use MsgJSON.
+	MsgJson = MsgJSON
+	// Deprecated: misspelled, use MsgMessagePack.
+	MsgMsgpack = MsgMessagePack
+)
+
+const (
 	// Message mime
-	MsgRawMime      = "application/octet-stream"
-	MsgJsonMime     = "application/json"
-	MsgMsgpackMime  = "application/x-msgpack"
+	// MsgRawMime is a broker constant.
+	MsgRawMime = "application/octet-stream"
+	// MsgJSONMime is a broker constant.
+	MsgJSONMime = "application/json"
+	// MsgMessagePackMime is a broker constant.
+	MsgMessagePackMime = "application/x-msgpack"
+	// MsgProtobufMime is a broker constant.
 	MsgProtobufMime = "application/x-protobuf"
 )
 
+const (
+	// Deprecated: misspelled, use MsgJSONMime.
+	MsgJsonMime = MsgJSONMime
+	// Deprecated: misspelled, use MsgMessagePackMime.
+	MsgMsgpackMime = MsgMessagePackMime
+)
+
+// Message is a broker component.
 type Message struct {
 	// Header
-	Metadata utils.Metadata `msgpack:"metadata,omitempty" json:"metadata,omitempty"`
-	Mime     int            `msgpack:"mime" json:"mime"`
-	TraceID  string         `msgpack:"trace_id,omitempty" json:"trace_id,omitempty"`
-	Topic    string         `msgpack:"topic,omitempty" json:"topic,omitempty"`
+	Metadata utils.Metadata `json:"metadata,omitempty" msgpack:"metadata,omitempty"`
+	Mime     int            `json:"mime"               msgpack:"mime"`
+	TraceID  string         `json:"trace_id,omitempty" msgpack:"trace_id,omitempty"`
+	Topic    string         `json:"topic,omitempty"    msgpack:"topic,omitempty"`
 
 	// Content
-	Body []byte `msgpack:"body,omitempty" json:"body,omitempty"`
+	Body []byte `json:"body,omitempty" msgpack:"body,omitempty"`
 }
 
+// Scan decodes the message body into v according to the message mime.
+// Raw messages are a passthrough and return nil. Decoding failures are
+// wrapped with topic/mime context; use errors.Is/As on the cause.
 func (m *Message) Scan(v any) error {
 	switch m.Mime {
-	case MsgJson:
-		return json.Unmarshal(m.Body, v)
+	case MsgJSON:
+		if err := json.Unmarshal(m.Body, v); err != nil {
+			return fmt.Errorf("broker: scan json (topic %q mime %d): %w", m.Topic, m.Mime, err)
+		}
+
+		return nil
 	case MsgProtobuf:
 		pm, ok := v.(proto.Message)
-		if ok {
-			return proto.Unmarshal(m.Body, pm)
+		if !ok {
+			return fmt.Errorf("broker: scan protobuf (topic %q): %w", m.Topic, ErrScanNotProtoMessage)
 		}
-	case MsgMsgpack:
-		return msgpack.Unmarshal(m.Body, v)
+
+		if err := proto.Unmarshal(m.Body, pm); err != nil {
+			return fmt.Errorf("broker: scan protobuf (topic %q mime %d): %w", m.Topic, m.Mime, err)
+		}
+
+		return nil
+	case MsgMessagePack:
+		if err := msgpack.Unmarshal(m.Body, v); err != nil {
+			return fmt.Errorf("broker: scan msgpack (topic %q mime %d): %w", m.Topic, m.Mime, err)
+		}
+
+		return nil
 	default:
 		// Raw
 	}
@@ -83,27 +140,36 @@ func (m *Message) Scan(v any) error {
 	return nil
 }
 
+// Format encodes v into the message body and records the effective mime.
+// A non-proto.Message value with the protobuf mime, or a non-[]byte value
+// with the raw mime, now returns an error instead of silently producing
+// an empty body.
 func (m *Message) Format(v any, mime ...int) error {
-	tm := MsgJson
+	tm := MsgJSON
 	if len(mime) > 0 {
 		tm = mime[0]
 	}
 
 	var err error
 	switch tm {
-	case MsgJson:
+	case MsgJSON:
 		m.Body, err = json.Marshal(v)
 	case MsgProtobuf:
-		if pm, ok := v.(proto.Message); ok {
-			m.Body, err = proto.Marshal(pm)
+		pm, ok := v.(proto.Message)
+		if !ok {
+			return fmt.Errorf("broker: format protobuf (topic %q): %w", m.Topic, ErrFormatNotProtoMessage)
 		}
-	case MsgMsgpack:
+
+		m.Body, err = proto.Marshal(pm)
+	case MsgMessagePack:
 		m.Body, err = msgpack.Marshal(v)
 	default:
 		// Raw
 		if b, ok := v.([]byte); ok {
 			m.Body = b
 			tm = MsgRaw
+		} else {
+			return fmt.Errorf("broker: format raw (topic %q): %w", m.Topic, ErrFormatNotBytes)
 		}
 	}
 
@@ -115,16 +181,22 @@ func (m *Message) Format(v any, mime ...int) error {
 	return err
 }
 
+// Raw is part of the public API.
 func (m *Message) Raw() []byte {
 	b, _ := msgpack.Marshal(m)
 
 	return b
 }
 
+// NewMessage creates a new Message.
+// Corrupt wire bytes fall back to a raw message preserving the input
+// instead of a half-zero struct, so no data is silently dropped.
 func NewMessage(raw []byte) *Message {
 	m := new(Message)
 	if raw != nil {
-		msgpack.Unmarshal(raw, m)
+		if err := msgpack.Unmarshal(raw, m); err != nil {
+			return &Message{Body: raw, Mime: MsgRaw}
+		}
 	} else {
 		m.Metadata = utils.NewMetadata()
 		m.Mime = MsgRaw

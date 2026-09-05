@@ -50,13 +50,16 @@ type statusRecorder struct {
 	status int
 }
 
+// WriteHeader is part of the public API.
 func (w *statusRecorder) WriteHeader(code int) {
 	if w.status == 0 {
 		w.status = code
 	}
+
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Write writes data.
 func (w *statusRecorder) Write(b []byte) (int, error) {
 	// Implicit 200 on first Write without an explicit WriteHeader.
 	if w.status == 0 {
@@ -66,6 +69,7 @@ func (w *statusRecorder) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Flush is part of the public API.
 func (w *statusRecorder) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()

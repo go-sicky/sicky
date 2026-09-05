@@ -34,6 +34,7 @@ const DefaultInitTimeoutSec = 5
 // helpers — reading the exported globals directly races with Init/Clear.
 var mu sync.RWMutex
 
+// GetBadger returns the badger.
 func GetBadger() *badger.DB {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -41,6 +42,7 @@ func GetBadger() *badger.DB {
 	return Badger
 }
 
+// GetBun returns the bun.
 func GetBun() *bun.DB {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -48,13 +50,20 @@ func GetBun() *bun.DB {
 	return Bun
 }
 
-func GetClickhouse() *ch.DB {
+// GetClickHouse returns the clickhouse.
+func GetClickHouse() *ch.DB {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	return Clickhouse
+	return ClickHouse
 }
 
+// Deprecated: use GetClickHouse.
+func GetClickhouse() *ch.DB {
+	return GetClickHouse()
+}
+
+// GetElastic returns the elastic.
 func GetElastic() *elasticsearch.Client {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -62,6 +71,7 @@ func GetElastic() *elasticsearch.Client {
 	return Elastic
 }
 
+// GetMongo returns the mongo.
 func GetMongo() *mongo.Client {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -69,6 +79,7 @@ func GetMongo() *mongo.Client {
 	return Mongo
 }
 
+// GetMQTT returns the mqtt.
 func GetMQTT() mqtt.Client {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -76,13 +87,20 @@ func GetMQTT() mqtt.Client {
 	return MQTT
 }
 
-func GetNats() *nats.Conn {
+// GetNATS returns the nats.
+func GetNATS() *nats.Conn {
 	mu.RLock()
 	defer mu.RUnlock()
 
-	return Nats
+	return NATS
 }
 
+// Deprecated: use GetNATS.
+func GetNats() *nats.Conn {
+	return GetNATS()
+}
+
+// GetRedis returns the redis.
 func GetRedis() *redis.Client {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -90,6 +108,7 @@ func GetRedis() *redis.Client {
 	return Redis
 }
 
+// GetRistretto returns the ristretto.
 func GetRistretto() *ristretto.Cache[string, any] {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -97,6 +116,7 @@ func GetRistretto() *ristretto.Cache[string, any] {
 	return Ristretto
 }
 
+// GetS3 returns the s3.
 func GetS3() *s3.Client {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -107,30 +127,41 @@ func GetS3() *s3.Client {
 // Clear* resets a singleton after Close/Disconnect so a later Run() builds
 // a fresh connection instead of reusing a closed one.
 
+// ClearBadger is part of the public API.
 func ClearBadger() {
 	mu.Lock()
 	defer mu.Unlock()
 	Badger = nil
 }
 
+// ClearBun is part of the public API.
 func ClearBun() {
 	mu.Lock()
 	defer mu.Unlock()
 	Bun = nil
 }
 
-func ClearClickhouse() {
+// ClearClickHouse is part of the public API.
+func ClearClickHouse() {
 	mu.Lock()
 	defer mu.Unlock()
+	ClickHouse = nil
 	Clickhouse = nil
 }
 
+// Deprecated: use ClearClickHouse.
+func ClearClickhouse() {
+	ClearClickHouse()
+}
+
+// ClearElastic is part of the public API.
 func ClearElastic() {
 	mu.Lock()
 	defer mu.Unlock()
 	Elastic = nil
 }
 
+// ClearMongo is part of the public API.
 func ClearMongo() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -138,30 +169,41 @@ func ClearMongo() {
 	mongoDBName = ""
 }
 
+// ClearMQTT is part of the public API.
 func ClearMQTT() {
 	mu.Lock()
 	defer mu.Unlock()
 	MQTT = nil
 }
 
-func ClearNats() {
+// ClearNATS is part of the public API.
+func ClearNATS() {
 	mu.Lock()
 	defer mu.Unlock()
+	NATS = nil
 	Nats = nil
 }
 
+// Deprecated: use ClearNATS.
+func ClearNats() {
+	ClearNATS()
+}
+
+// ClearRedis is part of the public API.
 func ClearRedis() {
 	mu.Lock()
 	defer mu.Unlock()
 	Redis = nil
 }
 
+// ClearRistretto is part of the public API.
 func ClearRistretto() {
 	mu.Lock()
 	defer mu.Unlock()
 	Ristretto = nil
 }
 
+// ClearS3 is part of the public API.
 func ClearS3() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -192,6 +234,7 @@ func redactDSN(raw string) string {
 			changed = true
 		}
 	}
+
 	if changed {
 		u.RawQuery = q.Encode()
 	}

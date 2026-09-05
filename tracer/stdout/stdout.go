@@ -34,15 +34,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/tracer/internal"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/tracer/internal"
 )
 
+// StdoutTracer is a stdout component.
 type StdoutTracer struct {
 	config   *Config
 	ctx      context.Context
@@ -51,6 +53,7 @@ type StdoutTracer struct {
 	provider *sdktrace.TracerProvider
 }
 
+// New creates a new instance (nil on invalid config).
 func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 	opts := originalOpts.Ensure()
 	cfg := originalCfg.Ensure()
@@ -118,6 +121,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 
 		return nil // Return directly if resource creation fails
 	}
+
 	tc.provider = provider
 
 	tc.options.Logger.InfoContext(
@@ -134,26 +138,32 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 	return tc
 }
 
+// Context returns the component context.
 func (tc *StdoutTracer) Context() context.Context {
 	return tc.ctx
 }
 
+// Options returns the runtime options.
 func (tc *StdoutTracer) Options() *tracer.Options {
 	return tc.options
 }
 
+// String returns a human-readable name.
 func (tc *StdoutTracer) String() string {
 	return "stdout"
 }
 
+// ID returns the unique instance ID.
 func (tc *StdoutTracer) ID() uuid.UUID {
 	return tc.options.ID
 }
 
+// Name returns the component name.
 func (tc *StdoutTracer) Name() string {
 	return tc.options.Name
 }
 
+// Start starts the component.
 func (tc *StdoutTracer) Start() error {
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -168,6 +178,7 @@ func (tc *StdoutTracer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (tc *StdoutTracer) Stop() error {
 	if tc.provider != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -218,14 +229,17 @@ func (tc *StdoutTracer) Stop() error {
 	return nil
 }
 
+// StdoutExporter is part of the public API.
 func (tc *StdoutTracer) StdoutExporter() *stdouttrace.Exporter {
 	return tc.exporter
 }
 
+// Provider returns the provider.
 func (tc *StdoutTracer) Provider() *sdktrace.TracerProvider {
 	return tc.provider
 }
 
+// Tracer returns the tracer.
 func (tc *StdoutTracer) Tracer(name string) trace.Tracer {
 	if tc.provider == nil {
 		tc.options.Logger.WarnContext(

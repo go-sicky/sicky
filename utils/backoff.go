@@ -47,16 +47,17 @@ type Backoff struct {
 }
 
 // NewBackoff returns a backoff starting at base and doubling (with jitter)
-// up to cap. Non-positive inputs fall back to 50ms base / 1s cap.
-func NewBackoff(base, cap time.Duration) *Backoff {
+// up to maxDelay. Non-positive inputs fall back to 50ms base / 1s cap.
+func NewBackoff(base, maxDelay time.Duration) *Backoff {
 	if base <= 0 {
 		base = 50 * time.Millisecond
 	}
-	if cap <= 0 {
-		cap = time.Second
+
+	if maxDelay <= 0 {
+		maxDelay = time.Second
 	}
 
-	return &Backoff{base: base, cap: cap}
+	return &Backoff{base: base, cap: maxDelay}
 }
 
 // Next returns the sleep for the current consecutive failure and advances
@@ -67,13 +68,21 @@ func (b *Backoff) Next() time.Duration {
 	b.attempts++
 	b.mu.Unlock()
 
-	shift := a
-	if shift > 5 {
-		shift = 5 // base*32 already exceeds any sane cap; avoid overflow
-	}
+	shift := min(a,
+		// base*32 already exceeds any sane cap; avoid overflow
+		5)
+
 	d := b.base << shift
 	if d <= 0 || d > b.cap {
 		d = b.cap
+	}
+
+	// Jitter needs a positive halved magnitude: d==1 would divide by zero,
+	// and the int64->uint64 conversion below is only sound for d > 0
+	// (guaranteed by the cap guard above).
+	half := d / 2
+	if half <= 0 {
+		return d
 	}
 
 	// Deterministic splitmix64 jitter in [-25%, +25%]: decorrelates
@@ -82,7 +91,7 @@ func (b *Backoff) Next() time.Duration {
 	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9
 	x = (x ^ (x >> 27)) * 0x94D049BB133111EB
 	x ^= x >> 31
-	j := int64(x%uint64(d/2)) - int64(d/4)
+	j := int64(x%uint64(half)) - int64(d/4) //nolint:gosec // G115: half is guarded positive above, conversion cannot overflow
 
 	return d + time.Duration(j)
 }
@@ -107,17 +116,18 @@ type LogSampler struct {
 	suppressed int64
 }
 
-// NewLogSampler allows max full logs per window. Non-positive inputs fall
+// NewLogSampler allows maxLogs full logs per window. Non-positive inputs fall
 // back to 5 logs per second.
-func NewLogSampler(max int, window time.Duration) *LogSampler {
-	if max <= 0 {
-		max = 5
+func NewLogSampler(maxLogs int, window time.Duration) *LogSampler {
+	if maxLogs <= 0 {
+		maxLogs = 5
 	}
+
 	if window <= 0 {
 		window = time.Second
 	}
 
-	return &LogSampler{window: window, max: max, start: time.Now()}
+	return &LogSampler{window: window, max: maxLogs, start: time.Now()}
 }
 
 // Allow reports whether the caller should emit the full log. When it
@@ -134,6 +144,7 @@ func (s *LogSampler) Allow() (allow bool, suppressed int64) {
 		s.count = 0
 		s.suppressed = 0
 	}
+
 	if s.count < s.max {
 		s.count++
 		suppressed = s.suppressed
@@ -141,6 +152,7 @@ func (s *LogSampler) Allow() (allow bool, suppressed int64) {
 
 		return true, suppressed
 	}
+
 	s.suppressed++
 
 	return false, 0

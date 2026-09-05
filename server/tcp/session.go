@@ -35,13 +35,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
-/* {{{ [Session] */
+/* {{{ [Session]. */
 type Session struct {
 	server.SessionBase
 
@@ -57,6 +58,7 @@ type Session struct {
 	writeTimeout time.Duration
 }
 
+// NewSession creates a new Session.
 func NewSession(conn net.Conn) *Session {
 	return NewSessionWithTimeout(conn, 0)
 }
@@ -90,6 +92,7 @@ func (s *Session) lastActive() time.Time {
 	return s.LastActive
 }
 
+// Send sends data.
 func (s *Session) Send(data []byte) error {
 	s.touch()
 	s.sendMu.Lock()
@@ -98,11 +101,13 @@ func (s *Session) Send(data []byte) error {
 	if s.writeTimeout > 0 {
 		_ = s.conn.SetWriteDeadline(time.Now().Add(s.writeTimeout))
 	}
+
 	_, err := s.conn.Write(data)
 
 	return err
 }
 
+// Close closes the resource.
 func (s *Session) Close() error {
 	s.mu.Lock()
 	if !s.Valid {
@@ -110,6 +115,7 @@ func (s *Session) Close() error {
 
 		return nil
 	}
+
 	s.Valid = false
 	p := s.pool
 	conn := s.conn
@@ -124,6 +130,7 @@ func (s *Session) Close() error {
 	return conn.Close()
 }
 
+// Conn returns the connection.
 func (s *Session) Conn() net.Conn {
 	return s.conn
 }
@@ -149,6 +156,7 @@ func (s *Session) SetKey(key string) {
 	if old != "" {
 		delete(p.keys, old)
 	}
+
 	if _, ok := p.sessions[id]; ok && key != "" {
 		p.keys[key] = s
 	}
@@ -156,7 +164,7 @@ func (s *Session) SetKey(key string) {
 
 /* }}} */
 
-/* {{{ [Pool] */
+/* {{{ [Pool]. */
 type Pool struct {
 	sync.RWMutex
 
@@ -167,6 +175,7 @@ type Pool struct {
 	maxIdleDuration time.Duration
 }
 
+// NewPool creates a new Pool.
 func NewPool(idle int) *Pool {
 	p := &Pool{
 		id:              uuid.New(),
@@ -185,6 +194,7 @@ func NewPool(idle int) *Pool {
 	return p
 }
 
+// Put stores the entry.
 func (p *Pool) Put(sess *Session) {
 	p.Lock()
 	defer p.Unlock()
@@ -203,6 +213,7 @@ func (p *Pool) Put(sess *Session) {
 	}
 }
 
+// GetByID looks up by ID.
 func (p *Pool) GetByID(id uuid.UUID) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -215,6 +226,7 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 	return sess
 }
 
+// GetByConn looks up by connection.
 func (p *Pool) GetByConn(conn net.Conn) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -227,6 +239,7 @@ func (p *Pool) GetByConn(conn net.Conn) *Session {
 	return sess
 }
 
+// GetByKey looks up by key.
 func (p *Pool) GetByKey(key string) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -239,6 +252,7 @@ func (p *Pool) GetByKey(key string) *Session {
 	return sess
 }
 
+// RemoveByID removes by ID.
 func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	p.Lock()
 	defer p.Unlock()
@@ -257,6 +271,7 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	return true
 }
 
+// Length returns the entry count.
 func (p *Pool) Length() int {
 	p.RLock()
 	defer p.RUnlock()
@@ -264,6 +279,7 @@ func (p *Pool) Length() int {
 	return len(p.sessions)
 }
 
+// Purge removes expired entries.
 func (p *Pool) Purge() {
 	if p.maxIdleDuration <= 0 {
 		return
@@ -280,13 +296,15 @@ func (p *Pool) Purge() {
 			idle = append(idle, sess)
 		}
 	}
+
 	p.RUnlock()
 
 	for _, sess := range idle {
-		remote := "unknown"
+		remote := unknownRemote
 		if addr := sess.conn.RemoteAddr(); addr != nil {
 			remote = addr.String()
 		}
+
 		logger.Logger.Debug(
 			"TCP connection idle for a long time",
 			"session", sess.ID,
@@ -313,6 +331,7 @@ func (p *Pool) RunReaper(tick time.Duration, stop <-chan struct{}) {
 	}
 }
 
+// Foreach iterates all entries.
 func (p *Pool) Foreach(f func(sess *Session)) {
 	// Snapshot first: invoking external callbacks under RLock would
 	// deadlock as soon as a callback calls Put/Remove/Purge.
@@ -321,6 +340,7 @@ func (p *Pool) Foreach(f func(sess *Session)) {
 	for _, sess := range p.sessions {
 		snapshot = append(snapshot, sess)
 	}
+
 	p.RUnlock()
 
 	for _, sess := range snapshot {

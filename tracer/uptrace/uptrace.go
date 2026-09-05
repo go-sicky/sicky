@@ -34,15 +34,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"github.com/uptrace/uptrace-go/uptrace"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/go-sicky/sicky/tracer"
 )
 
+// UptraceTracer is a uptrace component.
 type UptraceTracer struct {
 	config   *Config
 	ctx      context.Context
@@ -50,6 +52,7 @@ type UptraceTracer struct {
 	provider *sdktrace.TracerProvider
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -77,6 +80,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	if cfg.SampleRate < 0 || cfg.SampleRate > 1 {
 		cfg.SampleRate = 1.0
 	}
+
 	if cfg.SampleRate != 1.0 {
 		tc.options.Logger.WarnContext(
 			tc.ctx,
@@ -92,6 +96,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	if svcName == "" {
 		svcName = opts.Name
 	}
+
 	svcVer := cfg.ServiceVersion
 	if svcVer == "" {
 		svcVer = "latest"
@@ -103,7 +108,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = prev.Shutdown(shutdownCtx)
 		shutdownCancel()
-		uptrace.Shutdown(shutdownCtx)
+		_ = uptrace.Shutdown(shutdownCtx)
 	}
 
 	// Configure Uptrace (SDK-owned track, independent from standard OTLP).
@@ -144,26 +149,32 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	return tc
 }
 
+// Context returns the component context.
 func (tc *UptraceTracer) Context() context.Context {
 	return tc.ctx
 }
 
+// Options returns the runtime options.
 func (tc *UptraceTracer) Options() *tracer.Options {
 	return tc.options
 }
 
+// String returns a human-readable name.
 func (tc *UptraceTracer) String() string {
 	return "uptrace"
 }
 
+// ID returns the unique instance ID.
 func (tc *UptraceTracer) ID() uuid.UUID {
 	return tc.options.ID
 }
 
+// Name returns the component name.
 func (tc *UptraceTracer) Name() string {
 	return tc.options.Name
 }
 
+// Start starts the component.
 func (tc *UptraceTracer) Start() error {
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -179,6 +190,7 @@ func (tc *UptraceTracer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (tc *UptraceTracer) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -199,7 +211,19 @@ func (tc *UptraceTracer) Stop() error {
 	}
 
 	// Shutdown Uptrace
-	uptrace.Shutdown(ctx)
+	if err := uptrace.Shutdown(ctx); err != nil {
+		tc.options.Logger.ErrorContext(
+			tc.ctx,
+			"Uptrace shutdown failed",
+			"tracer", tc.String(),
+			"id", tc.options.ID,
+			"name", tc.options.Name,
+			"dsn", tracer.RedactDSN(tc.config.DSN),
+			"error", err.Error(),
+		)
+
+		return err
+	}
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -213,10 +237,12 @@ func (tc *UptraceTracer) Stop() error {
 	return nil
 }
 
+// Provider returns the provider.
 func (tc *UptraceTracer) Provider() *sdktrace.TracerProvider {
 	return tc.provider
 }
 
+// Tracer returns the tracer.
 func (tc *UptraceTracer) Tracer(name string) trace.Tracer {
 	if tc.provider == nil {
 		tc.options.Logger.WarnContext(

@@ -34,11 +34,13 @@ import (
 	"context"
 	"net"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
-	"github.com/google/uuid"
 )
 
+// UDPClient is a udp component.
 type UDPClient struct {
 	config    *Config
 	options   *client.Options
@@ -48,6 +50,7 @@ type UDPClient struct {
 	addr      *net.UDPAddr
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *client.Options, cfg *Config) (*UDPClient, error) {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -89,26 +92,32 @@ func New(opts *client.Options, cfg *Config) (*UDPClient, error) {
 	return clt, nil
 }
 
+// Options returns the runtime options.
 func (clt *UDPClient) Options() *client.Options {
 	return clt.options
 }
 
+// Context returns the component context.
 func (clt *UDPClient) Context() context.Context {
 	return clt.ctx
 }
 
+// String returns a human-readable name.
 func (clt *UDPClient) String() string {
 	return "udp"
 }
 
+// ID returns the unique instance ID.
 func (clt *UDPClient) ID() uuid.UUID {
 	return clt.options.ID
 }
 
+// Name returns the component name.
 func (clt *UDPClient) Name() string {
 	return clt.options.Name
 }
 
+// Connect connects to the backend.
 func (clt *UDPClient) Connect() error {
 	if clt.connected {
 		return nil
@@ -125,6 +134,7 @@ func (clt *UDPClient) Connect() error {
 	return nil
 }
 
+// Disconnect disconnects from the backend.
 func (clt *UDPClient) Disconnect() error {
 	if !clt.connected {
 		return nil
@@ -140,8 +150,10 @@ func (clt *UDPClient) Disconnect() error {
 	return nil
 }
 
+// Call executes a call.
 func (clt *UDPClient) Call() error {
 	metrics.NumUDPClientCallCounter.Inc()
+
 	return nil
 }
 

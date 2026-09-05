@@ -37,21 +37,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sicky/sicky/logger"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// MongoConfig is a infra component.
 type MongoConfig struct {
-	URI string `json:"uri" yaml:"uri" mapstructure:"uri"`
-	DB  string `json:"db" yaml:"db" mapstructure:"db"`
+	URI string `json:"uri" mapstructure:"uri" yaml:"uri"`
+	DB  string `json:"db"  mapstructure:"db"  yaml:"db"`
 	// MaxPoolSize caps driver connections. 0 keeps the driver default
 	// (100).
-	MaxPoolSize uint64 `json:"max_pool_size" yaml:"max_pool_size" mapstructure:"max_pool_size"`
+	MaxPoolSize uint64 `json:"max_pool_size" mapstructure:"max_pool_size" yaml:"max_pool_size"`
 	// ConnectTimeoutSec bounds initial dial/server selection. 0 keeps the
 	// driver default (30s); negative aborts startup.
-	ConnectTimeoutSec int `json:"connect_timeout_sec" yaml:"connect_timeout_sec" mapstructure:"connect_timeout_sec"`
+	ConnectTimeoutSec int `json:"connect_timeout_sec" mapstructure:"connect_timeout_sec" yaml:"connect_timeout_sec"`
 }
 
 // ErrMongoURIEmpty aborts startup: a non-nil MongoConfig means "enable
@@ -62,8 +64,10 @@ var (
 	ErrMongoOptionInvalid = errors.New("infra: mongo pool/timeout option is negative")
 )
 
+// Mongo is a shared infra value.
 var Mongo *mongo.Client
 
+// InitMongo is part of the public API.
 func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	if cfg == nil {
 		return nil, nil
@@ -83,9 +87,11 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	if cfg.MaxPoolSize > 0 {
 		clientOpts.SetMaxPoolSize(cfg.MaxPoolSize)
 	}
+
 	if cfg.ConnectTimeoutSec > 0 {
 		clientOpts.SetConnectTimeout(time.Duration(cfg.ConnectTimeoutSec) * time.Second)
 	}
+
 	client, err := mongo.Connect(clientOpts)
 	if err != nil {
 		logger.Logger.Error(
@@ -144,12 +150,14 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 
 		return Mongo, nil
 	}
+
 	Mongo = client
 	mongoDBName = effectiveMongoDB(cfg)
 
 	return client, nil
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *MongoConfig) Ensure() *MongoConfig {
 	if c == nil {
 		c = new(MongoConfig)
@@ -158,6 +166,7 @@ func (c *MongoConfig) Ensure() *MongoConfig {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *MongoConfig) Validate() error {
 	if c == nil {
 		return nil

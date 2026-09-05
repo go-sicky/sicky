@@ -43,6 +43,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
+	_ "github.com/spf13/viper/remote"
+
 	brkJetstream "github.com/go-sicky/sicky/broker/jetstream"
 	brkNats "github.com/go-sicky/sicky/broker/nats"
 	brkNsq "github.com/go-sicky/sicky/broker/nsq"
@@ -59,14 +63,13 @@ import (
 	tracerStdout "github.com/go-sicky/sicky/tracer/stdout"
 	tracerUptrace "github.com/go-sicky/sicky/tracer/uptrace"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
-	_ "github.com/spf13/viper/remote"
 )
 
 type (
+	// FlagSwitchCallback is a sicky component.
 	FlagSwitchCallback func() error
-	FlagSwitch         struct {
+	// FlagSwitch is a sicky component.
+	FlagSwitch struct {
 		Flag     string
 		On       bool
 		Usage    string
@@ -75,9 +78,12 @@ type (
 )
 
 type (
+	// TickerHandler is a sicky component.
 	TickerHandler func(time.Time, uint64) error
 	// Deprecated: misspelled, use TickerHandler.
+	// TickerHander is a sicky component.
 	TickerHander = TickerHandler
+	// SickyWrapper is a sicky component.
 	SickyWrapper func(context.Context) error
 )
 
@@ -92,11 +98,43 @@ var (
 	// ErrVersionShown signals that --version was requested. Init handled
 	// it by printing the version; the caller should exit 0. The library
 	// itself never calls os.Exit.
+	// ErrVersionShown is a shared sicky value.
 	ErrVersionShown = errors.New("version shown")
 
 	// ErrAlreadyInitialized is returned when Init is called twice.
 	// Flag registration on the global pflag set is not idempotent.
+	// ErrAlreadyInitialized is a shared sicky value.
 	ErrAlreadyInitialized = errors.New("sicky already initialized")
+
+	// ErrMustInfraNotInitialized signals a required infrastructure
+	// dependency never became ready. Join with the infra name
+	// (fmt.Errorf("%w: %s", ErrMustInfraNotInitialized, name)) so
+	// callers can match with errors.Is.
+	ErrMustInfraNotInitialized = errors.New("sicky: must infrastructure is not initialized")
+
+	// ErrRegistryNotInitialized signals no registry backend was configured.
+	ErrRegistryNotInitialized = errors.New("sicky: registry is not initialized")
+
+	// ErrBrokerNotInitialized signals no broker backend was configured.
+	ErrBrokerNotInitialized = errors.New("sicky: broker is not initialized")
+
+	// ErrNATSBrokerNil signals the NATS broker constructor returned nil.
+	ErrNATSBrokerNil = errors.New("sicky: nats broker init returned nil")
+
+	// Deprecated: use ErrNATSBrokerNil.
+	ErrNatsBrokerNil = ErrNATSBrokerNil
+
+	// ErrNSQBrokerNil signals the NSQ broker constructor returned nil.
+	ErrNSQBrokerNil = errors.New("sicky: nsq broker init returned nil")
+
+	// Deprecated: use ErrNSQBrokerNil.
+	ErrNsqBrokerNil = ErrNSQBrokerNil
+
+	// ErrJetStreamBrokerNil signals the JetStream broker constructor returned nil.
+	ErrJetStreamBrokerNil = errors.New("sicky: jetstream broker init returned nil")
+
+	// Deprecated: use ErrJetStreamBrokerNil.
+	ErrJetstreamBrokerNil = ErrJetStreamBrokerNil
 
 	initMu      sync.Mutex
 	initialized bool
@@ -104,8 +142,11 @@ var (
 	wrapperMu   sync.RWMutex
 
 	switchesVars = make(map[string]*FlagSwitch)
-	MustInfra    = make(map[string]bool)
-	MustBroker   = false
+	// MustInfra is a shared sicky value.
+	MustInfra = make(map[string]bool)
+	// MustBroker is a shared sicky value.
+	MustBroker = false
+	// MustRegistry is a shared sicky value.
 	MustRegistry = false
 
 	beforeStartWrappers []SickyWrapper
@@ -115,6 +156,7 @@ var (
 	reloadWrappers      []SickyWrapper
 )
 
+// Init is part of the public API.
 func Init(opts *Options, switches ...*FlagSwitch) error {
 	initMu.Lock()
 	defer initMu.Unlock()
@@ -131,9 +173,11 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 			if sw == nil || sw.Flag == "" {
 				continue
 			}
+
 			if _, exists := switchesVars[sw.Flag]; exists {
 				continue
 			}
+
 			// sw.On = false
 			switchesVars[sw.Flag] = sw
 			pflag.BoolVar(&sw.On, sw.Flag, sw.On, sw.Usage)
@@ -150,6 +194,7 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 		fmt.Println("  " + options.AppName + " -- Version : " + options.Version + " (" + options.Branch + ") Build : " + options.Commit + " (" + options.BuildTime + ")")
 
 		initialized = true
+
 		return ErrVersionShown
 	}
 
@@ -176,6 +221,7 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 			if home, herr := os.UserHomeDir(); herr == nil && home != "" {
 				configIns.AddConfigPath(home + "/." + options.AppName)
 			}
+
 			configIns.AddConfigPath(".")
 
 			err = configIns.ReadInConfig()
@@ -190,6 +236,7 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 		if u, uerr := url.Parse(configLoc); uerr == nil && u != nil {
 			location = u.Redacted()
 		}
+
 		logger.Logger.Info("Config read", "location", location)
 		if used := configIns.ConfigFileUsed(); used != "" {
 			if cwd, cerr := os.Getwd(); cerr == nil {
@@ -211,7 +258,7 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 	for _, infra := range options.MustInfra {
 		key := strings.ToLower(strings.TrimSpace(infra))
 		switch key {
-		case "badger", "bun", "clickhouse", "elastic", "mqtt", "mongo", "nats", "redis", "ristretto", "s3":
+		case componentBadger, componentBun, componentClickhouse, componentElastic, componentMQTT, componentMongo, componentNATS, componentRedis, componentRistretto, componentS3:
 			MustInfra[key] = true
 		default:
 			if key != "" {
@@ -231,10 +278,12 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 	return nil
 }
 
+// Viper is part of the public API.
 func Viper() *viper.Viper {
 	return configIns
 }
 
+// ConfigUnmarshal is part of the public API.
 func ConfigUnmarshal(raw any) error {
 	if raw != nil {
 		return configIns.Unmarshal(raw)
@@ -246,7 +295,7 @@ func ConfigUnmarshal(raw any) error {
 func registryName() string {
 	rg := registry.Default()
 	if rg == nil {
-		return "none"
+		return DefaultTracerType
 	}
 
 	return rg.String()
@@ -279,6 +328,7 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 
 			continue
 		}
+
 		ins.Servers[srv.Name()] = &registry.Server{
 			ID:               srv.ID(),
 			InstanceID:       ins.ID,
@@ -305,6 +355,7 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 	return ins
 }
 
+// Run runs the component.
 func Run(cfg *Config) error {
 	runMu.Lock()
 	defer runMu.Unlock()
@@ -321,8 +372,8 @@ func Run(cfg *Config) error {
 		rgTickerDone chan struct{}
 
 		brkNatsIns      *brkNats.Nats
-		brkNsqIns       *brkNsq.Nsq
-		brkJetstreamIns *brkJetstream.Jetstream
+		brkNsqIns       *brkNsq.NSQ
+		brkJetstreamIns *brkJetstream.JetStream
 
 		// failedSvcs tracks services whose Start failed so the shutdown
 		// path does not Stop them twice (already stopped inline).
@@ -340,10 +391,11 @@ func Run(cfg *Config) error {
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
+
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 	defer func() {
-		// Restore parent so a second Run does not inherit a cancelled ctx.
+		// Restore parent so a second Run does not inherit a canceled ctx.
 		options.Context = parentCtx
 	}()
 	options.Context = ctx
@@ -361,10 +413,11 @@ func Run(cfg *Config) error {
 	if MustInfra == nil {
 		MustInfra = make(map[string]bool)
 	}
+
 	for _, infra := range options.MustInfra {
 		key := strings.ToLower(strings.TrimSpace(infra))
 		switch key {
-		case "badger", "bun", "clickhouse", "elastic", "mqtt", "mongo", "nats", "redis", "ristretto", "s3":
+		case componentBadger, componentBun, componentClickhouse, componentElastic, componentMQTT, componentMongo, componentNATS, componentRedis, componentRistretto, componentS3:
 			MustInfra[key] = true
 		default:
 			if key != "" {
@@ -372,6 +425,7 @@ func Run(cfg *Config) error {
 			}
 		}
 	}
+
 	validateConfig(cfg)
 
 	// Wrappers
@@ -382,6 +436,7 @@ func Run(cfg *Config) error {
 		if fn == nil {
 			continue
 		}
+
 		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -409,8 +464,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["badger"] {
-			MustInfra["badger"] = false
+		if MustInfra[componentBadger] {
+			MustInfra[componentBadger] = false
 		}
 	}
 
@@ -426,13 +481,13 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["bun"] {
-			MustInfra["bun"] = false
+		if MustInfra[componentBun] {
+			MustInfra[componentBun] = false
 		}
 	}
 
 	if cfg.Infra.Clickhouse != nil {
-		_, err = infra.InitClickhouse(cfg.Infra.Clickhouse)
+		_, err = infra.InitClickHouse(cfg.Infra.Clickhouse)
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
@@ -443,8 +498,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["clickhouse"] {
-			MustInfra["clickhouse"] = false
+		if MustInfra[componentClickhouse] {
+			MustInfra[componentClickhouse] = false
 		}
 	}
 
@@ -460,8 +515,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["elastic"] {
-			MustInfra["elastic"] = false
+		if MustInfra[componentElastic] {
+			MustInfra[componentElastic] = false
 		}
 	}
 
@@ -477,8 +532,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["mqtt"] {
-			MustInfra["mqtt"] = false
+		if MustInfra[componentMQTT] {
+			MustInfra[componentMQTT] = false
 		}
 	}
 
@@ -494,13 +549,13 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["mongo"] {
-			MustInfra["mongo"] = false
+		if MustInfra[componentMongo] {
+			MustInfra[componentMongo] = false
 		}
 	}
 
 	if cfg.Infra.Nats != nil {
-		_, err = infra.InitNats(cfg.Infra.Nats)
+		_, err = infra.InitNATS(cfg.Infra.Nats)
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
@@ -511,8 +566,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["nats"] {
-			MustInfra["nats"] = false
+		if MustInfra[componentNATS] {
+			MustInfra[componentNATS] = false
 		}
 	}
 
@@ -528,8 +583,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["redis"] {
-			MustInfra["redis"] = false
+		if MustInfra[componentRedis] {
+			MustInfra[componentRedis] = false
 		}
 	}
 
@@ -545,8 +600,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["ristretto"] {
-			MustInfra["ristretto"] = false
+		if MustInfra[componentRistretto] {
+			MustInfra[componentRistretto] = false
 		}
 	}
 
@@ -562,8 +617,8 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra["s3"] {
-			MustInfra["s3"] = false
+		if MustInfra[componentS3] {
+			MustInfra[componentS3] = false
 		}
 	}
 
@@ -575,7 +630,7 @@ func Run(cfg *Config) error {
 				"Must infrastructure is not initialized",
 				"infra", name,
 			)
-			runErr = errors.Join(runErr, fmt.Errorf("must infrastructure is not initialized: %s", name))
+			runErr = errors.Join(runErr, fmt.Errorf("%w: %s", ErrMustInfraNotInitialized, name))
 			goto shutdown
 		}
 	}
@@ -589,16 +644,18 @@ func Run(cfg *Config) error {
 		if tracerSvc == "" {
 			tracerSvc = options.AppName
 		}
+
 		tracerVer := cfg.Tracer.ServiceVersion
 		if tracerVer == "" {
 			tracerVer = options.Version
 		}
+
 		if err := cfg.Tracer.Validate(); err != nil {
 			logger.Logger.Warn("Invalid tracer config, continuing without tracing", "error", err.Error(), "type", cfg.Tracer.Type)
-		} else if cfg.Tracer.Type != "none" {
+		} else if cfg.Tracer.Type != DefaultTracerType {
 			var tcOk bool
 			switch cfg.Tracer.Type {
-			case "grpc":
+			case tracerTypeGRPC:
 				tc := tracerGrpc.New(nil, &tracerGrpc.Config{
 					ServiceName:    tracerSvc,
 					ServiceVersion: tracerVer,
@@ -610,7 +667,7 @@ func Run(cfg *Config) error {
 					SampleRate:     cfg.Tracer.SampleRate,
 				})
 				tcOk = tc != nil
-			case "http":
+			case tracerTypeHTTP:
 				tc := tracerHTTP.New(nil, &tracerHTTP.Config{
 					ServiceName:    tracerSvc,
 					ServiceVersion: tracerVer,
@@ -622,7 +679,7 @@ func Run(cfg *Config) error {
 					SampleRate:     cfg.Tracer.SampleRate,
 				})
 				tcOk = tc != nil
-			case "stdout":
+			case tracerTypeStdout:
 				tc := tracerStdout.New(nil, &tracerStdout.Config{
 					ServiceName:    tracerSvc,
 					ServiceVersion: tracerVer,
@@ -631,7 +688,7 @@ func Run(cfg *Config) error {
 					SampleRate:     cfg.Tracer.SampleRate,
 				})
 				tcOk = tc != nil
-			case "uptrace":
+			case tracerTypeUptrace:
 				tc := tracerUptrace.New(nil, &tracerUptrace.Config{
 					DSN:            cfg.Tracer.DSN,
 					ServiceName:    tracerSvc,
@@ -641,11 +698,12 @@ func Run(cfg *Config) error {
 			default:
 				logger.Logger.Warn("Unknown tracer type", "type", cfg.Tracer.Type)
 			}
+
 			if tcOk {
 				// sicky owns the global propagator: W3C + B3 dual emit.
 				tracer.InstallPropagator()
 				logger.Logger.Info("Tracer initialized", "type", cfg.Tracer.Type)
-			} else if cfg.Tracer.Type == "grpc" || cfg.Tracer.Type == "http" || cfg.Tracer.Type == "stdout" || cfg.Tracer.Type == "uptrace" {
+			} else if cfg.Tracer.Type == tracerTypeGRPC || cfg.Tracer.Type == tracerTypeHTTP || cfg.Tracer.Type == tracerTypeStdout || cfg.Tracer.Type == tracerTypeUptrace {
 				logger.Logger.Warn("Tracer initialization failed, continuing without tracing", "type", cfg.Tracer.Type)
 			}
 		}
@@ -658,6 +716,7 @@ func Run(cfg *Config) error {
 			if werr := rgConsulIns.Watch(); werr != nil {
 				logger.Logger.WarnContext(options.Context, "Consul watch failed", "error", werr.Error())
 			}
+
 			MustRegistry = false
 		} else {
 			logger.Logger.WarnContext(options.Context, "Consul registry init returned nil")
@@ -687,12 +746,15 @@ func Run(cfg *Config) error {
 			options.Context,
 			"Registry is not initialized",
 		)
-		runErr = errors.Join(runErr, errors.New("registry is not initialized"))
+		runErr = errors.Join(runErr, ErrRegistryNotInitialized)
 		goto shutdown
 	}
 
 	registry.InitPool()
-	registry.Watch()
+	if err := registry.Watch(); err != nil {
+		runErr = errors.Join(runErr, err)
+		goto shutdown
+	}
 
 	if cfg.Registry.PoolPurgeInterval > 0 &&
 		(rgRedisIns != nil || rgConsulIns != nil || rgLocalIns != nil) {
@@ -727,9 +789,10 @@ func Run(cfg *Config) error {
 	if cfg.Broker.Nats != nil {
 		brkNatsIns = brkNats.New(nil, cfg.Broker.Nats)
 		if brkNatsIns == nil {
-			runErr = errors.Join(runErr, errors.New("nats broker init returned nil"))
+			runErr = errors.Join(runErr, ErrNATSBrokerNil)
 			goto shutdown
 		}
+
 		err = brkNatsIns.Connect()
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -747,9 +810,10 @@ func Run(cfg *Config) error {
 	if cfg.Broker.Nsq != nil {
 		brkNsqIns = brkNsq.New(nil, cfg.Broker.Nsq)
 		if brkNsqIns == nil {
-			runErr = errors.Join(runErr, errors.New("nsq broker init returned nil"))
+			runErr = errors.Join(runErr, ErrNSQBrokerNil)
 			goto shutdown
 		}
+
 		err = brkNsqIns.Connect()
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -767,9 +831,10 @@ func Run(cfg *Config) error {
 	if cfg.Broker.Jetstream != nil {
 		brkJetstreamIns = brkJetstream.New(nil, cfg.Broker.Jetstream)
 		if brkJetstreamIns == nil {
-			runErr = errors.Join(runErr, errors.New("jetstream broker init returned nil"))
+			runErr = errors.Join(runErr, ErrJetStreamBrokerNil)
 			goto shutdown
 		}
+
 		err = brkJetstreamIns.Connect()
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -789,7 +854,7 @@ func Run(cfg *Config) error {
 			options.Context,
 			"Broker is not initialized",
 		)
-		runErr = errors.Join(runErr, errors.New("broker is not initialized"))
+		runErr = errors.Join(runErr, ErrBrokerNotInitialized)
 		goto shutdown
 	}
 
@@ -901,6 +966,7 @@ func Run(cfg *Config) error {
 		if fn == nil {
 			continue
 		}
+
 		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -937,6 +1003,7 @@ shutdown:
 						if fn == nil {
 							continue
 						}
+
 						if rerr := fn(options.Context); rerr != nil {
 							logger.Logger.ErrorContext(
 								options.Context,
@@ -968,10 +1035,10 @@ shutdown:
 		go func() {
 			select {
 			case <-ch:
-				logger.Logger.Error("Second signal received, cancelling shutdown")
+				logger.Logger.Error("Second signal received, canceling shutdown")
 				cancel()
 			case <-time.After(forceTimeout):
-				logger.Logger.Error("Shutdown timed out, cancelling", "timeout", forceTimeout.String())
+				logger.Logger.Error("Shutdown timed out, canceling", "timeout", forceTimeout.String())
 				cancel()
 			case <-forceDone:
 			}
@@ -982,6 +1049,7 @@ shutdown:
 	if rgTickerDone != nil {
 		close(rgTickerDone)
 	}
+
 	if rgTicker != nil {
 		rgTicker.Stop()
 	}
@@ -994,6 +1062,7 @@ shutdown:
 		if fn == nil {
 			continue
 		}
+
 		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -1126,6 +1195,7 @@ shutdown:
 			logger.Logger.ErrorContext(options.Context, "Badger close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("badger close: %w", cerr))
 		}
+
 		infra.ClearBadger()
 	}
 
@@ -1137,10 +1207,11 @@ shutdown:
 			logger.Logger.ErrorContext(options.Context, "Elastic close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("elastic close: %w", cerr))
 		}
+
 		infra.ClearElastic()
 	}
 
-	if n := infra.GetNats(); n != nil {
+	if n := infra.GetNATS(); n != nil {
 		n.Close()
 		infra.ClearNats()
 	}
@@ -1150,6 +1221,7 @@ shutdown:
 			logger.Logger.ErrorContext(options.Context, "Redis close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("redis close: %w", cerr))
 		}
+
 		infra.ClearRedis()
 	}
 
@@ -1158,15 +1230,17 @@ shutdown:
 			logger.Logger.ErrorContext(options.Context, "Bun close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("bun close: %w", cerr))
 		}
+
 		infra.ClearBun()
 	}
 
-	if chdb := infra.GetClickhouse(); chdb != nil {
+	if chdb := infra.GetClickHouse(); chdb != nil {
 		if cerr := chdb.Close(); cerr != nil {
 			logger.Logger.ErrorContext(options.Context, "Clickhouse close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("clickhouse close: %w", cerr))
 		}
-		infra.ClearClickhouse()
+
+		infra.ClearClickHouse()
 	}
 
 	if s3c := infra.GetS3(); s3c != nil {
@@ -1183,6 +1257,7 @@ shutdown:
 			logger.Logger.ErrorContext(options.Context, "Mongo disconnect failed", "error", derr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("mongo disconnect: %w", derr))
 		}
+
 		mcancel()
 		infra.ClearMongo()
 	}
@@ -1201,6 +1276,7 @@ shutdown:
 		if fn == nil {
 			continue
 		}
+
 		err = fn(options.Context)
 		if err != nil {
 			logger.Logger.ErrorContext(
@@ -1221,12 +1297,13 @@ func validateConfig(cfg *Config) {
 
 	// Clamp invalid values back to defaults (Viper env coercion zeroes
 	// int fields silently) and warn. Never aborts startup.
-	if cfg.Tracer != nil && cfg.Tracer.Type != "none" {
+	if cfg.Tracer != nil && cfg.Tracer.Type != DefaultTracerType {
 		if cfg.Tracer.Timeout < 0 {
 			logger.Logger.Warn("Tracer timeout is invalid (possibly zeroed by environment variable), clamped to 0 (exporter default)",
 				"old", cfg.Tracer.Timeout)
 			cfg.Tracer.Timeout = 0
 		}
+
 		if cfg.Tracer.SampleRate < 0 || cfg.Tracer.SampleRate > 1 {
 			logger.Logger.Warn("Tracer sample rate out of range [0,1], clamped to 1.0",
 				"old", cfg.Tracer.SampleRate)
@@ -1240,16 +1317,19 @@ func validateConfig(cfg *Config) {
 				"old", cfg.Manager.ShutdownTimeout, "new", DefaultShutdownTimeout)
 			cfg.Manager.ShutdownTimeout = DefaultShutdownTimeout
 		}
+
 		if cfg.Manager.ReadTimeout <= 0 {
 			logger.Logger.Warn("Manager read timeout is invalid, clamped to default",
 				"old", cfg.Manager.ReadTimeout, "new", DefaultManagerReadTimeout)
 			cfg.Manager.ReadTimeout = DefaultManagerReadTimeout
 		}
+
 		if cfg.Manager.WriteTimeout <= 0 {
 			logger.Logger.Warn("Manager write timeout is invalid, clamped to default",
 				"old", cfg.Manager.WriteTimeout, "new", DefaultManagerWriteTimeout)
 			cfg.Manager.WriteTimeout = DefaultManagerWriteTimeout
 		}
+
 		if cfg.Manager.IdleTimeout <= 0 {
 			logger.Logger.Warn("Manager idle timeout is invalid, clamped to default",
 				"old", cfg.Manager.IdleTimeout, "new", DefaultManagerIdleTimeout)
@@ -1263,33 +1343,36 @@ func validateConfig(cfg *Config) {
 	// logs before the shutdown sequence runs.
 	if cfg.Infra != nil {
 		infraCfgs := map[string]func() error{
-			"badger":     func() error { return cfg.Infra.Badger.Ensure().Validate() },
-			"bun":        func() error { return cfg.Infra.Bun.Ensure().Validate() },
-			"clickhouse": func() error { return cfg.Infra.Clickhouse.Ensure().Validate() },
-			"elastic":    func() error { return cfg.Infra.Elastic.Ensure().Validate() },
-			"mongo":      func() error { return cfg.Infra.Mongo.Ensure().Validate() },
-			"mqtt":       func() error { return cfg.Infra.MQTT.Ensure().Validate() },
-			"nats":       func() error { return cfg.Infra.Nats.Ensure().Validate() },
-			"redis":      func() error { return cfg.Infra.Redis.Ensure().Validate() },
-			"ristretto":  func() error { return cfg.Infra.Ristretto.Ensure().Validate() },
-			"s3":         func() error { return cfg.Infra.S3.Ensure().Validate() },
+			componentBadger:     func() error { return cfg.Infra.Badger.Ensure().Validate() },
+			componentBun:        func() error { return cfg.Infra.Bun.Ensure().Validate() },
+			componentClickhouse: func() error { return cfg.Infra.Clickhouse.Ensure().Validate() },
+			componentElastic:    func() error { return cfg.Infra.Elastic.Ensure().Validate() },
+			componentMongo:      func() error { return cfg.Infra.Mongo.Ensure().Validate() },
+			componentMQTT:       func() error { return cfg.Infra.MQTT.Ensure().Validate() },
+			componentNATS:       func() error { return cfg.Infra.Nats.Ensure().Validate() },
+			componentRedis:      func() error { return cfg.Infra.Redis.Ensure().Validate() },
+			componentRistretto:  func() error { return cfg.Infra.Ristretto.Ensure().Validate() },
+			componentS3:         func() error { return cfg.Infra.S3.Ensure().Validate() },
 		}
+
 		enabled := map[string]bool{
-			"badger":     cfg.Infra.Badger != nil,
-			"bun":        cfg.Infra.Bun != nil,
-			"clickhouse": cfg.Infra.Clickhouse != nil,
-			"elastic":    cfg.Infra.Elastic != nil,
-			"mongo":      cfg.Infra.Mongo != nil,
-			"mqtt":       cfg.Infra.MQTT != nil,
-			"nats":       cfg.Infra.Nats != nil,
-			"redis":      cfg.Infra.Redis != nil,
-			"ristretto":  cfg.Infra.Ristretto != nil,
-			"s3":         cfg.Infra.S3 != nil,
+			componentBadger:     cfg.Infra.Badger != nil,
+			componentBun:        cfg.Infra.Bun != nil,
+			componentClickhouse: cfg.Infra.Clickhouse != nil,
+			componentElastic:    cfg.Infra.Elastic != nil,
+			componentMongo:      cfg.Infra.Mongo != nil,
+			componentMQTT:       cfg.Infra.MQTT != nil,
+			componentNATS:       cfg.Infra.Nats != nil,
+			componentRedis:      cfg.Infra.Redis != nil,
+			componentRistretto:  cfg.Infra.Ristretto != nil,
+			componentS3:         cfg.Infra.S3 != nil,
 		}
+
 		for name, check := range infraCfgs {
 			if !enabled[name] {
 				continue
 			}
+
 			if err := check(); err != nil {
 				logger.Logger.Warn("Infra config invalid, startup will abort",
 					"infra", name,
@@ -1309,6 +1392,7 @@ func validateConfig(cfg *Config) {
 	}
 }
 
+// BeforeStart is part of the public API.
 func BeforeStart(wrappers ...SickyWrapper) []SickyWrapper {
 	wrapperMu.Lock()
 	defer wrapperMu.Unlock()
@@ -1317,6 +1401,7 @@ func BeforeStart(wrappers ...SickyWrapper) []SickyWrapper {
 	return append([]SickyWrapper(nil), beforeStartWrappers...)
 }
 
+// AfterStart is part of the public API.
 func AfterStart(wrappers ...SickyWrapper) []SickyWrapper {
 	wrapperMu.Lock()
 	defer wrapperMu.Unlock()
@@ -1325,6 +1410,7 @@ func AfterStart(wrappers ...SickyWrapper) []SickyWrapper {
 	return append([]SickyWrapper(nil), afterStartWrappers...)
 }
 
+// BeforeStop is part of the public API.
 func BeforeStop(wrappers ...SickyWrapper) []SickyWrapper {
 	wrapperMu.Lock()
 	defer wrapperMu.Unlock()
@@ -1345,6 +1431,7 @@ func OnReload(wrappers ...SickyWrapper) []SickyWrapper {
 	return append([]SickyWrapper(nil), reloadWrappers...)
 }
 
+// AfterStop is part of the public API.
 func AfterStop(wrappers ...SickyWrapper) []SickyWrapper {
 	wrapperMu.Lock()
 	defer wrapperMu.Unlock()

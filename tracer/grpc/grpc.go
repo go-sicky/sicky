@@ -34,16 +34,18 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/tracer/internal"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/tracer/internal"
 )
 
+// GRPCTracer is a grpc component.
 type GRPCTracer struct {
 	config   *Config
 	ctx      context.Context
@@ -52,6 +54,7 @@ type GRPCTracer struct {
 	provider *sdktrace.TracerProvider
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -141,6 +144,7 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 
 		return nil
 	}
+
 	tc.provider = provider
 
 	tc.options.Logger.InfoContext(
@@ -159,26 +163,32 @@ func New(opts *tracer.Options, cfg *Config) *GRPCTracer {
 	return tc
 }
 
+// Context returns the component context.
 func (tc *GRPCTracer) Context() context.Context {
 	return tc.ctx
 }
 
+// Options returns the runtime options.
 func (tc *GRPCTracer) Options() *tracer.Options {
 	return tc.options
 }
 
+// String returns a human-readable name.
 func (tc *GRPCTracer) String() string {
 	return "grpc"
 }
 
+// ID returns the unique instance ID.
 func (tc *GRPCTracer) ID() uuid.UUID {
 	return tc.options.ID
 }
 
+// Name returns the component name.
 func (tc *GRPCTracer) Name() string {
 	return tc.options.Name
 }
 
+// Start starts the component.
 func (tc *GRPCTracer) Start() error {
 	tc.options.Logger.InfoContext(
 		tc.ctx,
@@ -195,6 +205,7 @@ func (tc *GRPCTracer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (tc *GRPCTracer) Stop() error {
 	if tc.provider != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -249,14 +260,17 @@ func (tc *GRPCTracer) Stop() error {
 	return nil
 }
 
+// Exporter returns the exporter.
 func (tc *GRPCTracer) Exporter() *otlptrace.Exporter {
 	return tc.exporter
 }
 
+// Provider returns the provider.
 func (tc *GRPCTracer) Provider() *sdktrace.TracerProvider {
 	return tc.provider
 }
 
+// Tracer returns the tracer.
 func (tc *GRPCTracer) Tracer(name string) trace.Tracer {
 	if tc.provider == nil {
 		tc.options.Logger.WarnContext(

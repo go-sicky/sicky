@@ -7,6 +7,7 @@ func TestConfigEnsureDefaults(t *testing.T) {
 	if c.Endpoint != DefaultConsulEndpoint {
 		t.Fatalf("endpoint = %q, want %q", c.Endpoint, DefaultConsulEndpoint)
 	}
+
 	var nilCfg *Config
 	if nilCfg.Ensure() == nil {
 		t.Fatal("nil Ensure must return non-nil")

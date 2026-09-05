@@ -41,12 +41,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// FiberMiddlewareConfig is a tracer component.
 type FiberMiddlewareConfig struct {
 	Next             func(c *fiber.Ctx) bool
 	Tracer           trace.Tracer
 	SpanIDContextKey string
 }
 
+// FiberMiddlewareConfigDefault is a shared tracer value.
 var FiberMiddlewareConfigDefault = &FiberMiddlewareConfig{
 	Next:             nil,
 	Tracer:           nil,

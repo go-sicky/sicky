@@ -10,10 +10,8 @@ import (
 func TestPoolConcurrentAccess(t *testing.T) {
 	InitPool()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			id := uuid.New()
 			ins := &Instance{ID: id, ServiceName: "svc"}
 			RegisterInstance(ins)
@@ -23,8 +21,9 @@ func TestPoolConcurrentAccess(t *testing.T) {
 			_ = GetPool()
 			PurgePool([]*Instance{ins})
 			UnregisterInstance("svc", id)
-		}()
+		})
 	}
+
 	wg.Wait()
 }
 
@@ -36,6 +35,7 @@ func TestGetPoolSnapshotIsolation(t *testing.T) {
 	if snap == nil {
 		t.Fatal("nil snapshot")
 	}
+
 	PurgePool(nil)
 	if len(snap.Services) != 1 {
 		t.Fatalf("snapshot mutated by purge: %v", snap.Services)
@@ -57,6 +57,7 @@ func TestNotifyChanStableAcrossPurge(t *testing.T) {
 	if ch == nil {
 		t.Fatal("NotifyChan must be non-nil after InitPool")
 	}
+
 	PurgePool([]*Instance{{ID: uuid.New(), ServiceName: "svc"}})
 	if NotifyChan() != ch {
 		t.Fatal("NotifyChan must stay stable across PurgePool")
@@ -68,6 +69,7 @@ func TestNotifyChanStableAcrossPurge(t *testing.T) {
 	default:
 		t.Fatal("expected pool change notification")
 	}
+
 	PurgePool([]*Instance{{ID: uuid.New(), ServiceName: "svc2"}})
 	select {
 	case ev := <-ch:

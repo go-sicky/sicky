@@ -1,0 +1,19 @@
+package prompt
+
+import "fmt"
+
+type {{.ExportedName}}Prompt struct{}
+
+func New{{.ExportedName}}Prompt() *{{.ExportedName}}Prompt {
+	return &{{.ExportedName}}Prompt{}
+}
+
+func (p *{{.ExportedName}}Prompt) Name() string        { return "{{.Name}}" }
+func (p *{{.ExportedName}}Prompt) Description() string { return "{{.Name}} prompt" }
+
+func (p *{{.ExportedName}}Prompt) Render(args map[string]string) (string, error) {
+	if len(args) == 0 {
+		return "{{.Name}} prompt", nil
+	}
+	return "", fmt.Errorf("{{.Name}}: unknown arguments")
+}

@@ -31,19 +31,23 @@
 package registry
 
 const (
+	// DefaultPoolPurgeInterval is a registry constant.
 	DefaultPoolPurgeInterval = 60
 )
 
+// Config is a registry component.
 type Config struct {
-	PoolPurgeInterval int64 `json:"pool_purge_interval" yaml:"pool_purge_interval" mapstructure:"pool_purge_interval"`
+	PoolPurgeInterval int64 `json:"pool_purge_interval" mapstructure:"pool_purge_interval" yaml:"pool_purge_interval"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		PoolPurgeInterval: DefaultPoolPurgeInterval,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

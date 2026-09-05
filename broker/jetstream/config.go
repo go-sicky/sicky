@@ -30,29 +30,43 @@
 
 package jetstream
 
-import "github.com/nats-io/nats.go"
+import (
+	"errors"
+
+	"github.com/nats-io/nats.go"
+)
+
+// ErrJetStreamNegativeMaxConsumers aborts startup on a negative
+// max_consumers. Zero fills the default in Ensure.
+var ErrJetStreamNegativeMaxConsumers = errors.New("jetstream max_consumers is negative")
 
 const (
-	DefaultStreamName         = "sicky"
+	// DefaultStreamName is a jetstream constant.
+	DefaultStreamName = "sicky"
+	// DefaultStreamMaxConsumers is a jetstream constant.
 	DefaultStreamMaxConsumers = 256
 	// Deprecated: misspelled, use DefaultStreamMaxConsumers.
+	// DefaultStreamMaxConsummers is a jetstream constant.
 	DefaultStreamMaxConsummers = DefaultStreamMaxConsumers
 )
 
+// StreamConfig is a jetstream component.
 type StreamConfig struct {
-	Name         string   `json:"name" yaml:"name" mapstructure:"name"`
-	Subjects     []string `json:"subjects" yaml:"subjects" mapstructure:"subjects"`
-	MaxConsumers int      `json:"max_consumers" yaml:"max_consumers" mapstructure:"max_consumers"`
+	Name         string   `json:"name"          mapstructure:"name"          yaml:"name"`
+	Subjects     []string `json:"subjects"      mapstructure:"subjects"      yaml:"subjects"`
+	MaxConsumers int      `json:"max_consumers" mapstructure:"max_consumers" yaml:"max_consumers"`
 	// Deprecated: misspelled, use MaxConsumers. Kept for Go API compat;
 	// if set, it seeds MaxConsumers when the latter is zero.
-	MaxConsummers int `json:"-" yaml:"-" mapstructure:"max_consummers_deprecated"`
+	MaxConsummers int `json:"-" mapstructure:"max_consummers_deprecated" yaml:"-"`
 }
 
+// Config is a jetstream component.
 type Config struct {
-	URL    string        `json:"url" yaml:"url" mapstructure:"url"`
-	Stream *StreamConfig `json:"stream" yaml:"stream" mapstructure:"stream"`
+	URL    string        `json:"url"    mapstructure:"url"    yaml:"url"`
+	Stream *StreamConfig `json:"stream" mapstructure:"stream" yaml:"stream"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		URL: nats.DefaultURL,
@@ -64,6 +78,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
@@ -89,13 +104,24 @@ func (c *Config) Ensure() *Config {
 	if c.Stream.MaxConsumers == 0 && c.Stream.MaxConsummers != 0 {
 		c.Stream.MaxConsumers = c.Stream.MaxConsummers
 	}
+
 	c.Stream.MaxConsummers = c.Stream.MaxConsumers
 
-	if c.Stream.MaxConsumers < 0 {
-		c.Stream.MaxConsumers = DefaultStreamMaxConsumers
+	return c
+}
+
+// Validate rejects a negative max_consumers. Zero values are valid
+// (Ensure fills defaults); nil is valid (disabled).
+func (c *Config) Validate() error {
+	if c == nil || c.Stream == nil {
+		return nil
 	}
 
-	return c
+	if c.Stream.MaxConsumers < 0 {
+		return ErrJetStreamNegativeMaxConsumers
+	}
+
+	return nil
 }
 
 /*

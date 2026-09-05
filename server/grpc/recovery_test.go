@@ -19,6 +19,7 @@ func TestUnaryRecoveryInterceptor(t *testing.T) {
 	if err == nil {
 		t.Fatal("panic must convert to error")
 	}
+
 	if got := status.Code(err); got != codes.Internal {
 		t.Fatalf("code = %v, want Internal", got)
 	}
@@ -42,6 +43,7 @@ func TestStreamRecoveryInterceptor(t *testing.T) {
 	if err == nil {
 		t.Fatal("panic must convert to error")
 	}
+
 	if got := status.Code(err); got != codes.Internal {
 		t.Fatalf("code = %v, want Internal", got)
 	}

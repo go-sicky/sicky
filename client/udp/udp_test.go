@@ -3,8 +3,9 @@ package udp
 import (
 	"testing"
 
-	"github.com/go-sicky/sicky/client"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/client"
 )
 
 func TestClientResolve(t *testing.T) {
@@ -12,6 +13,7 @@ func TestClientResolve(t *testing.T) {
 	if err != nil || clt == nil {
 		t.Fatalf("New valid addr: %v", err)
 	}
+
 	if err := clt.Call(); err != nil {
 		t.Fatalf("Call: %v", err)
 	}

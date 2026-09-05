@@ -35,8 +35,9 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/uptrace/bunrouter"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
 // NewRecoveryMiddleware recovers panicking handlers and converts the
@@ -58,6 +59,7 @@ func NewRecoveryMiddleware(l logger.GeneralLogger) bunrouter.MiddlewareFunc {
 							"stack", stack,
 						)
 					}
+
 					err = fmt.Errorf("http handler panicked: %v", rec)
 				}
 			}()

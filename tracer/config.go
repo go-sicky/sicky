@@ -30,8 +30,10 @@
 
 package tracer
 
+// Config is a tracer component.
 type Config struct{}
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = new(Config)

@@ -38,14 +38,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
+
+	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/utils"
 )
 
 // ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
@@ -59,7 +60,7 @@ var ErrShutdownTimeout = errors.New("graceful stop timed out")
 
 /* {{{ [Server] */
 
-// GRPCServer : Server definition
+// GRPCServer : Server definition.
 type GRPCServer struct {
 	config        *Config
 	ctx           context.Context
@@ -75,7 +76,7 @@ type GRPCServer struct {
 	wg sync.WaitGroup
 }
 
-// New GRPC server
+// New GRPC server.
 func New(opts *server.Options, cfg *Config) *GRPCServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -94,6 +95,8 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
 
 	if cfg.AdvertiseAddress != "" {
@@ -104,6 +107,8 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
+
+			return nil
 		}
 	} else {
 		advertiseAddr = addr
@@ -139,12 +144,14 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 			Timeout:               cfg.KeepaliveTimeout,
 		}))
 	}
+
 	if cfg.MinPingInterval > 0 {
 		gopts = append(gopts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             cfg.MinPingInterval,
 			PermitWithoutStream: false,
 		}))
 	}
+
 	if cfg.MaxConcurrentStreams > 0 {
 		gopts = append(gopts, grpc.MaxConcurrentStreams(cfg.MaxConcurrentStreams))
 	}
@@ -186,9 +193,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 				Logger: opts.Logger,
 			},
 		),
-	))
-
-	gopts = append(gopts, grpc.ChainStreamInterceptor(
+	), grpc.ChainStreamInterceptor(
 		NewStreamRecoveryInterceptor(),
 		NewStreamTracingInterceptor(
 			TracerConfig{
@@ -208,6 +213,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	if cfg.EnableReflection && !cfg.DisableReflection {
 		reflection.Register(app)
 	}
+
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -223,26 +229,32 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	return srv
 }
 
+// Context returns the component context.
 func (srv *GRPCServer) Context() context.Context {
 	return srv.ctx
 }
 
+// Options returns the runtime options.
 func (srv *GRPCServer) Options() *server.Options {
 	return srv.options
 }
 
+// String returns a human-readable name.
 func (srv *GRPCServer) String() string {
 	return "grpc"
 }
 
+// ID returns the unique instance ID.
 func (srv *GRPCServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
+// Name returns the component name.
 func (srv *GRPCServer) Name() string {
 	return srv.options.Name
 }
 
+// Start starts the component.
 func (srv *GRPCServer) Start() error {
 	var (
 		listener net.Listener
@@ -324,7 +336,6 @@ func (srv *GRPCServer) Start() error {
 			srv.addr.Network(),
 			srv.addr.String(),
 		)
-
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -350,10 +361,7 @@ func (srv *GRPCServer) Start() error {
 	srv.metadata.Set("advertise_address", srv.advertiseAddr.String())
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
-	srv.wg.Add(1)
-	go func() {
-		defer srv.wg.Done()
-
+	srv.wg.Go(func() {
 		err := srv.app.Serve(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
@@ -376,7 +384,7 @@ func (srv *GRPCServer) Start() error {
 			"name", srv.options.Name,
 			"addr", srv.addr.String(),
 		)
-	}()
+	})
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -392,6 +400,7 @@ func (srv *GRPCServer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (srv *GRPCServer) Stop() error {
 	// Check-and-flag under lock, then release: holding Lock across
 	// GracefulStop/Wait would starve all RLock readers for the whole drain.
@@ -402,6 +411,7 @@ func (srv *GRPCServer) Stop() error {
 
 		return nil
 	}
+
 	srv.stopping = true
 	srv.options.RunBeforeStop()
 	app := srv.app
@@ -435,6 +445,7 @@ func (srv *GRPCServer) Stop() error {
 		)
 		errs = errors.Join(errs, err)
 	}
+
 	srv.wg.Wait()
 
 	srv.Lock()
@@ -455,6 +466,7 @@ func (srv *GRPCServer) Stop() error {
 	return errs
 }
 
+// Running reports whether the component is running.
 func (srv *GRPCServer) Running() bool {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -462,6 +474,7 @@ func (srv *GRPCServer) Running() bool {
 	return srv.running
 }
 
+// Addr returns the address.
 func (srv *GRPCServer) Addr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -469,6 +482,7 @@ func (srv *GRPCServer) Addr() net.Addr {
 	return srv.addr
 }
 
+// IP returns the IP.
 func (srv *GRPCServer) IP() net.IP {
 	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
@@ -478,10 +492,12 @@ func (srv *GRPCServer) IP() net.IP {
 	return try
 }
 
+// Port returns the port.
 func (srv *GRPCServer) Port() int {
 	return utils.AddrToPort(srv.Addr())
 }
 
+// AdvertiseAddr returns the advertise address.
 func (srv *GRPCServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -489,6 +505,7 @@ func (srv *GRPCServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
+// AdvertiseIP returns the advertise IP.
 func (srv *GRPCServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
@@ -498,10 +515,12 @@ func (srv *GRPCServer) AdvertiseIP() net.IP {
 	return try
 }
 
+// AdvertisePort returns the advertise port.
 func (srv *GRPCServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
+// Metadata returns the metadata.
 func (srv *GRPCServer) Metadata() utils.Metadata {
 	// Snapshot: the map is written during Start while handlers may read
 	// it concurrently; returning the live map would race.
@@ -512,10 +531,12 @@ func (srv *GRPCServer) Metadata() utils.Metadata {
 	return srv.metadata.Clone()
 }
 
+// App returns the app.
 func (srv *GRPCServer) App() *grpc.Server {
 	return srv.app
 }
 
+// Handle registers handlers.
 func (srv *GRPCServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		hdl.Register(srv.app)
@@ -532,11 +553,11 @@ func (srv *GRPCServer) Handle(hdls ...Handler) {
 
 /* }}} */
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
-	Register(*grpc.Server)
+	Register(srv *grpc.Server)
 }
 
 /* }}} */

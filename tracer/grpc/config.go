@@ -31,23 +31,29 @@
 package grpc
 
 const (
-	DefaultEndpoint       = "127.0.0.1:4317"
-	DefaultServiceName    = "sicky"
+	// DefaultEndpoint is a grpc constant.
+	DefaultEndpoint = "127.0.0.1:4317"
+	// DefaultServiceName is a grpc constant.
+	DefaultServiceName = "sicky"
+	// DefaultServiceVersion is a grpc constant.
 	DefaultServiceVersion = "latest"
-	DefaultSampleRate     = 1.0
+	// DefaultSampleRate is a grpc constant.
+	DefaultSampleRate = 1.0
 )
 
+// Config is a grpc component.
 type Config struct {
-	ServiceName    string            `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
-	ServiceVersion string            `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
-	Endpoint       string            `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
-	Compress       bool              `json:"compress" yaml:"compress" mapstructure:"compress"`
-	Timeout        int               `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
-	SampleRate     float64           `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
-	Insecure       bool              `json:"insecure" yaml:"insecure" mapstructure:"insecure"`
-	Headers        map[string]string `json:"headers" yaml:"headers" mapstructure:"headers"`
+	ServiceName    string            `json:"service_name"    mapstructure:"service_name"    yaml:"service_name"`
+	ServiceVersion string            `json:"service_version" mapstructure:"service_version" yaml:"service_version"`
+	Endpoint       string            `json:"endpoint"        mapstructure:"endpoint"        yaml:"endpoint"`
+	Compress       bool              `json:"compress"        mapstructure:"compress"        yaml:"compress"`
+	Timeout        int               `json:"timeout"         mapstructure:"timeout"         yaml:"timeout"`
+	SampleRate     float64           `json:"sample_rate"     mapstructure:"sample_rate"     yaml:"sample_rate"`
+	Insecure       bool              `json:"insecure"        mapstructure:"insecure"        yaml:"insecure"`
+	Headers        map[string]string `json:"headers"         mapstructure:"headers"         yaml:"headers"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Endpoint:       DefaultEndpoint,
@@ -60,6 +66,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

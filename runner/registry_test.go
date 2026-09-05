@@ -22,17 +22,16 @@ func (f *fakeRunner) Task(*Task)               {}
 func TestRegistryConcurrentAccess(t *testing.T) {
 	Clear()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			r := &fakeRunner{id: uuid.New()}
 			Set(r)
 			_ = Get(r.id)
 			_ = Default()
 			_ = Runners()
-		}()
+		})
 	}
+
 	wg.Wait()
 }
 
@@ -41,15 +40,18 @@ func TestRegistryDefaultAndClear(t *testing.T) {
 	if Default() != nil {
 		t.Fatal("Default must be nil after Clear")
 	}
+
 	a := &fakeRunner{id: uuid.New()}
 	b := &fakeRunner{id: uuid.New()}
 	Set(a, b)
 	if Default() != a {
 		t.Fatal("first registered must be Default")
 	}
+
 	if len(Runners()) != 2 {
 		t.Fatalf("Runners = %d, want 2", len(Runners()))
 	}
+
 	Clear()
 	if len(Runners()) != 0 || Default() != nil {
 		t.Fatal("Clear must reset registry")

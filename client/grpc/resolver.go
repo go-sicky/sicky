@@ -35,13 +35,14 @@ import (
 )
 
 // Resolver
-/* {{{ [sickyGRPCResolver] */
+/* {{{ [sickyGRPCResolver]. */
 func sickyResolveNow(rno resolver.ResolveNowOptions) {
 }
 
 func sickyUpdateState(err error) {
 }
 
+//nolint:gocritic // hugeParam: signature mirrors grpc resolver.Builder.Build; Target must stay by-value for interface conformance
 func sickyBuild(rt resolver.Target, rcc resolver.ClientConn, rbo resolver.BuildOptions) {
 }
 

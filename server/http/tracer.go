@@ -32,16 +32,19 @@ package http
 
 import (
 	"context"
-	"fmt"
+	"encoding/hex"
 	"net/http"
+	"slices"
 
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/uptrace/bunrouter"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/utils"
 )
 
+// TracerConfig is a http component.
 type TracerConfig struct {
 	Next              func(context.Context) bool
 	Tracer            trace.Tracer
@@ -56,11 +59,12 @@ type TracerConfig struct {
 // DefaultTracerSkipPaths covers the conventional probe endpoints.
 var DefaultTracerSkipPaths = []string{"/health", "/metrics", "/docs"}
 
+// TracerConfigDefault is a shared http value.
 var TracerConfigDefault = TracerConfig{
 	Next:              nil,
 	Tracer:            nil,
-	SpanIDContextKey:  "spanid",
-	TraceIDContextKey: "traceid",
+	SpanIDContextKey:  DefaultSpanIDContextKey,
+	TraceIDContextKey: DefaultTraceIDContextKey,
 	SkipPaths:         DefaultTracerSkipPaths,
 }
 
@@ -89,6 +93,7 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 	return cfg
 }
 
+// NewTracerMiddleware creates a new TracerMiddleware.
 func NewTracerMiddleware(config ...TracerConfig) bunrouter.MiddlewareFunc {
 	cfg := tracerConfigDefault(config...)
 	if cfg.Next == nil {
@@ -103,14 +108,12 @@ func NewTracerMiddleware(config ...TracerConfig) bunrouter.MiddlewareFunc {
 				return next(w, r)
 			}
 
-			for _, p := range cfg.SkipPaths {
-				if r.URL.Path == p {
-					return next(w, r)
-				}
+			if slices.Contains(cfg.SkipPaths, r.URL.Path) {
+				return next(w, r)
 			}
 
 			if cfg.Tracer == nil {
-				ctx := context.WithValue(r.Context(), cfg.SpanIDContextKey, fmt.Sprintf("%x", utils.RandomHex(8)))
+				ctx := context.WithValue(r.Context(), cfg.SpanIDContextKey, hex.EncodeToString(utils.RandomHex(8)))
 				r = r.WithContext(ctx)
 
 				return next(w, r)
@@ -127,9 +130,10 @@ func NewTracerMiddleware(config ...TracerConfig) bunrouter.MiddlewareFunc {
 			if route := r.Route(); route != "" {
 				spanName = route
 			}
+
 			spanedCtx, span := cfg.Tracer.Start(newCtx, spanName)
 			defer func() {
-				// End the span before cancelling its parent context so
+				// End the span before canceling its parent context so
 				// the export is never cut off mid-flight.
 				span.End()
 				cancel()

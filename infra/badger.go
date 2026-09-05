@@ -35,19 +35,23 @@ import (
 	"strings"
 
 	"github.com/dgraph-io/badger/v4"
+
 	"github.com/go-sicky/sicky/logger"
 )
 
+// BadgerConfig is a infra component.
 type BadgerConfig struct {
-	Path string `json:"path" yaml:"path" mapstructure:"path"`
+	Path string `json:"path" mapstructure:"path" yaml:"path"`
 }
 
 // ErrBadgerPathEmpty aborts startup: a non-nil BadgerConfig means "enable
 // badger", and an empty path would otherwise open in the CWD or fail late.
 var ErrBadgerPathEmpty = errors.New("infra: badger path is empty")
 
+// Badger is a shared infra value.
 var Badger *badger.DB
 
+// InitBadger is part of the public API.
 func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	if cfg == nil {
 		return nil, nil
@@ -93,11 +97,13 @@ func InitBadger(cfg *BadgerConfig) (*badger.DB, error) {
 
 		return Badger, nil
 	}
+
 	Badger = kv
 
 	return kv, nil
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *BadgerConfig) Ensure() *BadgerConfig {
 	if c == nil {
 		c = new(BadgerConfig)
@@ -106,6 +112,7 @@ func (c *BadgerConfig) Ensure() *BadgerConfig {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *BadgerConfig) Validate() error {
 	if c == nil {
 		return nil

@@ -32,6 +32,7 @@ package tracer
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
@@ -39,7 +40,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Tracer : tracer abstraction
+// Tracer : tracer abstraction.
 type Tracer interface {
 	// Get context
 	Context() context.Context
@@ -67,6 +68,7 @@ var (
 	trMu          sync.RWMutex
 )
 
+// Set registers tracer instances; the first one becomes the default.
 func Set(trs ...Tracer) {
 	trMu.Lock()
 	defer trMu.Unlock()
@@ -79,6 +81,7 @@ func Set(trs ...Tracer) {
 	}
 }
 
+// Get looks up a tracer instance by ID.
 func Get(id uuid.UUID) Tracer {
 	trMu.RLock()
 	defer trMu.RUnlock()
@@ -86,6 +89,7 @@ func Get(id uuid.UUID) Tracer {
 	return tracers[id]
 }
 
+// Default returns the default tracer instance.
 func Default() Tracer {
 	trMu.RLock()
 	defer trMu.RUnlock()
@@ -93,14 +97,27 @@ func Default() Tracer {
 	return defaultTracer
 }
 
+// Tracers returns the managed tracers.
 func Tracers() map[uuid.UUID]Tracer {
 	trMu.RLock()
 	defer trMu.RUnlock()
 
-	return tracers
+	out := make(map[uuid.UUID]Tracer, len(tracers))
+	maps.Copy(out, tracers)
+
+	return out
 }
 
-/* {{{ [Helpers] */
+// Clear resets the global registry. Intended for tests.
+func Clear() {
+	trMu.Lock()
+	defer trMu.Unlock()
+
+	tracers = make(map[uuid.UUID]Tracer)
+	defaultTracer = nil
+}
+
+/* {{{ [Helpers]. */
 func Provider() *sdktrace.TracerProvider {
 	trMu.RLock()
 	defer trMu.RUnlock()

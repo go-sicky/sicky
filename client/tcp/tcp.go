@@ -34,11 +34,13 @@ import (
 	"context"
 	"net"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
-	"github.com/google/uuid"
 )
 
+// TCPClient is a tcp component.
 type TCPClient struct {
 	config    *Config
 	options   *client.Options
@@ -48,6 +50,7 @@ type TCPClient struct {
 	addr      *net.TCPAddr
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *client.Options, cfg *Config) (*TCPClient, error) {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -89,26 +92,32 @@ func New(opts *client.Options, cfg *Config) (*TCPClient, error) {
 	return clt, nil
 }
 
+// Options returns the runtime options.
 func (clt *TCPClient) Options() *client.Options {
 	return clt.options
 }
 
+// Context returns the component context.
 func (clt *TCPClient) Context() context.Context {
 	return clt.ctx
 }
 
+// String returns a human-readable name.
 func (clt *TCPClient) String() string {
 	return "tcp"
 }
 
+// ID returns the unique instance ID.
 func (clt *TCPClient) ID() uuid.UUID {
 	return clt.options.ID
 }
 
+// Name returns the component name.
 func (clt *TCPClient) Name() string {
 	return clt.options.Name
 }
 
+// Connect connects to the backend.
 func (clt *TCPClient) Connect() error {
 	if clt.connected {
 		return nil
@@ -125,19 +134,22 @@ func (clt *TCPClient) Connect() error {
 	return nil
 }
 
+// Disconnect disconnects from the backend.
 func (clt *TCPClient) Disconnect() error {
 	if !clt.connected {
 		return nil
 	}
 
-	clt.conn.Close()
+	err := clt.conn.Close()
 	clt.connected = false
 
-	return nil
+	return err
 }
 
+// Call executes a call.
 func (clt *TCPClient) Call() error {
 	metrics.NumTCPClientCallCounter.Inc()
+
 	return nil
 }
 

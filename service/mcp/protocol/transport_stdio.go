@@ -38,11 +38,13 @@ import (
 
 /* {{{ [StdioTransport] */
 
+// StdioTransport is a protocol component.
 type StdioTransport struct {
 	reader *bufio.Reader
 	writer io.Writer
 }
 
+// NewStdioTransport creates a new StdioTransport.
 func NewStdioTransport() *StdioTransport {
 	return &StdioTransport{
 		reader: bufio.NewReader(os.Stdin),
@@ -50,14 +52,17 @@ func NewStdioTransport() *StdioTransport {
 	}
 }
 
+// Start starts the component.
 func (t *StdioTransport) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (t *StdioTransport) Stop() error {
 	return nil
 }
 
+// Read reads data.
 func (t *StdioTransport) Read() ([]byte, error) {
 	line, err := t.reader.ReadBytes('\n')
 	if err != nil {
@@ -75,6 +80,7 @@ func (t *StdioTransport) Read() ([]byte, error) {
 	return line, nil
 }
 
+// Write writes data.
 func (t *StdioTransport) Write(data []byte) error {
 	n := len(data)
 	written, err := t.writer.Write(data)

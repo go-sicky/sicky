@@ -46,14 +46,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type componentHealth struct {
@@ -79,6 +80,7 @@ func RegisterHealthChecker(name string, check HealthCheck) {
 	if name == "" || check == nil {
 		return
 	}
+
 	healthCheckersMu.Lock()
 	defer healthCheckersMu.Unlock()
 
@@ -98,13 +100,12 @@ func snapshotHealthCheckers() map[string]HealthCheck {
 	defer healthCheckersMu.RUnlock()
 
 	out := make(map[string]HealthCheck, len(healthCheckers))
-	for name, check := range healthCheckers {
-		out[name] = check
-	}
+	maps.Copy(out, healthCheckers)
 
 	return out
 }
 
+// Manager is a sicky component.
 type Manager struct {
 	ctx     context.Context
 	config  *ManagerConfig
@@ -121,32 +122,39 @@ type Manager struct {
 	wg sync.WaitGroup
 }
 
+// NewManager creates a new Manager.
 func NewManager(cfg *ManagerConfig, appName, appVersion string) *Manager {
 	if cfg == nil {
 		cfg = DefaultManagerConfig()
 	} else {
 		cfg = cfg.Ensure()
 	}
+
 	m := &Manager{
 		ctx:        context.Background(),
 		config:     cfg,
 		appName:    appName,
 		appVersion: appVersion,
 	}
+
 	m.metricsRegistry = prometheus.NewRegistry()
 	cs := slices.Collect(maps.Values(metrics.GetAll()))
 	m.metricsRegistry.MustRegister(cs...)
+
 	return m
 }
 
+// Context returns the component context.
 func (m *Manager) Context() context.Context {
 	return m.ctx
 }
 
+// Server is part of the public API.
 func (m *Manager) Server() *http.Server {
 	return m.srv
 }
 
+// Addr returns the address.
 func (m *Manager) Addr() string {
 	m.RLock()
 	srv := m.srv
@@ -159,6 +167,7 @@ func (m *Manager) Addr() string {
 	return utils.Advertise(srv.Addr, cfg.AdvertiseAddress, "tcp").String()
 }
 
+// Port returns the port.
 func (m *Manager) Port() int {
 	m.RLock()
 	srv := m.srv
@@ -173,12 +182,15 @@ func (m *Manager) Port() int {
 	return portV
 }
 
+// Start starts the component.
 func (m *Manager) Start() error {
 	m.Lock()
 	if m.running {
 		m.Unlock()
+
 		return nil
 	}
+
 	// Reserve running flag before releasing lock so concurrent Start/Stop
 	// serialize. Real work (ListenAndServe, logging) happens unlocked.
 	m.running = true
@@ -187,6 +199,7 @@ func (m *Manager) Start() error {
 	} else {
 		m.config = m.config.Ensure()
 	}
+
 	cfg := m.config
 	m.Unlock()
 
@@ -212,6 +225,7 @@ func (m *Manager) Start() error {
 		IdleTimeout:       time.Duration(cfg.IdleTimeout) * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+
 	// servePlaintext reports whether the listener runs without TLS.
 	servePlaintext := true
 	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
@@ -228,12 +242,15 @@ func (m *Manager) Start() error {
 
 			return err
 		}
+
 		srv.TLSConfig = &tls.Config{
 			MinVersion:   tls.VersionTLS12,
 			Certificates: []tls.Certificate{cert},
 		}
+
 		servePlaintext = false
 	}
+
 	mux := http.NewServeMux()
 	mux.Handle(cfg.MetricsPath, m.metrics())
 	mux.Handle(cfg.HealthPath, m.health())
@@ -254,6 +271,7 @@ func (m *Manager) Start() error {
 			"address", cfg.Address,
 		)
 	}
+
 	m.wg.Add(1)
 	go func(s *http.Server, useTLS bool) {
 		defer m.wg.Done()
@@ -266,6 +284,7 @@ func (m *Manager) Start() error {
 		} else {
 			err = s.ListenAndServe()
 		}
+
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Logger.ErrorContext(
 				m.ctx,
@@ -296,12 +315,15 @@ func (m *Manager) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (m *Manager) Stop() error {
 	m.Lock()
 	if !m.running {
 		m.Unlock()
+
 		return nil
 	}
+
 	srv := m.srv
 	cfg := m.config
 	m.Unlock()
@@ -310,6 +332,7 @@ func (m *Manager) Stop() error {
 		m.Lock()
 		m.running = false
 		m.Unlock()
+
 		return nil
 	}
 
@@ -317,6 +340,7 @@ func (m *Manager) Stop() error {
 	if cfg != nil && cfg.ShutdownTimeout > 0 {
 		timeout = time.Duration(cfg.ShutdownTimeout) * time.Second
 	}
+
 	// Defensive: never block forever on a cancelless context.
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -328,6 +352,7 @@ func (m *Manager) Stop() error {
 
 		return serr
 	}
+
 	m.wg.Wait()
 	logger.Logger.InfoContext(
 		m.ctx,
@@ -353,6 +378,7 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 		if m.config != nil {
 			token = m.config.AuthToken
 		}
+
 		m.RUnlock()
 		if token != "" {
 			got := r.Header.Get("Authorization")
@@ -363,6 +389,7 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 			wantSum := sha256.Sum256([]byte(want))
 			if subtle.ConstantTimeCompare(gotSum[:], wantSum[:]) != 1 {
 				w.WriteHeader(http.StatusUnauthorized)
+
 				return
 			}
 
@@ -374,12 +401,14 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			w.WriteHeader(http.StatusForbidden)
+
 			return
 		}
 
 		ip := net.ParseIP(strings.TrimSpace(host))
 		if ip == nil || !ip.IsLoopback() {
 			w.WriteHeader(http.StatusForbidden)
+
 			return
 		}
 
@@ -400,6 +429,7 @@ func isExternalListen(addr string) bool {
 	}
 
 	ip := net.ParseIP(host)
+
 	return ip == nil || !ip.IsLoopback()
 }
 
@@ -450,12 +480,12 @@ func (m *Manager) sanitizedConfig() any {
 
 	raw, err := json.Marshal(m.cfgVar)
 	if err != nil {
-		return map[string]any{"error": "config marshal failed"}
+		return map[string]any{errorField: "config marshal failed"}
 	}
 
 	var decoded map[string]any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return map[string]any{"error": "config unmarshal failed"}
+		return map[string]any{errorField: "config unmarshal failed"}
 	}
 
 	return sanitizeValue("", decoded)
@@ -482,7 +512,7 @@ func (m *Manager) health() http.Handler {
 func (m *Manager) live() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy", "version": m.appVersion})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": statusHealthy, "version": m.appVersion})
 	})
 }
 
@@ -503,9 +533,9 @@ func (m *Manager) writeHealth(w http.ResponseWriter, components []componentHealt
 
 	// Only real failures degrade overall status. "not_configured"
 	// components are reported but do not fail readiness.
-	overall := "healthy"
+	overall := statusHealthy
 	for _, c := range components {
-		if c.Status == "unhealthy" {
+		if c.Status == statusUnhealthy {
 			overall = "degraded"
 			break
 		}
@@ -515,6 +545,7 @@ func (m *Manager) writeHealth(w http.ResponseWriter, components []componentHealt
 	if overall == "degraded" {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
+
 	_ = json.NewEncoder(w).Encode(
 		&status{
 			Status:     overall,
@@ -523,6 +554,28 @@ func (m *Manager) writeHealth(w http.ResponseWriter, components []componentHealt
 		},
 	)
 }
+
+// Health status literals and well-known component names shared by the
+// collector, the check dispatch switch, and the JSON envelopes.
+const (
+	statusHealthy   = "healthy"
+	statusUnhealthy = "unhealthy"
+
+	// errorField is the JSON key for error envelopes (kept identical to
+	// the slog "error" field name by convention).
+	errorField = "error"
+
+	componentRedis      = "redis"
+	componentBun        = "bun"
+	componentClickhouse = "clickhouse"
+	componentMongo      = "mongo"
+	componentElastic    = "elastic"
+	componentS3         = "s3"
+	componentRistretto  = "ristretto"
+	componentBadger     = "badger"
+	componentNATS       = "nats"
+	componentMQTT       = "mqtt"
+)
 
 func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHealth {
 	ctx, cancel := context.WithTimeout(reqCtx, 2*time.Second)
@@ -536,53 +589,58 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 	}
 
 	defs := []checkDef{
-		{name: "redis", ping: func(ctx context.Context) error {
+		{name: componentRedis, ping: func(ctx context.Context) error {
 			if infra.GetRedis() == nil {
 				return nil
 			}
+
 			return infra.GetRedis().Ping(ctx).Err()
 		}},
-		{name: "bun", ping: func(ctx context.Context) error {
+		{name: componentBun, ping: func(ctx context.Context) error {
 			if infra.GetBun() == nil {
 				return nil
 			}
+
 			return infra.GetBun().PingContext(ctx)
 		}},
-		{name: "clickhouse", ping: func(ctx context.Context) error {
-			if infra.GetClickhouse() == nil {
+		{name: componentClickhouse, ping: func(ctx context.Context) error {
+			if infra.GetClickHouse() == nil {
 				return nil
 			}
-			return infra.GetClickhouse().Ping(ctx)
+
+			return infra.GetClickHouse().Ping(ctx)
 		}},
-		{name: "mongo", ping: func(ctx context.Context) error {
+		{name: componentMongo, ping: func(ctx context.Context) error {
 			if infra.GetMongo() == nil {
 				return nil
 			}
+
 			return infra.GetMongo().Ping(ctx, readpref.Primary())
 		}},
-		{name: "elastic", ping: func(ctx context.Context) error {
-			return infra.PingElastic(ctx)
-		}},
-		{name: "s3", ping: func(ctx context.Context) error {
-			return infra.PingS3(ctx)
-		}},
-		{name: "ristretto", local: func() (bool, bool) { return infra.GetRistretto() != nil, false }},
-		{name: "badger", local: func() (bool, bool) { return infra.GetBadger() != nil, false }},
-		{name: "nats", local: func() (bool, bool) {
-			if infra.GetNats() == nil {
+		{name: componentElastic, ping: infra.PingElastic},
+		{name: componentS3, ping: infra.PingS3},
+		{name: componentRistretto, local: func() (bool, bool) { return infra.GetRistretto() != nil, false }},
+		{name: componentBadger, local: func() (bool, bool) { return infra.GetBadger() != nil, false }},
+		{name: componentNATS, local: func() (bool, bool) {
+			if infra.GetNATS() == nil {
 				return false, false
 			}
-			return true, !infra.GetNats().IsConnected()
+
+			return true, !infra.GetNATS().IsConnected()
 		}},
-		{name: "mqtt", local: func() (bool, bool) {
+		{name: componentMQTT, local: func() (bool, bool) {
 			if infra.GetMQTT() == nil {
 				return false, false
 			}
+
 			return true, !infra.GetMQTT().IsConnected()
 		}},
 	}
 
-	cs := make([]componentHealth, len(defs))
+	// Snapshot business checkers once: sizing + fill share the same snapshot
+	// so a concurrent Register/Unregister cannot skew the slice bounds.
+	bizChecks := snapshotHealthCheckers()
+	cs := make([]componentHealth, len(defs)+len(bizChecks))
 	var wg sync.WaitGroup
 	for i, d := range defs {
 		wg.Add(1)
@@ -593,25 +651,28 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 				// Determine configured state first without blocking.
 				configured := true
 				switch d.name {
-				case "redis":
+				case componentRedis:
 					configured = infra.GetRedis() != nil
-				case "bun":
+				case componentBun:
 					configured = infra.GetBun() != nil
-				case "clickhouse":
-					configured = infra.GetClickhouse() != nil
-				case "mongo":
+				case componentClickhouse:
+					configured = infra.GetClickHouse() != nil
+				case componentMongo:
 					configured = infra.GetMongo() != nil
-				case "elastic":
+				case componentElastic:
 					configured = infra.GetElastic() != nil
-				case "s3":
+				case componentS3:
 					configured = infra.GetS3() != nil
 				}
+
 				if !configured {
 					cs[i] = ch
+
 					return
 				}
+
 				if err := d.ping(ctx); err != nil {
-					ch.Status = "unhealthy"
+					ch.Status = statusUnhealthy
 					// Never expose backend error text on the unauthenticated
 					// /health endpoint (it leaks addresses/auth details).
 					// The detail goes to the server log only.
@@ -621,37 +682,45 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 						"component", d.name,
 						"error", err.Error(),
 					)
-					ch.Error = "unhealthy"
+					ch.Error = statusUnhealthy
 				} else {
-					ch.Status = "healthy"
+					ch.Status = statusHealthy
 				}
+
 				cs[i] = ch
+
 				return
 			}
+
 			if d.local != nil {
 				configured, unhealthy := d.local()
 				if !configured {
 					cs[i] = ch
+
 					return
 				}
-				ch.Status = "healthy"
+
+				ch.Status = statusHealthy
 				if unhealthy {
-					ch.Status = "unhealthy"
+					ch.Status = statusUnhealthy
 					ch.Error = "disconnected"
 				}
+
 				cs[i] = ch
 			}
 		}(i, d)
 	}
+
 	wg.Wait()
 
 	// Business checkers registered via RegisterHealthChecker run under the
 	// same timeout and join the component list after the infra checks.
-	for name, check := range snapshotHealthCheckers() {
-		ch := componentHealth{Name: name, Status: "healthy"}
+	j := len(defs)
+	for name, check := range bizChecks {
+		ch := componentHealth{Name: name, Status: statusHealthy}
 		if err := check(ctx); err != nil {
-			ch.Status = "unhealthy"
-			ch.Error = "unhealthy"
+			ch.Status = statusUnhealthy
+			ch.Error = statusUnhealthy
 			logger.Logger.ErrorContext(
 				ctx,
 				"Health check failed",
@@ -659,7 +728,9 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 				"error", err.Error(),
 			)
 		}
-		cs = append(cs, ch)
+
+		cs[j] = ch
+		j++
 	}
 
 	return cs
@@ -672,7 +743,7 @@ func (m *Manager) version() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(
+		_ = json.NewEncoder(w).Encode(
 			&version{
 				Version: m.appVersion,
 			},
@@ -688,7 +759,7 @@ func (m *Manager) info() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(
+		_ = json.NewEncoder(w).Encode(
 			&info{
 				Name:    m.appName,
 				Version: m.appVersion,
@@ -701,18 +772,19 @@ func (m *Manager) cfg() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !m.config.ExposeConfig {
 			w.WriteHeader(http.StatusForbidden)
+
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(m.sanitizedConfig())
+		_ = json.NewEncoder(w).Encode(m.sanitizedConfig())
 	})
 }
 
 func (m *Manager) servicePool() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(registry.GetPool())
+		_ = json.NewEncoder(w).Encode(registry.GetPool())
 	})
 }
 

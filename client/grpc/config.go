@@ -36,23 +36,26 @@ import (
 	"time"
 )
 
+// ErrIncompleteTLSConfig is a shared grpc value.
 var ErrIncompleteTLSConfig = errors.New("grpc client: tls_cert_pem and tls_key_pem must both be set or both empty")
 
 const (
-	DefaultService  = "sicky"
-	DefaultNetwork  = "tcp"
-	DefaultAddr     = ""
+	// DefaultService is a grpc constant.
+	DefaultService = "sicky"
+	// DefaultNetwork is a grpc constant.
+	DefaultNetwork = "tcp"
+	// DefaultAddr is a grpc constant.
+	DefaultAddr = ""
+	// DefaultBalancer is a grpc constant.
 	DefaultBalancer = "round_robin"
 )
 
-var (
-	balancers = map[string]bool{
-		"least_request":        true,
-		"pick_first":           true,
-		"round_robin":          true,
-		"weighted_round_robin": true,
-	}
-)
+var balancers = map[string]bool{
+	"least_request":        true,
+	"pick_first":           true,
+	"round_robin":          true,
+	"weighted_round_robin": true,
+}
 
 type grpcServiceConfig struct {
 	LoadBalancingConfig []map[string]map[string]any `json:"loadBalancingConfig,omitempty"`
@@ -70,20 +73,22 @@ type grpcServiceConfig struct {
 	Timeout string `json:"timeout,omitempty"`
 }
 
+// Config is a grpc component.
 type Config struct {
-	Service           string        `json:"service" yaml:"service" mapstructure:"service"`
-	Network           string        `json:"network" yaml:"network" mapstructure:"network"`
-	Addr              string        `json:"addr" yaml:"addr" mapstructure:"addr"`
-	TLSCertPEM        string        `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM         string        `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	ConnectionTimeout time.Duration `json:"connection_timeout" yaml:"connection_timeout" mapstructure:"connection_timeout"`
-	MaxHeaderListSize uint32        `json:"max_header_list_size" yaml:"max_header_list_size" mapstructure:"max_header_list_size"`
-	MaxMsgSize        int           `json:"max_msg_size" yaml:"max_msg_size" mapstructure:"max_msg_size"`
-	ReadBufferSize    int           `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
-	WriteBufferSize   int           `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
-	Balancer          string        `json:"balancer" yaml:"balancer" mapstructure:"balancer"`
+	Service           string        `json:"service"              mapstructure:"service"              yaml:"service"`
+	Network           string        `json:"network"              mapstructure:"network"              yaml:"network"`
+	Addr              string        `json:"addr"                 mapstructure:"addr"                 yaml:"addr"`
+	TLSCertPEM        string        `json:"tls_cert_pem"         mapstructure:"tls_cert_pem"         yaml:"tls_cert_pem"`
+	TLSKeyPEM         string        `json:"tls_key_pem"          mapstructure:"tls_key_pem"          yaml:"tls_key_pem"`
+	ConnectionTimeout time.Duration `json:"connection_timeout"   mapstructure:"connection_timeout"   yaml:"connection_timeout"`
+	MaxHeaderListSize uint32        `json:"max_header_list_size" mapstructure:"max_header_list_size" yaml:"max_header_list_size"`
+	MaxMsgSize        int           `json:"max_msg_size"         mapstructure:"max_msg_size"         yaml:"max_msg_size"`
+	ReadBufferSize    int           `json:"read_buffer_size"     mapstructure:"read_buffer_size"     yaml:"read_buffer_size"`
+	WriteBufferSize   int           `json:"write_buffer_size"    mapstructure:"write_buffer_size"    yaml:"write_buffer_size"`
+	Balancer          string        `json:"balancer"             mapstructure:"balancer"             yaml:"balancer"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Service:  DefaultService,
@@ -93,6 +98,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
@@ -127,11 +133,13 @@ func (c *Config) Validate() error {
 	if c == nil {
 		return nil
 	}
+
 	certEmpty := strings.TrimSpace(c.TLSCertPEM) == ""
 	keyEmpty := strings.TrimSpace(c.TLSKeyPEM) == ""
 	if certEmpty != keyEmpty {
 		return ErrIncompleteTLSConfig
 	}
+
 	return nil
 }
 

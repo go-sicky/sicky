@@ -32,11 +32,13 @@ package job
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
+// Job is a job component.
 type Job interface {
 	// Get context
 	Context() context.Context
@@ -60,6 +62,7 @@ var (
 	jobMu      sync.RWMutex
 )
 
+// Set registers job instances; the first one becomes the default.
 func Set(js ...Job) {
 	jobMu.Lock()
 	defer jobMu.Unlock()
@@ -72,6 +75,7 @@ func Set(js ...Job) {
 	}
 }
 
+// Get looks up a job instance by ID.
 func Get(id uuid.UUID) Job {
 	jobMu.RLock()
 	defer jobMu.RUnlock()
@@ -79,6 +83,7 @@ func Get(id uuid.UUID) Job {
 	return jobs[id]
 }
 
+// Default returns the default job instance.
 func Default() Job {
 	jobMu.RLock()
 	defer jobMu.RUnlock()
@@ -86,14 +91,13 @@ func Default() Job {
 	return defaultJob
 }
 
+// Jobs returns a copy of the job registry.
 func Jobs() map[uuid.UUID]Job {
 	jobMu.RLock()
 	defer jobMu.RUnlock()
 
 	out := make(map[uuid.UUID]Job, len(jobs))
-	for id, j := range jobs {
-		out[id] = j
-	}
+	maps.Copy(out, jobs)
 
 	return out
 }

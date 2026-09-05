@@ -31,6 +31,7 @@ func TestCORSMiddlewareFailsClosedOnWildcardWithCredentials(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("illegal combo must not emit ACAO, got %q", got)
 	}
+
 	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "" {
 		t.Fatalf("illegal combo must not emit credentials, got %q", got)
 	}
@@ -41,17 +42,20 @@ func TestCORSMiddlewareFailsClosedOnWildcardWithCredentials(t *testing.T) {
 func TestDeprecatedCORSMiddlewareDenies(t *testing.T) {
 	h := CORSMiddleware(func(w http.ResponseWriter, r bunrouter.Request) error {
 		w.WriteHeader(http.StatusTeapot)
+
 		return nil
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "http://x.test/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://x.test/", http.NoBody)
 	req.Header.Set("Origin", "https://evil.test")
 	if err := h(w, bunrouter.NewRequest(req)); err != nil {
 		t.Fatalf("middleware error: %v", err)
 	}
+
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("deprecated middleware reflected origin: %q", got)
 	}
+
 	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "" {
 		t.Fatalf("deprecated middleware set credentials: %q", got)
 	}

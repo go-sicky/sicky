@@ -35,15 +35,17 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-sicky/sicky/logger"
-	"github.com/go-sicky/sicky/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // serverPID is cached: a syscall per RPC is pure overhead.
 var serverPID = os.Getpid()
 
+// LoggerConfig is a grpc component.
 type LoggerConfig struct {
 	Logger logger.GeneralLogger
 }
@@ -58,6 +60,7 @@ func loggerConfigDefault(config ...LoggerConfig) LoggerConfig {
 	}
 }
 
+// NewAccessLoggerInterceptor creates a new AccessLoggerInterceptor.
 func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerInterceptor {
 	cfg := loggerConfigDefault(config...)
 	if cfg.Logger == nil {
@@ -65,9 +68,7 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 	}
 
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		var (
-			requestID, traceID, spanID, userAgent string
-		)
+		var requestID, traceID, spanID, userAgent string
 
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
@@ -124,6 +125,7 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 	}
 }
 
+// NewStreamAccessLoggerInterceptor creates a new StreamAccessLoggerInterceptor.
 func NewStreamAccessLoggerInterceptor(config ...LoggerConfig) grpc.StreamServerInterceptor {
 	cfg := loggerConfigDefault(config...)
 	if cfg.Logger == nil {

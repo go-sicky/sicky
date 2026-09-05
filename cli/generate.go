@@ -32,6 +32,7 @@ package cli
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,7 +49,8 @@ func generateRun(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate: missing schematic name")
 		fmt.Fprintln(os.Stderr, "Usage: sicky generate <schematic> [name] [flags]")
-		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, doc")
+		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
+
 		return 1
 	}
 
@@ -64,9 +66,30 @@ func generateRun(args []string) int {
 		return generateResource(schematicArgs)
 	case "doc":
 		return generateDoc(schematicArgs)
+	case "server":
+		return generateServerStub(schematicArgs)
+	case "client":
+		return generateClientStub(schematicArgs)
+	case "service":
+		return generateServiceStub(schematicArgs)
+	case "broker":
+		return generateBrokerStub(schematicArgs)
+	case "job":
+		return generateJobStub(schematicArgs)
+	case "middleware":
+		return generateMiddlewareStub(schematicArgs)
+	case "proto":
+		return generateProtoFile(schematicArgs)
+	case "config":
+		return generateConfigFile(schematicArgs)
+	case "docker":
+		return generateDockerFiles(schematicArgs)
+	case "k8s":
+		return generateK8sFiles(schematicArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "sicky generate: unknown schematic %q\n", schematic)
-		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, doc")
+		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
+
 		return 1
 	}
 }
@@ -81,11 +104,13 @@ func generateHandler(args []string) int {
 	fs := pflag.NewFlagSet("generate handler", pflag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate handler: %s\n", err.Error())
+
 		return 1
 	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate handler: missing handler name")
+
 		return 1
 	}
 
@@ -99,16 +124,19 @@ func generateHandler(args []string) int {
 	dir := "handler"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate handler: %s\n", err.Error())
+
 		return 1
 	}
 
 	outputPath := filepath.Join(dir, name+".go")
 	if err := renderGenerateTemplate("template/handler/handler.go.gotmpl", outputPath, gc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate handler: %s\n", err.Error())
+
 		return 1
 	}
 
 	fmt.Printf("  \u2714 Created %s\n", outputPath)
+
 	return 0
 }
 
@@ -116,11 +144,13 @@ func generateTool(args []string) int {
 	fs := pflag.NewFlagSet("generate tool", pflag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate tool: %s\n", err.Error())
+
 		return 1
 	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate tool: missing tool name")
+
 		return 1
 	}
 
@@ -134,16 +164,19 @@ func generateTool(args []string) int {
 	dir := "tool"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate tool: %s\n", err.Error())
+
 		return 1
 	}
 
 	outputPath := filepath.Join(dir, name+".go")
 	if err := renderGenerateTemplate("template/tool/tool.go.gotmpl", outputPath, gc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate tool: %s\n", err.Error())
+
 		return 1
 	}
 
 	fmt.Printf("  \u2714 Created %s\n", outputPath)
+
 	return 0
 }
 
@@ -151,11 +184,13 @@ func generateResource(args []string) int {
 	fs := pflag.NewFlagSet("generate resource", pflag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate resource: %s\n", err.Error())
+
 		return 1
 	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate resource: missing resource name")
+
 		return 1
 	}
 
@@ -169,16 +204,19 @@ func generateResource(args []string) int {
 	dir := "resource"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate resource: %s\n", err.Error())
+
 		return 1
 	}
 
 	outputPath := filepath.Join(dir, name+".go")
 	if err := renderGenerateTemplate("template/resource/resource.go.gotmpl", outputPath, gc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate resource: %s\n", err.Error())
+
 		return 1
 	}
 
 	fmt.Printf("  \u2714 Created %s\n", outputPath)
+
 	return 0
 }
 
@@ -186,6 +224,7 @@ func generateDoc(args []string) int {
 	fs := pflag.NewFlagSet("generate doc", pflag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate doc: %s\n", err.Error())
+
 		return 1
 	}
 
@@ -198,10 +237,12 @@ func generateDoc(args []string) int {
 	outputPath := "README.md"
 	if err := renderGenerateTemplate("template/doc/readme.md.gotmpl", outputPath, gc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate doc: %s\n", err.Error())
+
 		return 1
 	}
 
 	fmt.Printf("  \u2714 Created %s\n", outputPath)
+
 	return 0
 }
 
@@ -213,7 +254,7 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 
 	tmpl, err := template.New(filepath.Base(tmplName)).Parse(string(tmplBytes))
 	if err != nil {
-		return err
+		return fmt.Errorf("template %q parse: %w", tmplName, err)
 	}
 
 	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
@@ -221,11 +262,16 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 		return fmt.Errorf("create %s: %w", outputPath, err)
 	}
 
-	defer func() {
-		_ = f.Close()
-	}()
+	execErr := tmpl.Execute(f, data)
+	if closeErr := f.Close(); closeErr != nil {
+		return errors.Join(execErr, fmt.Errorf("close %s: %w", outputPath, closeErr))
+	}
 
-	return tmpl.Execute(f, data)
+	if execErr != nil {
+		return fmt.Errorf("render %s: %w", outputPath, execErr)
+	}
+
+	return nil
 }
 
 func detectModule() string {
@@ -234,11 +280,11 @@ func detectModule() string {
 		return "github.com/myorg/my-app"
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		if after, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 

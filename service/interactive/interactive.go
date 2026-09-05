@@ -39,6 +39,7 @@ import (
 	"syscall"
 
 	"github.com/fatih/color"
+
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/registry"
@@ -47,6 +48,7 @@ import (
 	"github.com/go-sicky/sicky/tracer"
 )
 
+// Interactive is a interactive component.
 type Interactive struct {
 	config  *Config
 	ctx     context.Context
@@ -60,6 +62,7 @@ type Interactive struct {
 	handlers   []Handler
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *service.Options, cfg *Config) *Interactive {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -85,18 +88,22 @@ func New(opts *service.Options, cfg *Config) *Interactive {
 	return svc
 }
 
+// Context returns the component context.
 func (s *Interactive) Context() context.Context {
 	return s.ctx
 }
 
+// Options returns the runtime options.
 func (s *Interactive) Options() *service.Options {
 	return s.options
 }
 
+// String returns a human-readable name.
 func (s *Interactive) String() string {
 	return "interactive"
 }
 
+// Start starts the component.
 func (s *Interactive) Start() []error {
 	// err  error
 	var errs []error
@@ -114,12 +121,13 @@ func (s *Interactive) Start() []error {
 		}
 
 		fmt.Println()
-		syscall.Kill(syscall.Getpid(), syscall.SIGQUIT)
+		_ = syscall.Kill(syscall.Getpid(), syscall.SIGQUIT)
 	}()
 
 	return errs
 }
 
+// Stop stops the component and releases resources.
 func (s *Interactive) Stop() []error {
 	// err  error
 	var errs []error
@@ -127,6 +135,7 @@ func (s *Interactive) Stop() []error {
 	return errs
 }
 
+// Servers returns the managed servers.
 func (s *Interactive) Servers(srvs ...server.Server) []server.Server {
 	if len(srvs) > 0 {
 		s.servers = append(s.servers, srvs...)
@@ -135,6 +144,7 @@ func (s *Interactive) Servers(srvs ...server.Server) []server.Server {
 	return s.servers
 }
 
+// Brokers returns a copy of the broker registry.
 func (s *Interactive) Brokers(brks ...broker.Broker) []broker.Broker {
 	if len(brks) > 0 {
 		s.brokers = append(s.brokers, brks...)
@@ -143,6 +153,7 @@ func (s *Interactive) Brokers(brks ...broker.Broker) []broker.Broker {
 	return s.brokers
 }
 
+// Jobs returns a copy of the job registry.
 func (s *Interactive) Jobs(jobs ...job.Job) []job.Job {
 	if !s.config.DisableJobs && len(jobs) > 0 {
 		s.jobs = append(s.jobs, jobs...)
@@ -151,6 +162,7 @@ func (s *Interactive) Jobs(jobs ...job.Job) []job.Job {
 	return s.jobs
 }
 
+// Registries returns the managed registries.
 func (s *Interactive) Registries(rgs ...registry.Registry) []registry.Registry {
 	if !s.config.DisableServerRegister && len(rgs) > 0 {
 		s.registries = append(s.registries, rgs...)
@@ -159,6 +171,7 @@ func (s *Interactive) Registries(rgs ...registry.Registry) []registry.Registry {
 	return s.registries
 }
 
+// Tracers returns the managed tracers.
 func (s *Interactive) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)
@@ -167,6 +180,7 @@ func (s *Interactive) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 	return s.tracers
 }
 
+// Handle registers handlers.
 func (s *Interactive) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		s.handlers = append(s.handlers, hdl)
@@ -238,7 +252,7 @@ func (s *Interactive) interact() bool {
 	return false
 }
 
-/* {{{[Command handler] */
+/* {{{[Command handler]. */
 type Handler interface {
 	Name() string
 	OnInteract(cmd, full string) error

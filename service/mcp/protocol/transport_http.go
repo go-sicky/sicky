@@ -32,6 +32,8 @@ package protocol
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,14 +43,17 @@ import (
 
 /* {{{ [HTTPTransport] */
 
+// HTTPTransport is a protocol component.
 type HTTPTransport struct {
 	addr     string
 	messages chan []byte
 	mu       sync.Mutex
 	buf      bytes.Buffer
 	closed   bool
+	srv      *http.Server
 }
 
+// NewHTTPTransport creates a new HTTPTransport.
 func NewHTTPTransport(addr string) *HTTPTransport {
 	return &HTTPTransport{
 		addr:     addr,
@@ -56,14 +61,24 @@ func NewHTTPTransport(addr string) *HTTPTransport {
 	}
 }
 
+// Start starts the component.
 func (t *HTTPTransport) Start() error {
 	t.closed = false
 
-	http.HandleFunc("/mcp", t.handleSSE)
-	http.HandleFunc("/mcp/message", t.handleMessage)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", t.handleSSE)
+	mux.HandleFunc("/mcp/message", t.handleMessage)
+
+	t.srv = &http.Server{
+		Addr:         t.addr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
 
 	go func() {
-		if err := http.ListenAndServe(t.addr, nil); err != nil {
+		if err := t.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			t.mu.Lock()
 
 			defer t.mu.Unlock()
@@ -77,6 +92,7 @@ func (t *HTTPTransport) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (t *HTTPTransport) Stop() error {
 	t.mu.Lock()
 
@@ -85,9 +101,17 @@ func (t *HTTPTransport) Stop() error {
 	t.closed = true
 	close(t.messages)
 
+	if t.srv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		_ = t.srv.Shutdown(ctx)
+	}
+
 	return nil
 }
 
+// Read reads data.
 func (t *HTTPTransport) Read() ([]byte, error) {
 	msg, ok := <-t.messages
 	if !ok {
@@ -97,6 +121,7 @@ func (t *HTTPTransport) Read() ([]byte, error) {
 	return msg, nil
 }
 
+// Write writes data.
 func (t *HTTPTransport) Write(data []byte) error {
 	t.mu.Lock()
 
@@ -142,7 +167,10 @@ func (t *HTTPTransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 			t.mu.Unlock()
 
 			if len(data) > 0 {
-				w.Write(data)
+				if _, err := w.Write(data); err != nil {
+					return
+				}
+
 				flusher.Flush()
 			}
 		}
@@ -157,13 +185,12 @@ func (t *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, err := io.ReadAll(r.Body)
+	defer func() { _ = r.Body.Close() }()
 	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 
 		return
 	}
-
-	defer r.Body.Close()
 
 	t.mu.Lock()
 	closed := t.closed

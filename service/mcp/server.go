@@ -41,6 +41,7 @@ import (
 
 /* {{{ [MCPServer] */
 
+// MCPServer is a mcp component.
 type MCPServer struct {
 	info         protocol.ImplementationInfo
 	capabilities protocol.ServerCapabilities
@@ -50,6 +51,7 @@ type MCPServer struct {
 	log          logger.GeneralLogger
 }
 
+// NewMCPServer creates a new MCPServer.
 func NewMCPServer(info protocol.ImplementationInfo, caps protocol.ServerCapabilities) *MCPServer {
 	return &MCPServer{
 		info:         info,
@@ -58,21 +60,28 @@ func NewMCPServer(info protocol.ImplementationInfo, caps protocol.ServerCapabili
 	}
 }
 
+// SetLogger sets the logger.
 func (s *MCPServer) SetLogger(l logger.GeneralLogger) {
 	s.log = l
 }
 
+// Handle registers handlers.
 func (s *MCPServer) Handle(hdls ...Handler) {
 	s.handlers = append(s.handlers, hdls...)
 }
 
+// Serve serves requests until stopped.
 func (s *MCPServer) Serve(ctx context.Context, transport protocol.Transport) error {
 	s.transport = transport
 	if err := transport.Start(); err != nil {
 		return err
 	}
 
-	defer transport.Stop()
+	defer func() {
+		if err := transport.Stop(); err != nil {
+			s.log.ErrorContext(ctx, "MCP transport stop error", "error", err.Error())
+		}
+	}()
 
 	s.log.InfoContext(ctx, "MCP server started",
 		"name", s.info.Name,
@@ -210,11 +219,11 @@ func (s *MCPServer) handleInitialize(ctx context.Context, req *protocol.Request)
 	return protocol.NewResponse(req.ID, result)
 }
 
-func (s *MCPServer) handlePing(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handlePing(_ context.Context, req *protocol.Request) *protocol.Response {
 	return protocol.NewResponse(req.ID, protocol.PingResult{Message: "pong"})
 }
 
-func (s *MCPServer) handleToolsList(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handleToolsList(_ context.Context, req *protocol.Request) *protocol.Response {
 	tools := make([]protocol.Tool, 0)
 	for _, h := range s.handlers {
 		tools = append(tools, h.Tools()...)
@@ -223,7 +232,7 @@ func (s *MCPServer) handleToolsList(ctx context.Context, req *protocol.Request) 
 	return protocol.NewResponse(req.ID, protocol.ToolsListResult{Tools: tools})
 }
 
-func (s *MCPServer) handleToolsCall(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handleToolsCall(_ context.Context, req *protocol.Request) *protocol.Response {
 	var params protocol.ToolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
@@ -245,7 +254,7 @@ func (s *MCPServer) handleToolsCall(ctx context.Context, req *protocol.Request) 
 	return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, "tool not found: "+params.Name)
 }
 
-func (s *MCPServer) handleResourcesList(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handleResourcesList(_ context.Context, req *protocol.Request) *protocol.Response {
 	resources := make([]protocol.Resource, 0)
 	for _, h := range s.handlers {
 		resources = append(resources, h.Resources()...)
@@ -254,7 +263,7 @@ func (s *MCPServer) handleResourcesList(ctx context.Context, req *protocol.Reque
 	return protocol.NewResponse(req.ID, protocol.ResourcesListResult{Resources: resources})
 }
 
-func (s *MCPServer) handleResourcesRead(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handleResourcesRead(_ context.Context, req *protocol.Request) *protocol.Response {
 	var params protocol.ResourcesReadParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
@@ -276,7 +285,7 @@ func (s *MCPServer) handleResourcesRead(ctx context.Context, req *protocol.Reque
 	return protocol.NewErrorResponse(req.ID, protocol.ErrCodeMethodNotFound, "resource not found: "+params.URI)
 }
 
-func (s *MCPServer) handlePromptsList(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handlePromptsList(_ context.Context, req *protocol.Request) *protocol.Response {
 	prompts := make([]protocol.Prompt, 0)
 	for _, h := range s.handlers {
 		prompts = append(prompts, h.Prompts()...)
@@ -285,7 +294,7 @@ func (s *MCPServer) handlePromptsList(ctx context.Context, req *protocol.Request
 	return protocol.NewResponse(req.ID, protocol.PromptsListResult{Prompts: prompts})
 }
 
-func (s *MCPServer) handlePromptsGet(ctx context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handlePromptsGet(_ context.Context, req *protocol.Request) *protocol.Response {
 	var params protocol.PromptsGetParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())

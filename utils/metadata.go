@@ -30,58 +30,70 @@
 
 package utils
 
-import "strings"
+import (
+	"maps"
+	"strings"
+)
 
+// Metadata is a utils component.
 type Metadata map[string]string
 
+// NewMetadata creates a new Metadata.
 func NewMetadata() Metadata {
 	return make(Metadata)
 }
 
+// Get looks up a utils instance by ID.
 func (md Metadata) Get(key string) (string, bool) {
 	val, ok := md[key]
 
 	return val, ok
 }
 
+// Value returns the stored value.
 func (md Metadata) Value(key, def string) string {
 	val, ok := md[key]
 
 	if !ok {
 		return def
 	}
+
 	return val
 }
 
+// Set registers utils instances; the first one becomes the default.
 func (md Metadata) Set(key, val string) {
 	md[key] = val
 }
 
+// Delete removes the key.
 func (md Metadata) Delete(key string) {
 	delete(md, key)
 }
 
+// Merge merges the given values.
 func (md Metadata) Merge(in Metadata) {
 	for k, v := range in {
 		md.Set(k, v)
 	}
 }
 
+// Clone returns a deep copy.
 func (md Metadata) Clone() Metadata {
 	return md.Copy()
 }
 
+// Copy copies the value.
 func (md Metadata) Copy() Metadata {
 	o := make(Metadata, len(md))
-	for k, v := range md {
-		o[k] = v
-	}
+	maps.Copy(o, md)
 
 	return o
 }
 
+// Strings is a utility helper.
 func (md Metadata) Strings() []string {
-	ret := make([]string, 0)
+	ret := make([]string, 0, len(md))
 	for k, v := range md {
 		ret = append(ret, k+"="+v)
 	}
@@ -89,6 +101,7 @@ func (md Metadata) Strings() []string {
 	return ret
 }
 
+// MetadataFromStrings is a utility helper.
 func MetadataFromStrings(ss []string) Metadata {
 	ret := make(Metadata)
 	for _, line := range ss {

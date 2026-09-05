@@ -34,12 +34,14 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/utils"
 )
 
+// Redis is a redis component.
 type Redis struct {
 	config  *Config
 	ctx     context.Context
@@ -48,6 +50,7 @@ type Redis struct {
 	client  *redis.Client
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *registry.Options, cfg *Config) *Redis {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -94,26 +97,32 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 	return rg
 }
 
+// Context returns the component context.
 func (rg *Redis) Context() context.Context {
 	return rg.ctx
 }
 
+// Options returns the runtime options.
 func (rg *Redis) Options() *registry.Options {
 	return rg.options
 }
 
+// String returns a human-readable name.
 func (rg *Redis) String() string {
 	return "redis"
 }
 
+// ID returns the unique instance ID.
 func (rg *Redis) ID() uuid.UUID {
 	return rg.options.ID
 }
 
+// Name returns the component name.
 func (rg *Redis) Name() string {
 	return rg.options.Name
 }
 
+// Register registers the collector.
 func (rg *Redis) Register(ins *registry.Instance) error {
 	_, err := rg.client.HSet(rg.ctx, rg.config.InstanceKey, ins.ID.String(), utils.JSONAnyString(ins)).Result()
 	if err != nil {
@@ -160,6 +169,7 @@ func (rg *Redis) Register(ins *registry.Instance) error {
 	return nil
 }
 
+// Deregister removes the registration.
 func (rg *Redis) Deregister(id uuid.UUID) error {
 	_, err := rg.client.HDel(rg.ctx, rg.config.InstanceKey, id.String()).Result()
 	if err != nil {
@@ -190,6 +200,7 @@ func (rg *Redis) Deregister(id uuid.UUID) error {
 	return err
 }
 
+// CheckInstance checks instance liveness.
 func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 	exists, err := rg.client.HExists(rg.ctx, rg.config.InstanceKey, id.String()).Result()
 	if err != nil {
@@ -209,6 +220,7 @@ func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 	return exists
 }
 
+// Load loads persisted state.
 func (rg *Redis) Load() ([]*registry.Instance, error) {
 	var instances []*registry.Instance
 	res, err := rg.client.HGetAll(rg.ctx, rg.config.InstanceKey).Result()
@@ -247,6 +259,7 @@ func (rg *Redis) Load() ([]*registry.Instance, error) {
 	return instances, nil
 }
 
+// Watch watches for changes.
 func (rg *Redis) Watch() error {
 	pubsub := rg.client.Subscribe(rg.ctx, rg.config.NotifyKey)
 
@@ -255,7 +268,8 @@ func (rg *Redis) Watch() error {
 		for {
 			select {
 			case <-rg.ctx.Done():
-				pubsub.Close()
+				_ = pubsub.Close()
+
 				return
 			case <-ch:
 				// Reload services list
@@ -286,6 +300,7 @@ func (rg *Redis) Watch() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (rg *Redis) Stop() error {
 	if rg.cancel != nil {
 		rg.cancel()

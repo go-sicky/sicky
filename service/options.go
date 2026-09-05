@@ -33,16 +33,20 @@ package service
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
 const (
+	// DefaultServiceVersion is a service constant.
 	DefaultServiceVersion = "latest"
-	DefaultServiceBranch  = "main"
+	// DefaultServiceBranch is a service constant.
+	DefaultServiceBranch = "main"
 )
 
+// Options is a service component.
 type Options struct {
 	Name     string
 	Version  string
@@ -54,6 +58,7 @@ type Options struct {
 	Context context.Context
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (o *Options) Ensure() *Options {
 	if o == nil {
 		o = new(Options)

@@ -40,6 +40,7 @@ func TestNewMetadata(t *testing.T) {
 	if md == nil {
 		t.Fatal("NewMetadata returned nil")
 	}
+
 	if len(md) != 0 {
 		t.Fatalf("expected empty map, got %d entries", len(md))
 	}
@@ -65,6 +66,7 @@ func TestMetadataGet(t *testing.T) {
 			if ok != tt.found {
 				t.Errorf("expected found=%v, got %v", tt.found, ok)
 			}
+
 			if val != tt.val {
 				t.Errorf("expected value=%q, got %q", tt.val, val)
 			}
@@ -76,6 +78,7 @@ func TestMetadataGet(t *testing.T) {
 	if ok {
 		t.Error("expected not found on empty metadata")
 	}
+
 	if v != "" {
 		t.Errorf("expected empty string, got %q", v)
 	}
@@ -127,6 +130,7 @@ func TestMetadataDelete(t *testing.T) {
 	if _, ok := md["key1"]; ok {
 		t.Error("key1 should have been deleted")
 	}
+
 	if v, ok := md["key2"]; !ok || v != "val2" {
 		t.Error("key2 should still exist")
 	}
@@ -144,6 +148,7 @@ func TestMetadataMerge(t *testing.T) {
 	if len(md) != 3 {
 		t.Errorf("expected 3 entries, got %d", len(md))
 	}
+
 	if md["c"] != "3" {
 		t.Errorf("expected c=3, got %q", md["c"])
 	}
@@ -206,6 +211,7 @@ func TestMetadataStrings(t *testing.T) {
 			if len(got) != len(tt.want) {
 				t.Fatalf("expected %d strings, got %d", len(tt.want), len(got))
 			}
+
 			for _, want := range tt.want {
 				if !slices.Contains(got, want) {
 					t.Errorf("expected %q in output, got %v", want, got)
@@ -235,6 +241,7 @@ func TestMetadataFromStrings(t *testing.T) {
 			if len(got) != len(tt.expect) {
 				t.Errorf("expected %d entries, got %d", len(tt.expect), len(got))
 			}
+
 			for k, v := range tt.expect {
 				if got[k] != v {
 					t.Errorf("expected %s=%s, got %q", k, v, got[k])

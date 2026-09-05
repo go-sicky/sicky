@@ -31,19 +31,24 @@
 package stdout
 
 const (
-	DefaultServiceName    = "sicky"
+	// DefaultServiceName is a stdout constant.
+	DefaultServiceName = "sicky"
+	// DefaultServiceVersion is a stdout constant.
 	DefaultServiceVersion = "latest"
-	DefaultSampleRate     = 1.0
+	// DefaultSampleRate is a stdout constant.
+	DefaultSampleRate = 1.0
 )
 
+// Config is a stdout component.
 type Config struct {
-	ServiceName    string  `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
-	ServiceVersion string  `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
-	PrettyPrint    bool    `json:"pretty_print" yaml:"pretty_print" mapstructure:"pretty_print"`
-	Timestamps     bool    `json:"timestamps" yaml:"timestamps" mapstructure:"timestamps"`
-	SampleRate     float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+	ServiceName    string  `json:"service_name"    mapstructure:"service_name"    yaml:"service_name"`
+	ServiceVersion string  `json:"service_version" mapstructure:"service_version" yaml:"service_version"`
+	PrettyPrint    bool    `json:"pretty_print"    mapstructure:"pretty_print"    yaml:"pretty_print"`
+	Timestamps     bool    `json:"timestamps"      mapstructure:"timestamps"      yaml:"timestamps"`
+	SampleRate     float64 `json:"sample_rate"     mapstructure:"sample_rate"     yaml:"sample_rate"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		PrettyPrint:    false,
@@ -54,6 +59,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

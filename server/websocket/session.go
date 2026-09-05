@@ -34,13 +34,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 )
 
-/* {{{ [Session] */
+/* {{{ [Session]. */
 type Session struct {
 	server.SessionBase
 
@@ -48,6 +49,7 @@ type Session struct {
 	pool *Pool
 }
 
+// NewSession creates a new Session.
 func NewSession(conn *websocket.Conn) *Session {
 	return &Session{
 		SessionBase: server.SessionBase{
@@ -61,6 +63,7 @@ func NewSession(conn *websocket.Conn) *Session {
 	}
 }
 
+// Send sends data.
 func (s *Session) Send(mt int, data []byte) error {
 	s.LastActive = time.Now()
 	if mt <= 0 {
@@ -70,6 +73,7 @@ func (s *Session) Send(mt int, data []byte) error {
 	return s.conn.WriteMessage(mt, data)
 }
 
+// Close closes the resource.
 func (s *Session) Close() error {
 	if s.pool != nil {
 		s.pool.RemoveByID(s.ID)
@@ -81,23 +85,26 @@ func (s *Session) Close() error {
 		// Close force
 		nc := s.conn.NetConn()
 		if nc != nil {
-			nc.Close()
+			_ = nc.Close()
 		}
 	}
 
 	return s.conn.Close()
 }
 
+// Conn returns the connection.
 func (s *Session) Conn() *websocket.Conn {
 	return s.conn
 }
 
+// SetKey sets key.
 func (s *Session) SetKey(key string) {
 	if s.pool != nil {
 		s.pool.Lock()
 		if s.Key != "" {
 			delete(s.pool.keys, s.Key)
 		}
+
 		// Last writer wins; migration path will replace keying entirely.
 		s.pool.keys[key] = s
 		s.pool.Unlock()
@@ -108,9 +115,10 @@ func (s *Session) SetKey(key string) {
 
 /* }}} */
 
-/* {{{ [Pool] */
+/* {{{ [Pool]. */
 var SessionPool *Pool
 
+// Pool is a websocket component.
 type Pool struct {
 	sync.RWMutex
 
@@ -122,6 +130,7 @@ type Pool struct {
 	maxIdleDuration time.Duration
 }
 
+// NewPool creates a new Pool.
 func NewPool(ping, idle int) *Pool {
 	p := &Pool{
 		id:              uuid.New(),
@@ -145,6 +154,7 @@ func NewPool(ping, idle int) *Pool {
 	return p
 }
 
+// Put stores the entry.
 func (p *Pool) Put(sess *Session) {
 	p.Lock()
 	defer p.Unlock()
@@ -162,6 +172,7 @@ func (p *Pool) Put(sess *Session) {
 	sess.pool = p
 }
 
+// GetByID looks up by ID.
 func (p *Pool) GetByID(id uuid.UUID) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -173,6 +184,7 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 	return sess
 }
 
+// GetByConn looks up by connection.
 func (p *Pool) GetByConn(conn *websocket.Conn) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -184,6 +196,7 @@ func (p *Pool) GetByConn(conn *websocket.Conn) *Session {
 	return sess
 }
 
+// GetByKey looks up by key.
 func (p *Pool) GetByKey(key string) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -195,6 +208,7 @@ func (p *Pool) GetByKey(key string) *Session {
 	return sess
 }
 
+// RemoveByID removes by ID.
 func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	p.Lock()
 	defer p.Unlock()
@@ -214,6 +228,7 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 	return true
 }
 
+// RemoveByConn is part of the public API.
 func (p *Pool) RemoveByConn(conn *websocket.Conn) bool {
 	p.Lock()
 	defer p.Unlock()
@@ -233,6 +248,7 @@ func (p *Pool) RemoveByConn(conn *websocket.Conn) bool {
 	return true
 }
 
+// RemoveByKey is part of the public API.
 func (p *Pool) RemoveByKey(key string) bool {
 	p.Lock()
 	defer p.Unlock()
@@ -250,6 +266,7 @@ func (p *Pool) RemoveByKey(key string) bool {
 	return true
 }
 
+// Length returns the entry count.
 func (p *Pool) Length() int {
 	p.RLock()
 	defer p.RUnlock()
@@ -257,6 +274,7 @@ func (p *Pool) Length() int {
 	return len(p.sessions)
 }
 
+// Purge removes expired entries.
 func (p *Pool) Purge() {
 	if p.maxIdleDuration <= 0 {
 		return
@@ -269,6 +287,7 @@ func (p *Pool) Purge() {
 	for _, sess := range p.sessions {
 		snapshot = append(snapshot, sess)
 	}
+
 	p.RUnlock()
 
 	now := time.Now()
@@ -284,12 +303,14 @@ func (p *Pool) Purge() {
 	}
 }
 
+// Foreach iterates all entries.
 func (p *Pool) Foreach(f func(sess *Session)) {
 	p.RLock()
 	snapshot := make([]*Session, 0, len(p.sessions))
 	for _, sess := range p.sessions {
 		snapshot = append(snapshot, sess)
 	}
+
 	p.RUnlock()
 
 	for _, sess := range snapshot {

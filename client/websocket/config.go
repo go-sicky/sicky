@@ -30,13 +30,15 @@
 
 package websocket
 
-type Config struct {
-}
+// Config is a websocket component.
+type Config struct{}
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

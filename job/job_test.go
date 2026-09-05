@@ -21,17 +21,16 @@ func (f *fakeJob) Stop() error              { return nil }
 func TestRegistryConcurrentAccess(t *testing.T) {
 	Clear()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			j := &fakeJob{id: uuid.New()}
 			Set(j)
 			_ = Get(j.id)
 			_ = Default()
 			_ = Jobs()
-		}()
+		})
 	}
+
 	wg.Wait()
 }
 
@@ -40,15 +39,18 @@ func TestRegistryDefaultAndClear(t *testing.T) {
 	if Default() != nil {
 		t.Fatal("Default must be nil after Clear")
 	}
+
 	a := &fakeJob{id: uuid.New()}
 	b := &fakeJob{id: uuid.New()}
 	Set(a, b)
 	if Default() != a {
 		t.Fatal("first registered must be Default")
 	}
+
 	if len(Jobs()) != 2 {
 		t.Fatalf("Jobs = %d, want 2", len(Jobs()))
 	}
+
 	Clear()
 	if len(Jobs()) != 0 || Default() != nil {
 		t.Fatal("Clear must reset registry")

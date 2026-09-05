@@ -32,11 +32,13 @@ package registry
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
+// Registry is a registry component.
 type Registry interface {
 	// Get context
 	Context() context.Context
@@ -49,11 +51,11 @@ type Registry interface {
 	// Registry name
 	Name() string
 	// Register service
-	Register(*Instance) error
+	Register(ins *Instance) error
 	// Deregister service
-	Deregister(uuid.UUID) error
+	Deregister(id uuid.UUID) error
 	// Check service instance
-	CheckInstance(uuid.UUID) bool
+	CheckInstance(id uuid.UUID) bool
 	// Load instances
 	Load() ([]*Instance, error)
 	// Watch services
@@ -68,6 +70,7 @@ var (
 	rgMu            sync.RWMutex
 )
 
+// Set registers registry instances; the first one becomes the default.
 func Set(rgs ...Registry) {
 	rgMu.Lock()
 	defer rgMu.Unlock()
@@ -80,6 +83,7 @@ func Set(rgs ...Registry) {
 	}
 }
 
+// Get looks up a registry instance by ID.
 func Get(id uuid.UUID) Registry {
 	rgMu.RLock()
 	defer rgMu.RUnlock()
@@ -87,6 +91,7 @@ func Get(id uuid.UUID) Registry {
 	return registries[id]
 }
 
+// Default returns the default registry instance.
 func Default() Registry {
 	rgMu.RLock()
 	defer rgMu.RUnlock()
@@ -94,11 +99,15 @@ func Default() Registry {
 	return defaultRegistry
 }
 
+// Registries returns the managed registries.
 func Registries() map[uuid.UUID]Registry {
 	rgMu.RLock()
 	defer rgMu.RUnlock()
 
-	return registries
+	out := make(map[uuid.UUID]Registry, len(registries))
+	maps.Copy(out, registries)
+
+	return out
 }
 
 // Clear resets the global registry. Intended for tests.
@@ -110,7 +119,7 @@ func Clear() {
 	defaultRegistry = nil
 }
 
-/* {{{ [Helpers] */
+/* {{{ [Helpers]. */
 func Register(ins *Instance) error {
 	if defaultRegistry == nil {
 		return nil
@@ -119,6 +128,7 @@ func Register(ins *Instance) error {
 	return defaultRegistry.Register(ins)
 }
 
+// Deregister removes the registration.
 func Deregister(id uuid.UUID) error {
 	if defaultRegistry == nil {
 		return nil
@@ -127,6 +137,7 @@ func Deregister(id uuid.UUID) error {
 	return defaultRegistry.Deregister(id)
 }
 
+// CheckInstance checks instance liveness.
 func CheckInstance(id uuid.UUID) bool {
 	if defaultRegistry == nil {
 		return false
@@ -135,6 +146,7 @@ func CheckInstance(id uuid.UUID) bool {
 	return defaultRegistry.CheckInstance(id)
 }
 
+// Load loads persisted state.
 func Load() ([]*Instance, error) {
 	if defaultRegistry == nil {
 		return nil, nil
@@ -143,6 +155,7 @@ func Load() ([]*Instance, error) {
 	return defaultRegistry.Load()
 }
 
+// Watch watches for changes.
 func Watch() error {
 	if defaultRegistry == nil {
 		return nil
@@ -151,6 +164,7 @@ func Watch() error {
 	return defaultRegistry.Watch()
 }
 
+// Stop stops the component and releases resources.
 func Stop() error {
 	if defaultRegistry == nil {
 		return nil

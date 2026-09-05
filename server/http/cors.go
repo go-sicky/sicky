@@ -33,6 +33,7 @@ package http
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/uptrace/bunrouter"
@@ -45,11 +46,12 @@ const DefaultCORSMaxAge = 86400
 // denies all cross-origin requests (no ACAO headers emitted); use an
 // explicit "*" entry only for public APIs, never with AllowCredentials.
 type CORSConfig struct {
-	AllowedOrigins   []string `json:"allowed_origins" yaml:"allowed_origins" mapstructure:"allowed_origins"`
-	AllowCredentials bool     `json:"allow_credentials" yaml:"allow_credentials" mapstructure:"allow_credentials"`
-	MaxAge           int      `json:"max_age" yaml:"max_age" mapstructure:"max_age"`
+	AllowedOrigins   []string `json:"allowed_origins"   mapstructure:"allowed_origins"   yaml:"allowed_origins"`
+	AllowCredentials bool     `json:"allow_credentials" mapstructure:"allow_credentials" yaml:"allow_credentials"`
+	MaxAge           int      `json:"max_age"           mapstructure:"max_age"           yaml:"max_age"`
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *CORSConfig) Ensure() *CORSConfig {
 	if c == nil {
 		c = new(CORSConfig)
@@ -68,14 +70,15 @@ func (c *CORSConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
+
 	if !c.AllowCredentials {
 		return nil
 	}
-	for _, o := range c.AllowedOrigins {
-		if o == "*" {
-			return errors.New("http: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
-		}
+
+	if slices.Contains(c.AllowedOrigins, "*") {
+		return errors.New("http: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
 	}
+
 	return nil
 }
 
@@ -86,9 +89,11 @@ func (c *CORSConfig) Validate() error {
 // whitelist.
 func CORSMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 	denyAll := (&CORSConfig{}).Ensure()
+
 	return NewCORSMiddleware(denyAll)(next)
 }
 
+// NewCORSMiddleware creates a new CORSMiddleware.
 func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 	cfg = cfg.Ensure()
 
@@ -99,8 +104,10 @@ func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 			wildcard = true
 			continue
 		}
+
 		allowed[o] = struct{}{}
 	}
+
 	// Fail closed: a wildcard origin must never be combined with
 	// credentials (browsers reject it and it leaks authenticated
 	// responses). Drop the wildcard instead of emitting the illegal
@@ -123,6 +130,7 @@ func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 					h.Set("Access-Control-Allow-Origin", "*")
 					h.Set("Vary", "Origin")
 				}
+
 				// Untrusted origin: passthrough without ACAO so the
 				// browser blocks the read. Never reflect + credential.
 				if r.Method == http.MethodOptions {

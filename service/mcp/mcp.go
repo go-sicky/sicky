@@ -41,7 +41,8 @@ import (
 	"github.com/go-sicky/sicky/tracer"
 )
 
-type Mcp struct {
+// MCP is an MCP service.
+type MCP struct {
 	config  *Config
 	ctx     context.Context
 	options *service.Options
@@ -55,11 +56,12 @@ type Mcp struct {
 	mcpServer  *MCPServer
 }
 
-func New(opts *service.Options, cfg *Config) *Mcp {
+// New creates a new instance (nil on invalid config).
+func New(opts *service.Options, cfg *Config) *MCP {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	svc := &Mcp{
+	svc := &MCP{
 		config:  cfg,
 		ctx:     opts.Context,
 		options: opts,
@@ -94,19 +96,23 @@ func New(opts *service.Options, cfg *Config) *Mcp {
 	return svc
 }
 
-func (s *Mcp) Context() context.Context {
+// Context returns the component context.
+func (s *MCP) Context() context.Context {
 	return s.ctx
 }
 
-func (s *Mcp) Options() *service.Options {
+// Options returns the runtime options.
+func (s *MCP) Options() *service.Options {
 	return s.options
 }
 
-func (s *Mcp) String() string {
+// String returns a human-readable name.
+func (s *MCP) String() string {
 	return "mcp"
 }
 
-func (s *Mcp) Start() []error {
+// Start starts the component.
+func (s *MCP) Start() []error {
 	var (
 		err  error
 		errs []error
@@ -145,7 +151,8 @@ func (s *Mcp) Start() []error {
 	return errs
 }
 
-func (s *Mcp) Stop() []error {
+// Stop stops the component and releases resources.
+func (s *MCP) Stop() []error {
 	var (
 		err  error
 		errs []error
@@ -184,7 +191,8 @@ func (s *Mcp) Stop() []error {
 	return errs
 }
 
-func (s *Mcp) Servers(srvs ...server.Server) []server.Server {
+// Servers returns the managed servers.
+func (s *MCP) Servers(srvs ...server.Server) []server.Server {
 	if len(srvs) > 0 {
 		s.servers = append(s.servers, srvs...)
 	}
@@ -192,7 +200,8 @@ func (s *Mcp) Servers(srvs ...server.Server) []server.Server {
 	return s.servers
 }
 
-func (s *Mcp) Brokers(brks ...broker.Broker) []broker.Broker {
+// Brokers returns a copy of the broker registry.
+func (s *MCP) Brokers(brks ...broker.Broker) []broker.Broker {
 	if len(brks) > 0 {
 		s.brokers = append(s.brokers, brks...)
 	}
@@ -200,7 +209,8 @@ func (s *Mcp) Brokers(brks ...broker.Broker) []broker.Broker {
 	return s.brokers
 }
 
-func (s *Mcp) Jobs(jobs ...job.Job) []job.Job {
+// Jobs returns a copy of the job registry.
+func (s *MCP) Jobs(jobs ...job.Job) []job.Job {
 	if !s.config.DisableJobs && len(jobs) > 0 {
 		s.jobs = append(s.jobs, jobs...)
 	}
@@ -208,7 +218,8 @@ func (s *Mcp) Jobs(jobs ...job.Job) []job.Job {
 	return s.jobs
 }
 
-func (s *Mcp) Registries(rgs ...registry.Registry) []registry.Registry {
+// Registries returns the managed registries.
+func (s *MCP) Registries(rgs ...registry.Registry) []registry.Registry {
 	if !s.config.DisableServerRegister && len(rgs) > 0 {
 		s.registries = append(s.registries, rgs...)
 	}
@@ -216,7 +227,8 @@ func (s *Mcp) Registries(rgs ...registry.Registry) []registry.Registry {
 	return s.registries
 }
 
-func (s *Mcp) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
+// Tracers returns the managed tracers.
+func (s *MCP) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)
 	}
@@ -224,7 +236,8 @@ func (s *Mcp) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 	return s.tracers
 }
 
-func (s *Mcp) Handle(hdls ...Handler) {
+// Handle registers handlers.
+func (s *MCP) Handle(hdls ...Handler) {
 	s.handlers = append(s.handlers, hdls...)
 	s.mcpServer.Handle(hdls...)
 
@@ -236,13 +249,18 @@ func (s *Mcp) Handle(hdls ...Handler) {
 	)
 }
 
-func (s *Mcp) MCPServer() *MCPServer {
+// MCPServer returns the underlying MCP server.
+func (s *MCP) MCPServer() *MCPServer {
 	return s.mcpServer
 }
 
-func (s *Mcp) Handlers() []Handler {
+// Handlers returns the registered handlers.
+func (s *MCP) Handlers() []Handler {
 	return s.handlers
 }
+
+// Deprecated: use MCP.
+type Mcp = MCP
 
 /*
  * Local variables:

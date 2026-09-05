@@ -33,18 +33,24 @@ package server
 import (
 	"time"
 
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
+// SessionType is a server component.
 type SessionType int
 
 const (
+	// SessionTCP is a server constant.
 	SessionTCP SessionType = iota
+	// SessionUDP is a server constant.
 	SessionUDP
+	// SessionWebsocket is a server constant.
 	SessionWebsocket
 )
 
+// SessionBase is a server component.
 type SessionBase struct {
 	ID         uuid.UUID
 	LastActive time.Time

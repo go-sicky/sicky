@@ -31,17 +31,21 @@
 package udp
 
 const (
+	// DefaultService is a udp constant.
 	DefaultService = "sicky"
 )
 
+// Config is a udp component.
 type Config struct {
-	Addr string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Addr string `json:"addr" mapstructure:"addr" yaml:"addr"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

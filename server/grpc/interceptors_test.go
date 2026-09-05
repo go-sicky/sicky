@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-sicky/sicky/metrics"
-	sickytracer "github.com/go-sicky/sicky/tracer"
 	dto "github.com/prometheus/client_model/go"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/go-sicky/sicky/metrics"
+	sickytracer "github.com/go-sicky/sicky/tracer"
 )
 
 type stubServerStream struct {
@@ -21,8 +22,9 @@ type stubServerStream struct {
 func (s *stubServerStream) Context() context.Context { return s.ctx }
 
 func counterValue(c interface {
-	Write(*dto.Metric) error
-}) float64 {
+	Write(metric *dto.Metric) error
+},
+) float64 {
 	m := &dto.Metric{}
 	if err := c.Write(m); err != nil {
 		panic(err)
@@ -50,8 +52,10 @@ func TestUnaryTracingExtractsW3C(t *testing.T) {
 		if v == "" {
 			continue
 		}
+
 		pairs = append(pairs, k, v)
 	}
+
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(pairs...))
 
 	iv := NewTracingInterceptor(TracerConfig{Tracer: tr})
@@ -63,15 +67,18 @@ func TestUnaryTracingExtractsW3C(t *testing.T) {
 			if !ok {
 				t.Fatalf("handler ctx must carry incoming metadata")
 			}
+
 			// New span values must shadow client-supplied ones and
 			// W3C traceparent must be re-injected downstream.
 			if vals := md.Get("traceparent"); len(vals) == 0 || vals[0] == "" {
 				t.Fatalf("downstream metadata must carry traceparent, md=%v", md)
 			}
+
 			// Child span must continue the upstream trace.
 			if vals := md.Get("x-b3-traceid"); len(vals) == 0 || vals[0] != upTraceID {
 				t.Fatalf("trace not continued: x-b3-traceid=%v want %v", vals, upTraceID)
 			}
+
 			return nil, nil
 		})
 	if err != nil || !called {
@@ -86,6 +93,7 @@ func TestServerStreamNilTracerPassesThrough(t *testing.T) {
 		&grpc.StreamServerInfo{FullMethod: "/svc/Method"},
 		func(srv any, ss grpc.ServerStream) error {
 			called = true
+
 			return nil
 		})
 	if err != nil || !called {

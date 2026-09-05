@@ -37,24 +37,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// RedisConfig is a infra component.
 type RedisConfig struct {
-	Addr     string `json:"addr" yaml:"addr" mapstructure:"addr"`
-	Username string `json:"username" yaml:"username" mapstructure:"username"`
-	Password string `json:"password" yaml:"password" mapstructure:"password"`
-	DB       int    `json:"db" yaml:"db" mapstructure:"db"`
+	Addr     string `json:"addr"     mapstructure:"addr"     yaml:"addr"`
+	Username string `json:"username" mapstructure:"username" yaml:"username"`
+	Password string `json:"password" mapstructure:"password" yaml:"password"`
+	DB       int    `json:"db"       mapstructure:"db"       yaml:"db"`
 	// EnableTLS wraps the connection in TLS 1.2+. TLSSkipVerify disables
 	// certificate verification: development only, never in production.
-	EnableTLS       bool `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
-	TLSSkipVerify   bool `json:"tls_skip_verify" yaml:"tls_skip_verify" mapstructure:"tls_skip_verify"`
-	DialTimeoutSec  int  `json:"dial_timeout_sec" yaml:"dial_timeout_sec" mapstructure:"dial_timeout_sec"`
-	ReadTimeoutSec  int  `json:"read_timeout_sec" yaml:"read_timeout_sec" mapstructure:"read_timeout_sec"`
-	WriteTimeoutSec int  `json:"write_timeout_sec" yaml:"write_timeout_sec" mapstructure:"write_timeout_sec"`
-	PoolSize        int  `json:"pool_size" yaml:"pool_size" mapstructure:"pool_size"`
-	MinIdleConns    int  `json:"min_idle_conns" yaml:"min_idle_conns" mapstructure:"min_idle_conns"`
+	EnableTLS       bool `json:"enable_tls"        mapstructure:"enable_tls"        yaml:"enable_tls"`
+	TLSSkipVerify   bool `json:"tls_skip_verify"   mapstructure:"tls_skip_verify"   yaml:"tls_skip_verify"`
+	DialTimeoutSec  int  `json:"dial_timeout_sec"  mapstructure:"dial_timeout_sec"  yaml:"dial_timeout_sec"`
+	ReadTimeoutSec  int  `json:"read_timeout_sec"  mapstructure:"read_timeout_sec"  yaml:"read_timeout_sec"`
+	WriteTimeoutSec int  `json:"write_timeout_sec" mapstructure:"write_timeout_sec" yaml:"write_timeout_sec"`
+	PoolSize        int  `json:"pool_size"         mapstructure:"pool_size"         yaml:"pool_size"`
+	MinIdleConns    int  `json:"min_idle_conns"    mapstructure:"min_idle_conns"    yaml:"min_idle_conns"`
 }
 
 // ErrRedisAddrEmpty / ErrRedisDBNegative / ErrRedisTimeoutInvalid abort
@@ -66,8 +68,10 @@ var (
 	ErrRedisIdleExceedsPool = errors.New("infra: redis min_idle_conns exceeds pool_size")
 )
 
+// Redis is a shared infra value.
 var Redis *redis.Client
 
+// InitRedis is part of the public API.
 func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	if cfg == nil {
 		return nil, nil
@@ -96,9 +100,11 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	})
 	if cfg.EnableTLS {
 		rdb.Options().TLSConfig = &tls.Config{
-			MinVersion:         tls.VersionTLS12,
+			MinVersion: tls.VersionTLS12,
+			//nolint:gosec // G402: explicit opt-in TLSSkipVerify flag for test envs; Warn logged below
 			InsecureSkipVerify: cfg.TLSSkipVerify,
 		}
+
 		if cfg.TLSSkipVerify {
 			logger.Logger.Warn("Redis TLS certificate verification disabled; use only for testing")
 		}
@@ -152,6 +158,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 
 		return Redis, nil
 	}
+
 	Redis = rdb
 
 	return rdb, nil
@@ -164,6 +171,7 @@ const (
 	DefaultRedisWriteTimeoutSec = 3
 )
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *RedisConfig) Ensure() *RedisConfig {
 	if c == nil {
 		c = new(RedisConfig)
@@ -186,6 +194,7 @@ func (c *RedisConfig) Ensure() *RedisConfig {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *RedisConfig) Validate() error {
 	if c == nil {
 		return nil

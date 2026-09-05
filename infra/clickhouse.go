@@ -36,22 +36,40 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/uptrace/go-clickhouse/ch"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
-type ClickhouseConfig struct {
-	DSN string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
+// ClickHouseConfig holds ClickHouse connection settings.
+type ClickHouseConfig struct {
+	DSN string `json:"dsn" mapstructure:"dsn" yaml:"dsn"`
 }
 
-// ErrClickhouseDSNEmpty aborts startup: a non-nil ClickhouseConfig means
+// ErrClickHouseDSNEmpty aborts startup: a non-nil ClickHouseConfig means
 // "enable clickhouse", and an empty DSN would otherwise fail late after a
 // 5s ping timeout.
-var ErrClickhouseDSNEmpty = errors.New("infra: clickhouse dsn is empty")
+var ErrClickHouseDSNEmpty = errors.New("infra: clickhouse dsn is empty")
 
+// Deprecated: use ErrClickHouseDSNEmpty.
+var ErrClickhouseDSNEmpty = ErrClickHouseDSNEmpty
+
+// Deprecated: use ClickHouseConfig.
+type ClickhouseConfig = ClickHouseConfig
+
+// Deprecated: use InitClickHouse.
+func InitClickhouse(cfg *ClickHouseConfig) (*ch.DB, error) {
+	return InitClickHouse(cfg)
+}
+
+// ClickHouse is the shared singleton.
+var ClickHouse *ch.DB
+
+// Deprecated: use ClickHouse. Kept in sync by InitClickHouse/ClearClickHouse.
 var Clickhouse *ch.DB
 
-func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
+// InitClickHouse connects and stores the shared singleton (first-wins, nil cfg disables).
+func InitClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 	if cfg == nil {
 		return nil, nil
 	}
@@ -97,7 +115,7 @@ func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if Clickhouse != nil {
+	if ClickHouse != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
 		logger.Logger.Warn("Clickhouse already initialized, closing duplicate connection")
@@ -108,28 +126,32 @@ func InitClickhouse(cfg *ClickhouseConfig) (*ch.DB, error) {
 			)
 		}
 
-		return Clickhouse, nil
+		return ClickHouse, nil
 	}
+
+	ClickHouse = db
 	Clickhouse = db
 
 	return db, nil
 }
 
-func (c *ClickhouseConfig) Ensure() *ClickhouseConfig {
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
+func (c *ClickHouseConfig) Ensure() *ClickHouseConfig {
 	if c == nil {
-		c = new(ClickhouseConfig)
+		c = new(ClickHouseConfig)
 	}
 
 	return c
 }
 
-func (c *ClickhouseConfig) Validate() error {
+// Validate rejects half-configured or illegal values.
+func (c *ClickHouseConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
 
 	if strings.TrimSpace(c.DSN) == "" {
-		return ErrClickhouseDSNEmpty
+		return ErrClickHouseDSNEmpty
 	}
 
 	return nil

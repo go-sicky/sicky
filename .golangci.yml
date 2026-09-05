@@ -1,0 +1,185 @@
+# go-sicky strict quality gate (2026-09-06).
+# Policy: maximum strictness on code QUALITY itself; giant functions deliberately
+# retained (no funlen/cyclop/gocognit/gocyclo/maintidx/nestif), deadcode baseline
+# grandfathered in docs/deadcode-report.md.
+# Run: golangci-lint run ./...  |  go vet ./...  |  gofmt -l .
+version: "2"
+linters:
+  enable:
+    # baseline correctness
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    # style / bug-prone
+    - revive
+    - gocritic
+    - misspell
+    - dupword
+    - unconvert
+    - unparam
+    - predeclared
+    - wastedassign
+    - copyloopvar
+    - intrange
+    - modernize
+    - perfsprint
+    - usestdlibvars
+    - mirror
+    - canonicalheader
+    # resource / correctness
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - durationcheck
+    - prealloc
+    # error handling (wrapcheck deliberately OFF: project convention is bare
+    # returns + errors.Join at the sicky.go orchestration layer; per-site
+    # wrapping would churn 90+ error strings for little debug value)
+    - errorlint
+    - errname
+    - nilerr
+    - nilnil
+    # security
+    - gosec
+    # duplication
+    - goconst
+    - dupl
+    # struct tags (tagliatelle deliberately OFF: tag case is dictated by
+    # external protocols — gRPC service-config + MCP/JSON-RPC require camelCase;
+    # enforcing snake_case would break interop)
+    - tagalign
+    # comments / hygiene
+    - godot
+    - whitespace
+    - nolintlint
+    - godox
+    - asciicheck
+    - bidichk
+    # test quality (run on _test.go deliberately)
+    - testifylint
+    - thelper
+    - tparallel
+    # observability / domain (otel + slog; promlinter deliberately OFF:
+    # counter names without _total suffix are frozen observability API —
+    # renaming would break deployed dashboards/alerts)
+    - spancheck
+    - loggercheck
+    # misc strict
+    - exhaustive
+    - nakedret
+    - reassign
+    - inamedparam
+    - makezero
+    - usetesting
+    - gocheckcompilerdirectives
+    - gomoddirectives
+  exclusions:
+    rules:
+      # P0: deprecated mdns package (100% commented, kept deliberately) — mute all
+      - path: registry/mdns/.*\.go
+        text: .*
+      # P0/P2: deliberately-kept placeholders & deprecated shims
+      - path: server/grpc/metadata\.go
+        linters: [unused, staticcheck, revive, gocritic]
+      - path: (logger/fiber\.go|tracer/fiber\.go)
+        linters: [unused, staticcheck, revive, gocritic]
+      - path: server/http/cors\.go
+        linters: [unused, staticcheck, revive, gocritic]
+      # P2: reserved extension point (incl. unused extraJobs var)
+      - path: cli/generate_extra\.go
+        linters: [unused, staticcheck, revive, goconst]
+      # P2: empty Config placeholders + Deprecated compat aliases
+      - text: '(U1000|SA1019)'
+        linters: [unused, staticcheck, revive]
+      # P1 defense-in-depth: infra Init* returns (nil, nil) when disabled —
+      # callers check the value, never the error; sentinel-error style N/A
+      - path: infra/.*\.go
+        linters: [nilnil]
+      # tests: relieve test-idiom noise, keep functional linters on
+      - path: .*_test\.go
+        linters: [dupl, goconst, lll, godot, exhaustive, funlen, gocognit, errcheck, gosec, nilnil, unparam]
+      # deliberate go.mod replace (armon/go-metrics -> hashicorp fork)
+      - path: go\.mod
+        linters: [gomoddirectives]
+      # grandfathered config-default boilerplate mirrors (fiber/http stacks)
+      - path: (server/fiber/(metadata|propagation)\.go|server/http/(metadata|propagation)\.go)
+        linters: [dupl]
+      - path: cli/generate\.go
+        linters: [dupl]
+      # MCP dispatch handlers mirror by protocol design (tools/resources/prompts
+      # triplets); service/mcp has no test coverage to guard a generic refactor
+      - path: service/mcp/server\.go
+        linters: [dupl]
+      # SA1029: context keys are user-configurable string Config fields
+      # (RequestID/TraceID/SpanID...ContextKey) by design, not collisions
+      - path: server/http/.*\.go
+        text: SA1029
+        linters: [staticcheck]
+      # scaffold UX strings churn often; const extraction adds little there
+      - path: cli/.*\.go
+        linters: [goconst]
+      # Scaffold output must stay world-readable (generated source trees and
+      # starter configs); 0600/0700 would break `go build` for other users.
+      # Runtime secret-bearing paths (registry/local) already use 0700.
+      # All scaffold paths come from the invoking operator's explicit args,
+      # so G304/G703 taint findings are operator-input by design.
+      - path: cli/.*\.go
+        text: 'G(30[126]|304|703)'
+        linters: [gosec]
+      # scaffold stubs fail loudly by design
+      - path: cli/template/.*\.gotmpl
+        text: 'not implemented'
+        linters: [gosec, revive, gocritic]
+    paths:
+      - .*\.gotmpl
+  settings:
+    staticcheck:
+      # ST1020/21/22 (comment-first-word style) excluded: doc style predates
+      # the gate; 40 mechanical comment rewords add noise, not quality
+      checks: ["all", "-ST1000", "-ST1003", "-ST1020", "-ST1021", "-ST1022"]
+    gocritic:
+      enabled-tags: [diagnostic, performance, style]
+      # exposedSyncMutex: embedding RWMutex in public server/pool structs is the
+      # project-wide pattern (API break to change); importShadow: `job` locals
+      # inside job/* impls shadow the parent package by long-standing convention
+      disabled-checks: [exposedSyncMutex, importShadow]
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # memory-layout opt-in, too noisy as gate
+        - shadow # legacy codebase, opt-in later
+    errcheck:
+      # check-blank:false keeps the gate strict on naked unchecked errors while
+      # allowing explicit `_ = f()` acknowledgment in cleanup paths
+      check-blank: false
+      check-type-assertions: true
+    revive:
+      confidence: 0.8
+      enable-all-rules: false
+    misspell:
+      locale: US
+    godot:
+      scope: declarations
+      period: true
+    lll:
+      line-length: 140
+      tab-width: 4
+    dupl:
+      threshold: 150
+    goconst:
+      min-occurrences: 3
+    gosec: {}
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/go-sicky/sicky
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

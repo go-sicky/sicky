@@ -33,10 +33,12 @@ package job
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// Options is a job component.
 type Options struct {
 	Name   string
 	ID     uuid.UUID
@@ -45,6 +47,7 @@ type Options struct {
 	Context context.Context
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (o *Options) Ensure() *Options {
 	if o == nil {
 		o = new(Options)

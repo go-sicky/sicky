@@ -33,13 +33,15 @@ package client
 import (
 	"context"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// ClientWrapper is a client component.
 type ClientWrapper func() error
 
-// Options of client
+// Options of client.
 type Options struct {
 	Name   string
 	ID     uuid.UUID
@@ -53,6 +55,7 @@ type Options struct {
 	afterClose    []ClientWrapper
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (o *Options) Ensure() *Options {
 	if o == nil {
 		o = new(Options)
@@ -93,7 +96,7 @@ func (o *Options) Ensure() *Options {
 	return o
 }
 
-/* {{{ [Wrappers] */
+/* {{{ [Wrappers]. */
 func (o *Options) BeforeConnect(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.beforeConnect = append(o.beforeConnect, wrappers...)
@@ -102,6 +105,7 @@ func (o *Options) BeforeConnect(wrappers ...ClientWrapper) *Options {
 	return o
 }
 
+// AfterConnect is part of the public API.
 func (o *Options) AfterConnect(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.afterConnect = append(o.afterConnect, wrappers...)
@@ -110,6 +114,7 @@ func (o *Options) AfterConnect(wrappers ...ClientWrapper) *Options {
 	return o
 }
 
+// BeforeClose is part of the public API.
 func (o *Options) BeforeClose(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.beforeClose = append(o.beforeClose, wrappers...)
@@ -118,6 +123,7 @@ func (o *Options) BeforeClose(wrappers ...ClientWrapper) *Options {
 	return o
 }
 
+// AfterClose is part of the public API.
 func (o *Options) AfterClose(wrappers ...ClientWrapper) *Options {
 	if o != nil {
 		o.afterClose = append(o.afterClose, wrappers...)

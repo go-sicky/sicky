@@ -32,19 +32,23 @@ package service
 
 const (
 	// Default configuration values
+	// DefaultEnableManager is a service constant.
 	DefaultEnableManager = true
 )
 
+// Config is a service component.
 type Config struct {
-	EnableManager bool `json:"enable_manager" yaml:"enable_manager" mapstructure:"enable_manager"` // Enable or disable the manager service
+	EnableManager bool `json:"enable_manager" mapstructure:"enable_manager" yaml:"enable_manager"` // Enable or disable the manager service
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		EnableManager: DefaultEnableManager,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

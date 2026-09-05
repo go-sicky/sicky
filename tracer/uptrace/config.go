@@ -31,20 +31,25 @@
 package uptrace
 
 const (
-	DefaultServiceName    = "sicky"
+	// DefaultServiceName is a uptrace constant.
+	DefaultServiceName = "sicky"
+	// DefaultServiceVersion is a uptrace constant.
 	DefaultServiceVersion = "latest"
-	DefaultSampleRate     = 1.0
+	// DefaultSampleRate is a uptrace constant.
+	DefaultSampleRate = 1.0
 )
 
+// Config is a uptrace component.
 type Config struct {
-	DSN            string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
-	ServiceName    string `json:"service_name" yaml:"service_name" mapstructure:"service_name"`
-	ServiceVersion string `json:"service_version" yaml:"service_version" mapstructure:"service_version"`
+	DSN            string `json:"dsn"             mapstructure:"dsn"             yaml:"dsn"`
+	ServiceName    string `json:"service_name"    mapstructure:"service_name"    yaml:"service_name"`
+	ServiceVersion string `json:"service_version" mapstructure:"service_version" yaml:"service_version"`
 	// SampleRate is deprecated: sampling is controlled server-side by
 	// Uptrace. Kept for config compatibility; New() warns and ignores it.
-	SampleRate float64 `json:"sample_rate" yaml:"sample_rate" mapstructure:"sample_rate"`
+	SampleRate float64 `json:"sample_rate" mapstructure:"sample_rate" yaml:"sample_rate"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		ServiceName:    DefaultServiceName,
@@ -53,6 +58,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

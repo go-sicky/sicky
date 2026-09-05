@@ -42,6 +42,7 @@ func newNsqLogger(g logger.GeneralLogger) *nsqLogger {
 	}
 }
 
+// Output is part of the public API.
 func (l *nsqLogger) Output(calldepth int, s string) error {
 	l.general.Debug(
 		"Nsq logging",

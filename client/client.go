@@ -32,12 +32,13 @@ package client
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
-// Client : service callee
+// Client : service callee.
 type Client interface {
 	// Get context
 	Context() context.Context
@@ -63,6 +64,7 @@ var (
 	cltMu         sync.RWMutex
 )
 
+// Set registers client instances; the first one becomes the default.
 func Set(clts ...Client) {
 	cltMu.Lock()
 	defer cltMu.Unlock()
@@ -75,6 +77,7 @@ func Set(clts ...Client) {
 	}
 }
 
+// Get looks up a client instance by ID.
 func Get(id uuid.UUID) Client {
 	cltMu.RLock()
 	defer cltMu.RUnlock()
@@ -82,6 +85,7 @@ func Get(id uuid.UUID) Client {
 	return clients[id]
 }
 
+// Default returns the default client instance.
 func Default() Client {
 	cltMu.RLock()
 	defer cltMu.RUnlock()
@@ -89,14 +93,13 @@ func Default() Client {
 	return defaultClient
 }
 
+// Clients returns a copy of the client registry.
 func Clients() map[uuid.UUID]Client {
 	cltMu.RLock()
 	defer cltMu.RUnlock()
 
 	out := make(map[uuid.UUID]Client, len(clients))
-	for id, clt := range clients {
-		out[id] = clt
-	}
+	maps.Copy(out, clients)
 
 	return out
 }

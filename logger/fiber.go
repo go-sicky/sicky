@@ -34,10 +34,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-sicky/sicky/metrics"
 	"github.com/gofiber/fiber/v2"
+
+	"github.com/go-sicky/sicky/metrics"
 )
 
+// FiberMiddlewareConfig is a logger component.
 type FiberMiddlewareConfig struct {
 	Next                   func(c *fiber.Ctx) bool
 	RequestIDContextKey    string
@@ -52,6 +54,7 @@ type FiberMiddlewareConfig struct {
 	Logger           GeneralLogger
 }
 
+// FiberMiddlewareConfigDefault is a shared logger value.
 var FiberMiddlewareConfigDefault = &FiberMiddlewareConfig{
 	Next:                   nil,
 	RequestIDContextKey:    "requestid",

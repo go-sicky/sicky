@@ -33,19 +33,24 @@ package nats
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"sync"
 
-	"github.com/go-sicky/sicky/broker"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
+
+	"github.com/go-sicky/sicky/broker"
 )
 
 var (
-	ErrBrokerNotConnected     = errors.New("broker not connected")
+	// ErrBrokerNotConnected is a shared nats value.
+	ErrBrokerNotConnected = errors.New("broker not connected")
+	// ErrTopicAlreadySubscribed is a shared nats value.
 	ErrTopicAlreadySubscribed = errors.New("topic already subscribed")
 )
 
+// Nats is a nats component.
 type Nats struct {
 	config  *Config
 	ctx     context.Context
@@ -57,9 +62,20 @@ type Nats struct {
 	handlers      map[string]broker.Handler
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *broker.Options, cfg *Config) *Nats {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
+
+	if err := cfg.Validate(); err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Nats broker config invalid",
+			"error", err.Error(),
+		)
+
+		return nil
+	}
 
 	brk := &Nats{
 		config:        cfg,
@@ -82,26 +98,32 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 	return brk
 }
 
+// Context returns the component context.
 func (brk *Nats) Context() context.Context {
 	return brk.ctx
 }
 
+// Options returns the runtime options.
 func (brk *Nats) Options() *broker.Options {
 	return brk.options
 }
 
+// String returns a human-readable name.
 func (brk *Nats) String() string {
 	return "nats"
 }
 
+// ID returns the unique instance ID.
 func (brk *Nats) ID() uuid.UUID {
 	return brk.options.ID
 }
 
+// Name returns the component name.
 func (brk *Nats) Name() string {
 	return brk.options.Name
 }
 
+// Connect connects to the backend.
 func (brk *Nats) Connect() error {
 	nc, err := nats.Connect(
 		brk.config.URL,
@@ -116,7 +138,7 @@ func (brk *Nats) Connect() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nats broker connect (url %s): %w", brk.config.URL, err)
 	}
 
 	brk.options.Logger.InfoContext(
@@ -149,10 +171,15 @@ func (brk *Nats) Connect() error {
 	return nil
 }
 
+// Disconnect disconnects from the backend.
 func (brk *Nats) Disconnect() error {
+	var unsubErr error
+
 	if brk.conn != nil && !brk.conn.IsClosed() {
 		for topic := range brk.handlers {
-			brk.Unsubscribe(topic)
+			if err := brk.Unsubscribe(topic); err != nil {
+				unsubErr = errors.Join(unsubErr, fmt.Errorf("nats broker unsubscribe (topic %s): %w", topic, err))
+			}
 		}
 
 		brk.conn.Close()
@@ -167,9 +194,10 @@ func (brk *Nats) Disconnect() error {
 		)
 	}
 
-	return nil
+	return unsubErr
 }
 
+// Publish publishes a message.
 func (brk *Nats) Publish(topic string, m *broker.Message) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return ErrBrokerNotConnected
@@ -197,7 +225,7 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nats broker publish (topic %s): %w", topic, err)
 	}
 
 	brk.options.Logger.DebugContext(
@@ -212,6 +240,7 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 	return nil
 }
 
+// Subscribe subscribes a handler.
 func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return ErrBrokerNotConnected
@@ -264,7 +293,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nats broker subscribe (topic %s): %w", topic, err)
 	}
 
 	brk.options.Logger.DebugContext(
@@ -283,18 +312,23 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	return nil
 }
 
+// Unsubscribe removes a subscription.
 func (brk *Nats) Unsubscribe(topic string) error {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	sub := brk.subscriptions[topic]
 	if sub != nil {
-		sub.Unsubscribe()
+		if err := sub.Unsubscribe(); err != nil {
+			return fmt.Errorf("nats broker unsubscribe (topic %s): %w", topic, err)
+		}
+
 		delete(brk.subscriptions, topic)
 	}
 
 	return nil
 }
 
+// Handle registers handlers.
 func (brk *Nats) Handle(hdls ...Handler) {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
@@ -302,6 +336,7 @@ func (brk *Nats) Handle(hdls ...Handler) {
 		if hdl == nil {
 			continue
 		}
+
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
@@ -315,7 +350,7 @@ func (brk *Nats) Handle(hdls ...Handler) {
 	}
 }
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string

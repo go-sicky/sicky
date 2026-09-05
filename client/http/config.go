@@ -31,15 +31,19 @@
 package http
 
 const (
+	// DefaultNetwork is a http constant.
 	DefaultNetwork = "tcp"
-	DefaultAddr    = "127.0.0.1:9990"
+	// DefaultAddr is a http constant.
+	DefaultAddr = "127.0.0.1:9990"
 )
 
+// Config is a http component.
 type Config struct {
-	Network string `json:"network" yaml:"network" mapstructure:"network"`
-	Addr    string `json:"addr" yaml:"addr" mapstructure:"addr"`
+	Network string `json:"network" mapstructure:"network" yaml:"network"`
+	Addr    string `json:"addr"    mapstructure:"addr"    yaml:"addr"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Network: DefaultNetwork,
@@ -47,6 +51,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

@@ -37,20 +37,24 @@ import (
 )
 
 const (
+	// CodeOK is a utils constant.
 	CodeOK = 0
-	MsgOK  = "OK"
+	// MsgOK is a utils constant.
+	MsgOK = "OK"
 )
 
+// Envelope is a utils component.
 type Envelope struct {
-	Code       int         `json:"code" yaml:"code" xml:"code"`
-	Status     int         `json:"status" yaml:"status" xml:"status"`
-	Timestamp  time.Time   `json:"timestamp" yaml:"timestamp" xml:"timestamp"`
-	Message    string      `json:"message" yaml:"message" xml:"message"`
-	RequestID  string      `json:"request_id,omitempty" yaml:"request_id,omitempty" xml:"request_id,omitempty"`
-	Pagination *Pagination `json:"pagination,omitempty" yaml:"pagination,omitempty" xml:"pagination,omitempty"`
-	Data       any         `json:"data,omitempty" yaml:"data,omitempty" xml:"data,omitempty"`
+	Code       int         `json:"code"                 xml:"code"                 yaml:"code"`
+	Status     int         `json:"status"               xml:"status"               yaml:"status"`
+	Timestamp  time.Time   `json:"timestamp"            xml:"timestamp"            yaml:"timestamp"`
+	Message    string      `json:"message"              xml:"message"              yaml:"message"`
+	RequestID  string      `json:"request_id,omitempty" xml:"request_id,omitempty" yaml:"request_id,omitempty"`
+	Pagination *Pagination `json:"pagination,omitempty" xml:"pagination,omitempty" yaml:"pagination,omitempty"`
+	Data       any         `json:"data,omitempty"       xml:"data,omitempty"       yaml:"data,omitempty"`
 }
 
+// WrapHTTPResponse wraps data in a response envelope.
 func WrapHTTPResponse(data any) *Envelope {
 	e := &Envelope{
 		Code:      CodeOK,
@@ -63,42 +67,48 @@ func WrapHTTPResponse(data any) *Envelope {
 	return e
 }
 
+// SetCode sets the response code.
 func (e *Envelope) SetCode(code int) *Envelope {
 	e.Code = code
 
 	return e
 }
 
+// SetStatus sets the HTTP status.
 func (e *Envelope) SetStatus(status int) *Envelope {
 	e.Status = status
 
 	return e
 }
 
+// SetMessage sets the response message.
 func (e *Envelope) SetMessage(msg string) *Envelope {
 	e.Message = msg
 
 	return e
 }
 
+// SetRequestID sets the request ID.
 func (e *Envelope) SetRequestID(requestID string) *Envelope {
 	e.RequestID = requestID
 
 	return e
 }
 
+// SetData sets the response payload.
 func (e *Envelope) SetData(data any) *Envelope {
 	e.Data = data
 
 	return e
 }
 
+// Pagination is a utils component.
 type Pagination struct {
-	Total   int64 `json:"total" yaml:"total" xml:"total"`
-	Limit   int64 `json:"limit" yaml:"limit" xml:"limit"`
-	Offset  int64 `json:"offset" yaml:"offset" xml:"offset"`
-	Current int64 `json:"current" yaml:"current" xml:"current"`
-	Pages   int64 `json:"pages" yaml:"pages" xml:"pages"`
+	Total   int64 `json:"total"   xml:"total"   yaml:"total"`
+	Limit   int64 `json:"limit"   xml:"limit"   yaml:"limit"`
+	Offset  int64 `json:"offset"  xml:"offset"  yaml:"offset"`
+	Current int64 `json:"current" xml:"current" yaml:"current"`
+	Pages   int64 `json:"pages"   xml:"pages"   yaml:"pages"`
 }
 
 /*

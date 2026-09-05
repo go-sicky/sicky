@@ -31,36 +31,44 @@
 package udp
 
 const (
-	DefaultNetwork         = "udp"
-	DefaultAddress         = ":9980"
-	DefaultBufferSize      = 4096
+	// DefaultNetwork is a udp constant.
+	DefaultNetwork = "udp"
+	// DefaultAddress is a udp constant.
+	DefaultAddress = ":9980"
+	// DefaultBufferSize is a udp constant.
+	DefaultBufferSize = 4096
+	// DefaultMaxIdleDuration is a udp constant.
 	DefaultMaxIdleDuration = 60
 
 	// MaxBufferSizeCap bounds the datagram BufferSize so a single
 	// misconfiguration cannot OOM the process at startup.
+	// MaxBufferSizeCap is a udp constant.
 	MaxBufferSizeCap = 1 << 20
 	// MinReapIntervalSeconds floors the idle-session reaper tick.
+	// MinReapIntervalSeconds is a udp constant.
 	MinReapIntervalSeconds = 5
 )
 
+// Config is a udp component.
 type Config struct {
-	Network          string `json:"network" yaml:"network" mapstructure:"network"`
-	Address          string `json:"address" yaml:"address" mapstructure:"address"`
-	AdvertiseAddress string `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
-	BufferSize       int    `json:"buffer_size" yaml:"buffer_size" mapstructure:"buffer_size"`
-	MaxIdleDuration  int    `json:"max_idle_duration" yaml:"max_idle_duration" mapstructure:"max_idle_duration"`
+	Network          string `json:"network"           mapstructure:"network"           yaml:"network"`
+	Address          string `json:"address"           mapstructure:"address"           yaml:"address"`
+	AdvertiseAddress string `json:"advertise_address" mapstructure:"advertise_address" yaml:"advertise_address"`
+	BufferSize       int    `json:"buffer_size"       mapstructure:"buffer_size"       yaml:"buffer_size"`
+	MaxIdleDuration  int    `json:"max_idle_duration" mapstructure:"max_idle_duration" yaml:"max_idle_duration"`
 	// ReadTimeout is the per-read deadline in seconds. 0 disables it.
-	ReadTimeout int `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
+	ReadTimeout int `json:"read_timeout" mapstructure:"read_timeout" yaml:"read_timeout"`
 	// WriteTimeout is the per-write deadline in seconds. 0 disables it.
-	WriteTimeout int `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
+	WriteTimeout int `json:"write_timeout" mapstructure:"write_timeout" yaml:"write_timeout"`
 	// MaxSessions caps tracked sessions (spoofed-source state explosion
 	// guard). 0 means unlimited. New sources beyond the cap are dropped.
-	MaxSessions int `json:"max_sessions" yaml:"max_sessions" mapstructure:"max_sessions"`
+	MaxSessions int `json:"max_sessions" mapstructure:"max_sessions" yaml:"max_sessions"`
 	// MaxPacketsPerSecond caps datagrams per source per second
 	// (reflection/amplification guard). 0 means unlimited.
-	MaxPacketsPerSecond int `json:"max_packets_per_second" yaml:"max_packets_per_second" mapstructure:"max_packets_per_second"`
+	MaxPacketsPerSecond int `json:"max_packets_per_second" mapstructure:"max_packets_per_second" yaml:"max_packets_per_second"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Network:         DefaultNetwork,
@@ -70,6 +78,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

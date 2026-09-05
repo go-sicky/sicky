@@ -37,29 +37,32 @@ import (
 	"os"
 )
 
+// GRPCLogger is a logger component.
 type GRPCLogger interface {
 	// String returns the name of logger
 	String() string
 	// Level set log level
-	Level(Level)
+	Level(level Level)
 
-	Info(...any)
-	Infoln(...any)
-	Infof(string, ...any)
-	Warning(...any)
-	Warningln(...any)
-	Warningf(string, ...any)
-	Error(...any)
-	Errorln(...any)
-	Errorf(string, ...any)
-	Fatal(...any)
-	Fatalln(...any)
-	Fatalf(string, ...any)
-	V(int) bool
+	Info(args ...any)
+	Infoln(args ...any)
+	Infof(msg string, args ...any)
+	Warning(args ...any)
+	Warningln(args ...any)
+	Warningf(msg string, args ...any)
+	Error(args ...any)
+	Errorln(args ...any)
+	Errorf(msg string, args ...any)
+	Fatal(args ...any)
+	Fatalln(args ...any)
+	Fatalf(msg string, args ...any)
+	V(level int) bool
 }
 
+// DefaultGRPCLogger is a shared logger value.
 var DefaultGRPCLogger = NewGRPC(nil)
 
+// SetDefaultGRPC sets defaultgrpc.
 func SetDefaultGRPC(logger GRPCLogger) {
 	DefaultGRPCLogger = logger
 }
@@ -69,6 +72,7 @@ type grpcLogger struct {
 	level *slog.LevelVar
 }
 
+// NewGRPC creates a new GRPC.
 func NewGRPC(l ...*slog.Logger) GRPCLogger {
 	var ins *slog.Logger
 	level := new(slog.LevelVar)
@@ -88,10 +92,11 @@ func NewGRPC(l ...*slog.Logger) GRPCLogger {
 					Level:     level,
 					ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 						if a.Key == slog.LevelKey {
-							level := a.Value.Any().(slog.Level)
-							levelLabel, exists := AdditionalLabels[level]
-							if exists {
-								a.Value = slog.StringValue(levelLabel)
+							if level, ok := a.Value.Any().(slog.Level); ok {
+								levelLabel, exists := AdditionalLabels[level]
+								if exists {
+									a.Value = slog.StringValue(levelLabel)
+								}
 							}
 						}
 
@@ -110,65 +115,80 @@ func NewGRPC(l ...*slog.Logger) GRPCLogger {
 	return gl
 }
 
+// String returns a human-readable name.
 func (gl *grpcLogger) String() string {
 	return "grpc_logger"
 }
 
+// Level returns the log level.
 func (gl *grpcLogger) Level(level Level) {
 	gl.level.Set(level2slog(level))
 }
 
+// Info logs at info level.
 func (gl *grpcLogger) Info(args ...any) {
 	gl.ins.Info(fmt.Sprint(args...))
 }
 
+// Infoln is part of the public API.
 func (gl *grpcLogger) Infoln(args ...any) {
 	gl.ins.Info(fmt.Sprintln(args...))
 }
 
+// Infof logs at info level.
 func (gl *grpcLogger) Infof(format string, args ...any) {
 	gl.ins.Info(fmt.Sprintf(format, args...))
 }
 
+// Warning is part of the public API.
 func (gl *grpcLogger) Warning(args ...any) {
 	gl.ins.Warn(fmt.Sprint(args...))
 }
 
+// Warningln is part of the public API.
 func (gl *grpcLogger) Warningln(args ...any) {
 	gl.ins.Warn(fmt.Sprintln(args...))
 }
 
+// Warningf is part of the public API.
 func (gl *grpcLogger) Warningf(format string, args ...any) {
 	gl.ins.Warn(fmt.Sprintf(format, args...))
 }
 
+// Error returns the error string.
 func (gl *grpcLogger) Error(args ...any) {
 	gl.ins.Error(fmt.Sprint(args...))
 }
 
+// Errorln is part of the public API.
 func (gl *grpcLogger) Errorln(args ...any) {
 	gl.ins.Error(fmt.Sprintln(args...))
 }
 
+// Errorf logs at error level.
 func (gl *grpcLogger) Errorf(format string, args ...any) {
 	gl.ins.Error(fmt.Sprintf(format, args...))
 }
 
+// Fatal logs at fatal level and exits.
 func (gl *grpcLogger) Fatal(args ...any) {
 	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprint(args...))
 	os.Exit(-1)
 }
 
+// Fatalln is part of the public API.
 func (gl *grpcLogger) Fatalln(args ...any) {
 	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprintln(args...))
 	os.Exit(-1)
 }
 
+// Fatalf logs at fatal level and exits.
 func (gl *grpcLogger) Fatalf(format string, args ...any) {
 	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprintf(format, args...))
 	os.Exit(-1)
 }
 
+// V is part of the public API.
 func (gl *grpcLogger) V(l int) bool {
 	// Always verbose
 	return true

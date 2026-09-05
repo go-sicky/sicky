@@ -35,11 +35,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/runner"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
+// Static is a static component.
 type Static struct {
 	config  *Config
 	ctx     context.Context
@@ -48,11 +50,12 @@ type Static struct {
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 	task    chan *runner.Task
+	done    chan struct{}
 	started bool
 	stopped bool
 }
 
-// New static runner (pool)
+// New static runner (pool).
 func New(opts *runner.Options, cfg *Config) *Static {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -62,6 +65,7 @@ func New(opts *runner.Options, cfg *Config) *Static {
 		ctx:     opts.Context,
 		options: opts,
 		task:    make(chan *runner.Task, opts.BufferSize),
+		done:    make(chan struct{}),
 	}
 
 	r.options.Logger.InfoContext(
@@ -77,40 +81,49 @@ func New(opts *runner.Options, cfg *Config) *Static {
 	return r
 }
 
+// Context returns the component context.
 func (r *Static) Context() context.Context {
 	return r.ctx
 }
 
+// Options returns the runtime options.
 func (r *Static) Options() *runner.Options {
 	return r.options
 }
 
+// String returns a human-readable name.
 func (r *Static) String() string {
 	return "static"
 }
 
+// ID returns the unique instance ID.
 func (r *Static) ID() uuid.UUID {
 	return r.options.ID
 }
 
+// Name returns the component name.
 func (r *Static) Name() string {
 	return r.options.Name
 }
 
+// Start starts the component.
 func (r *Static) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.started {
 		return nil
 	}
+
 	n := r.options.NThreads
 	if n <= 0 {
 		n = 1
 	}
-	for idx := 0; idx < n; idx++ {
+
+	for range n {
 		r.wg.Add(1)
 		go r._worker()
 	}
+
 	r.started = true
 
 	r.options.Logger.InfoContext(
@@ -121,17 +134,23 @@ func (r *Static) Start() error {
 		"name", r.options.Name,
 		"threads", n,
 	)
+
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (r *Static) Stop() error {
 	r.mu.Lock()
 	ch := r.task
-	if !r.stopped && ch != nil {
+	if !r.stopped {
 		r.stopped = true
 		r.task = nil
-		close(ch)
+		close(r.done)
+		if ch != nil {
+			close(ch)
+		}
 	}
+
 	r.mu.Unlock()
 
 	r.wg.Wait()
@@ -147,68 +166,109 @@ func (r *Static) Stop() error {
 	return nil
 }
 
+// Task submits a task (blocks when the queue is full).
+// The queue channel is snapshotted under lock, so a blocked send never
+// holds the mutex: Stop closes the channels and returns promptly instead
+// of waiting behind a full queue. If Stop wins the race the task is
+// dropped (there is no error return to report it — use TryTask when the
+// caller must know). Never call Task from inside the runner Handler
+// itself — with all workers blocked in Handler the queue can never
+// drain (deadlock).
 func (r *Static) Task(t *runner.Task) {
 	if t == nil {
 		return
 	}
-	// Hold the lock across the send: Stop closes the channel under the
-	// same lock, so sending unlocked could panic on a closed channel.
-	// Workers drain the queue without this lock, so a blocked send only
-	// waits for a free slot (and Stop waits behind it) — never deadlocks
-	// on the mutex itself.
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.task == nil || r.stopped || !r.started {
+		r.mu.Unlock()
+
 		return
 	}
+
 	if t.ID == uuid.Nil {
 		t.ID = uuid.New()
 	}
 
-	// Blocking send: back-pressures the caller when the queue is full.
-	// Never call Task from inside the runner Handler itself — with all
-	// workers blocked in Handler the queue can never drain (deadlock).
-	// Use TryTask for a non-blocking or bounded-wait enqueue.
-	r.task <- t
+	ch, done := r.task, r.done
+	r.mu.Unlock()
+
+	// Fast path: already stopping.
+	select {
+	case <-done:
+		return
+	default:
+	}
+
+	// A concurrent Stop closes ch while we send; the recover converts the
+	// resulting panic into a drop (same outcome as losing the race above).
+	defer func() {
+		_ = recover()
+	}()
+
+	select {
+	case ch <- t:
+	case <-done:
+	}
 }
 
 // TryTask enqueues t without indefinite blocking. A non-positive timeout
 // tries once and returns runner.ErrPoolFull when the queue is full;
 // a positive timeout bounds the wait. It returns runner.ErrPoolFull
-// when the runner is stopped.
-//
-// The lock is held across the send (see Task): an in-flight TryTask
-// delays Stop by at most the caller's timeout.
+// when the runner is stopped or stopping.
 func (r *Static) TryTask(t *runner.Task, timeout time.Duration) error {
 	if t == nil {
 		return nil
 	}
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.task == nil || r.stopped || !r.started {
+		r.mu.Unlock()
+
 		return runner.ErrPoolFull
 	}
+
 	if t.ID == uuid.Nil {
 		t.ID = uuid.New()
 	}
 
-	if timeout <= 0 {
+	ch, done := r.task, r.done
+	r.mu.Unlock()
+
+	send := func() (ok bool) {
+		defer func() {
+			// A concurrent Stop closes ch mid-send; report it as full.
+			_ = recover()
+		}()
+
+		if timeout <= 0 {
+			select {
+			case ch <- t:
+				return true
+			case <-done:
+				return false
+			default:
+				return false
+			}
+		}
+
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
 		select {
-		case r.task <- t:
-			return nil
-		default:
-			return runner.ErrPoolFull
+		case ch <- t:
+			return true
+		case <-done:
+			return false
+		case <-timer.C:
+			return false
 		}
 	}
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case r.task <- t:
-		return nil
-	case <-timer.C:
+	if !send() {
 		return runner.ErrPoolFull
 	}
+
+	return nil
 }
 
 // Len reports the current number of queued (not yet picked-up) tasks.

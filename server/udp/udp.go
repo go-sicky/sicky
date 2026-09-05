@@ -38,12 +38,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
+// ErrObtainUDPAddress is a shared udp value.
 var ErrObtainUDPAddress = errors.New("obtain UDP address failed")
 
 // ErrServerNotRunning is returned when Send is called on a stopped server.
@@ -51,7 +53,7 @@ var ErrServerNotRunning = errors.New("udp server is not running")
 
 /* {{{ [Server] */
 
-// UDPServer : Server definition
+// UDPServer : Server definition.
 type UDPServer struct {
 	config        *Config
 	ctx           context.Context
@@ -77,7 +79,7 @@ type UDPServer struct {
 	wg sync.WaitGroup
 }
 
-// New UDP server
+// New UDP server.
 func New(opts *server.Options, cfg *Config) *UDPServer {
 	opts = opts.Ensure()
 	negRead, negWrite, negSessions, negRate := cfg.ReadTimeout, cfg.WriteTimeout, cfg.MaxSessions, cfg.MaxPacketsPerSecond
@@ -92,6 +94,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 			"write_timeout", negWrite,
 		)
 	}
+
 	if negSessions < 0 || negRate < 0 {
 		opts.Logger.ErrorContext(
 			opts.Context,
@@ -114,6 +117,8 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
 
 	if cfg.AdvertiseAddress != "" {
@@ -124,6 +129,8 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
+
+			return nil
 		}
 	} else {
 		advertiseAddr = addr
@@ -140,6 +147,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		pool:          NewPool(cfg.MaxIdleDuration),
 		rateCounts:    make(map[string]int),
 	}
+
 	srv.handlers.Store(&[]Handler{})
 
 	srv.options.Logger.InfoContext(
@@ -157,26 +165,32 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 	return srv
 }
 
+// Context returns the component context.
 func (srv *UDPServer) Context() context.Context {
 	return srv.ctx
 }
 
+// Options returns the runtime options.
 func (srv *UDPServer) Options() *server.Options {
 	return srv.options
 }
 
+// String returns a human-readable name.
 func (srv *UDPServer) String() string {
 	return "udp"
 }
 
+// ID returns the unique instance ID.
 func (srv *UDPServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
+// Name returns the component name.
 func (srv *UDPServer) Name() string {
 	return srv.options.Name
 }
 
+// Start starts the component.
 func (srv *UDPServer) Start() error {
 	var err error
 	srv.Lock()
@@ -230,10 +244,7 @@ func (srv *UDPServer) Start() error {
 	}
 
 	srv.startReaper()
-	srv.wg.Add(1)
-	go func() {
-		defer srv.wg.Done()
-
+	srv.wg.Go(func() {
 		backoff := utils.NewBackoff(50*time.Millisecond, time.Second)
 		errLog := utils.NewLogSampler(5, time.Second)
 		capLog := utils.NewLogSampler(1, time.Second)
@@ -243,6 +254,7 @@ func (srv *UDPServer) Start() error {
 			if srv.config.ReadTimeout > 0 {
 				_ = srv.conn.SetReadDeadline(time.Now().Add(time.Duration(srv.config.ReadTimeout) * time.Second))
 			}
+
 			n, addr, err := srv.conn.ReadFromUDP(buff)
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
@@ -259,6 +271,7 @@ func (srv *UDPServer) Start() error {
 
 					break
 				}
+
 				// Transient errors (ENOBUFS/ICMP refused/…) must not
 				// kill the packet loop: log (sampled) and keep serving.
 				// Read deadlines surface as timeouts: just re-arm and
@@ -268,6 +281,7 @@ func (srv *UDPServer) Start() error {
 					backoff.Reset()
 					continue
 				}
+
 				if allow, suppressed := errLog.Allow(); allow {
 					args := []any{
 						"server", srv.String(),
@@ -277,17 +291,21 @@ func (srv *UDPServer) Start() error {
 						"address", srv.addr.String(),
 						"error", err.Error(),
 					}
+
 					if suppressed > 0 {
 						args = append(args, "suppressed", suppressed)
 					}
+
 					srv.options.Logger.ErrorContext(srv.ctx, "UDP ReadFromUDP failed", args...)
 				}
+
 				// Persistent read failures (e.g. ENOBUFS under flood)
 				// back off so the loop cannot hot-spin.
 				time.Sleep(backoff.Next())
 
 				continue
 			}
+
 			backoff.Reset()
 			if n > 0 {
 				// One addrKey per packet: shared by the rate limiter
@@ -296,6 +314,7 @@ func (srv *UDPServer) Start() error {
 				if !srv.allowPacketKey(srcKey) {
 					continue
 				}
+
 				sess := srv.pool.GetByKey(srcKey)
 				if sess == nil {
 					if srv.config.MaxSessions > 0 && srv.pool.Length() >= srv.config.MaxSessions {
@@ -307,18 +326,22 @@ func (srv *UDPServer) Start() error {
 								"name", srv.options.Name,
 								"max_sessions", srv.config.MaxSessions,
 							}
+
 							if suppressed > 0 {
 								args = append(args, "suppressed", suppressed)
 							}
+
 							srv.options.Logger.ErrorContext(srv.ctx, "UDP session cap reached, dropping datagram", args...)
 						}
 
 						continue
 					}
+
 					var writeTimeout time.Duration
 					if srv.config.WriteTimeout > 0 {
 						writeTimeout = time.Duration(srv.config.WriteTimeout) * time.Second
 					}
+
 					sess = NewSessionWithTimeout(srv.conn, addr, writeTimeout)
 					srv.pool.Put(sess)
 					for _, hdl := range srv.snapshotHandlers() {
@@ -344,7 +367,7 @@ func (srv *UDPServer) Start() error {
 				}
 			}
 		}
-	}()
+	})
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -361,6 +384,7 @@ func (srv *UDPServer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (srv *UDPServer) Stop() error {
 	// Check-and-flag under lock, then release: holding Lock across the
 	// wait would starve all RLock readers for the whole drain.
@@ -371,6 +395,7 @@ func (srv *UDPServer) Stop() error {
 
 		return nil
 	}
+
 	srv.stopping = true
 	srv.options.RunBeforeStop()
 	conn := srv.conn
@@ -413,6 +438,7 @@ func (srv *UDPServer) Stop() error {
 	return errs
 }
 
+// Running reports whether the component is running.
 func (srv *UDPServer) Running() bool {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -420,6 +446,7 @@ func (srv *UDPServer) Running() bool {
 	return srv.running
 }
 
+// Addr returns the address.
 func (srv *UDPServer) Addr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -427,6 +454,7 @@ func (srv *UDPServer) Addr() net.Addr {
 	return srv.addr
 }
 
+// IP returns the IP.
 func (srv *UDPServer) IP() net.IP {
 	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
@@ -436,10 +464,12 @@ func (srv *UDPServer) IP() net.IP {
 	return try
 }
 
+// Port returns the port.
 func (srv *UDPServer) Port() int {
 	return utils.AddrToPort(srv.Addr())
 }
 
+// AdvertiseAddr returns the advertise address.
 func (srv *UDPServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -447,6 +477,7 @@ func (srv *UDPServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
+// AdvertiseIP returns the advertise IP.
 func (srv *UDPServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
@@ -456,10 +487,12 @@ func (srv *UDPServer) AdvertiseIP() net.IP {
 	return try
 }
 
+// AdvertisePort returns the advertise port.
 func (srv *UDPServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
+// Metadata returns the metadata.
 func (srv *UDPServer) Metadata() utils.Metadata {
 	// Snapshot: the map is written during Start while handlers may read
 	// it concurrently; returning the live map would race.
@@ -470,10 +503,12 @@ func (srv *UDPServer) Metadata() utils.Metadata {
 	return srv.metadata.Clone()
 }
 
+// App returns the app.
 func (srv *UDPServer) App() *net.UDPConn {
 	return srv.conn
 }
 
+// Handle registers handlers.
 func (srv *UDPServer) Handle(hdls ...Handler) {
 	// Lock-free append: publish a new slice so the packet loop keeps
 	// iterating a stable snapshot.
@@ -486,6 +521,7 @@ func (srv *UDPServer) Handle(hdls ...Handler) {
 			break
 		}
 	}
+
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
@@ -515,17 +551,13 @@ func (srv *UDPServer) startReaper() {
 	}
 
 	interval := time.Duration(srv.config.MaxIdleDuration) * time.Second / 2
-	if min := time.Duration(MinReapIntervalSeconds) * time.Second; interval < min {
-		interval = min
-	}
+	interval = max(interval, time.Duration(MinReapIntervalSeconds)*time.Second)
 
 	srv.purgeDone = make(chan struct{})
 	done := srv.purgeDone
-	srv.wg.Add(1)
-	go func() {
-		defer srv.wg.Done()
+	srv.wg.Go(func() {
 		srv.pool.RunReaper(interval, done)
-	}()
+	})
 }
 
 // stopReaper halts the recycler started by startReaper.
@@ -559,23 +591,34 @@ func (srv *UDPServer) allowPacketKey(key string) bool {
 		srv.rateWindow = now
 		clear(srv.rateCounts)
 	}
+
 	if srv.rateCounts[key] >= limit {
 		return false
 	}
+
 	srv.rateCounts[key]++
 
 	return true
 }
 
+// unknownRemote labels endpoints whose address is unavailable.
+const unknownRemote = "unknown"
+
 // safelyInvoke runs a handler callback with panic isolation: a panicking
 // business handler must never kill the single packet loop.
 func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, fn func() error) {
+	sessID := unknownRemote
+	if sess != nil {
+		sessID = sess.ID.String()
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
-			remote := "unknown"
+			remote := unknownRemote
 			if addr != nil {
 				remote = addr.String()
 			}
+
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"UDP handler panicked",
@@ -583,6 +626,7 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 				"id", srv.options.ID,
 				"name", srv.options.Name,
 				"handler_op", op,
+				"session_id", sessID,
 				"remote", remote,
 				"panic", r,
 			)
@@ -590,10 +634,11 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 	}()
 
 	if err := fn(); err != nil {
-		remote := "unknown"
+		remote := unknownRemote
 		if addr != nil {
 			remote = addr.String()
 		}
+
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"UDP data process error",
@@ -601,12 +646,14 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 			"id", srv.options.ID,
 			"name", srv.options.Name,
 			"handler_op", op,
+			"session_id", sessID,
 			"remote", remote,
 			"error", err.Error(),
 		)
 	}
 }
 
+// Send sends data.
 func (srv *UDPServer) Send(c *net.UDPAddr, data []byte) error {
 	srv.RLock()
 	conn := srv.conn
@@ -616,6 +663,7 @@ func (srv *UDPServer) Send(c *net.UDPAddr, data []byte) error {
 	if !running || conn == nil {
 		return ErrServerNotRunning
 	}
+
 	if c == nil {
 		return ErrNilSessionAddr
 	}
@@ -627,12 +675,12 @@ func (srv *UDPServer) Send(c *net.UDPAddr, data []byte) error {
 
 /* }}} */
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
-	OnConnect(*Session) error
-	OnData(*Session, []byte) error
+	OnConnect(sess *Session) error
+	OnData(sess *Session, data []byte) error
 }
 
 /* }}} */

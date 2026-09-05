@@ -56,6 +56,25 @@ type newContext struct {
 	WithFiber    bool
 	WithProto    bool
 	OutputDir    string
+	// Optional scaffolding hints used by `sicky config init` and
+	// `sicky generate config/docker`. Kept for compat; templates
+	// render from WithGRPC/WithFiber, these are informational only.
+	Servers        []string
+	Registry       string
+	Tracer         string
+	DockerRegistry string
+}
+
+// normalizeNewContext fills defaults for scaffolding contexts.
+// It never fails today; the error return keeps call-site symmetry.
+//
+//nolint:unparam // error return is reserved for future validation; callers check it
+func normalizeNewContext(nc *newContext) error {
+	if nc.Type == "" {
+		nc.Type = "standard"
+	}
+
+	return nil
 }
 
 func newRun(args []string) int {
@@ -66,12 +85,14 @@ func newRun(args []string) int {
 	noGrpcFlag := fs.Bool("no-grpc", false, "Skip gRPC server")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky new: %s\n", err.Error())
+
 		return 1
 	}
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "sicky new: missing project name")
 		fmt.Fprintln(os.Stderr, "Usage: sicky new <project-name> [flags]")
+
 		return 1
 	}
 
@@ -86,6 +107,7 @@ func newRun(args []string) int {
 
 	if nc.Name == "" {
 		fmt.Fprintln(os.Stderr, "sicky new: project name cannot be empty")
+
 		return 1
 	}
 
@@ -97,6 +119,7 @@ func newRun(args []string) int {
 	projectDir := filepath.Join(nc.OutputDir, nc.Name)
 	if err := scaffoldProject(projectDir, nc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky new: failed to create project: %s\n", err.Error())
+
 		return 1
 	}
 
@@ -108,6 +131,7 @@ func newRun(args []string) int {
 	fmt.Println("    make build")
 	fmt.Println("    make run")
 	fmt.Println()
+
 	return 0
 }
 
@@ -150,7 +174,8 @@ func interactivePrompt(nc *newContext) {
 		}
 	}
 
-	if nc.Type == "standard" {
+	switch nc.Type {
+	case "standard":
 		fmt.Print("  ? Add gRPC server? [Y/n]: ")
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
@@ -168,7 +193,7 @@ func interactivePrompt(nc *newContext) {
 				nc.WithFiber = false
 			}
 		}
-	} else if nc.Type == "mcp" {
+	case "mcp":
 		nc.WithGRPC = false
 		fmt.Print("  ? Add HTTP/Fiber server (for SSE transport)? [Y/n]: ")
 		input, _ := reader.ReadString('\n')
@@ -176,7 +201,7 @@ func interactivePrompt(nc *newContext) {
 		if strings.EqualFold(input, "n") || strings.EqualFold(input, "no") {
 			nc.WithFiber = false
 		}
-	} else {
+	default:
 		nc.WithGRPC = false
 		nc.WithFiber = false
 	}

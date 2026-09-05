@@ -7,6 +7,7 @@ func TestConfigEnsureNilSafe(t *testing.T) {
 	if c.Ensure() == nil {
 		t.Fatal("Ensure on nil must return non-nil config")
 	}
+
 	if (&Config{}).Ensure() == nil {
 		t.Fatal("Ensure must return non-nil config")
 	}

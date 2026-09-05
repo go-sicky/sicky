@@ -33,22 +33,27 @@ package nsq
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/broker"
 	"github.com/google/uuid"
 	"github.com/nsqio/go-nsq"
+
+	"github.com/go-sicky/sicky/broker"
 )
 
 var (
+	// ErrBrokerNotConnected is a shared nsq value.
 	ErrBrokerNotConnected = errors.New("broker not connected")
-	ErrNilMessage         = errors.New("nil message")
+	// ErrNilMessage is a shared nsq value.
+	ErrNilMessage = errors.New("nil message")
 )
 
-type Nsq struct {
+// NSQ is an nsq component.
+type NSQ struct {
 	config    *Config
 	ctx       context.Context
 	options   *broker.Options
@@ -61,11 +66,22 @@ type Nsq struct {
 	handlers      map[string]broker.Handler
 }
 
-func New(opts *broker.Options, cfg *Config) *Nsq {
+// New creates a new instance (nil on invalid config).
+func New(opts *broker.Options, cfg *Config) *NSQ {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	brk := &Nsq{
+	if err := cfg.Validate(); err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Nsq broker config invalid",
+			"error", err.Error(),
+		)
+
+		return nil
+	}
+
+	brk := &NSQ{
 		config:        cfg,
 		ctx:           opts.Context,
 		options:       opts,
@@ -100,27 +116,33 @@ func New(opts *broker.Options, cfg *Config) *Nsq {
 	return brk
 }
 
-func (brk *Nsq) Context() context.Context {
+// Context returns the component context.
+func (brk *NSQ) Context() context.Context {
 	return brk.ctx
 }
 
-func (brk *Nsq) Options() *broker.Options {
+// Options returns the runtime options.
+func (brk *NSQ) Options() *broker.Options {
 	return brk.options
 }
 
-func (brk *Nsq) String() string {
+// String returns a human-readable name.
+func (brk *NSQ) String() string {
 	return "nsq"
 }
 
-func (brk *Nsq) ID() uuid.UUID {
+// ID returns the unique instance ID.
+func (brk *NSQ) ID() uuid.UUID {
 	return brk.options.ID
 }
 
-func (brk *Nsq) Name() string {
+// Name returns the component name.
+func (brk *NSQ) Name() string {
 	return brk.options.Name
 }
 
-func (brk *Nsq) Connect() error {
+// Connect connects to the backend.
+func (brk *NSQ) Connect() error {
 	p, err := nsq.NewProducer(brk.config.Endpoint, brk.nsqCfg)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
@@ -132,7 +154,7 @@ func (brk *Nsq) Connect() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nsq broker create producer (endpoint %s): %w", brk.config.Endpoint, err)
 	}
 
 	p.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
@@ -147,7 +169,7 @@ func (brk *Nsq) Connect() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nsq broker producer ping (endpoint %s): %w", brk.config.Endpoint, err)
 	}
 
 	brk.options.Logger.InfoContext(
@@ -164,9 +186,8 @@ func (brk *Nsq) Connect() error {
 	// Handlers
 	brk.mu.RLock()
 	snapshot := make(map[string]broker.Handler, len(brk.handlers))
-	for topic, hdl := range brk.handlers {
-		snapshot[topic] = hdl
-	}
+	maps.Copy(snapshot, brk.handlers)
+
 	brk.mu.RUnlock()
 	for topic, hdl := range snapshot {
 		err := brk.Subscribe(topic, hdl)
@@ -186,9 +207,14 @@ func (brk *Nsq) Connect() error {
 	return nil
 }
 
-func (brk *Nsq) Disconnect() error {
+// Disconnect disconnects from the backend.
+func (brk *NSQ) Disconnect() error {
+	var unsubErr error
+
 	for topic := range brk.subscriptions {
-		brk.Unsubscribe(topic)
+		if err := brk.Unsubscribe(topic); err != nil {
+			unsubErr = errors.Join(unsubErr, fmt.Errorf("nsq broker unsubscribe (topic %s): %w", topic, err))
+		}
 	}
 
 	if brk.producer != nil {
@@ -204,10 +230,11 @@ func (brk *Nsq) Disconnect() error {
 		"name", brk.options.Name,
 	)
 
-	return nil
+	return unsubErr
 }
 
-func (brk *Nsq) Publish(topic string, m *broker.Message) error {
+// Publish publishes a message.
+func (brk *NSQ) Publish(topic string, m *broker.Message) error {
 	if brk.producer == nil {
 		return ErrBrokerNotConnected
 	}
@@ -229,13 +256,14 @@ func (brk *Nsq) Publish(topic string, m *broker.Message) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nsq broker publish (topic %s): %w", topic, err)
 	}
 
 	return nil
 }
 
-func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
+// Subscribe subscribes a handler.
+func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	brk.mu.RLock()
 	_, dup := brk.subscriptions[topic]
 	brk.mu.RUnlock()
@@ -266,7 +294,7 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nsq broker create consumer (topic %s channel %s): %w", topic, brk.config.Channel, err)
 	}
 
 	consummer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
@@ -276,6 +304,7 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 		brk.handlers[topic] = h
 		brk.mu.Unlock()
 	}
+
 	consummer.AddHandler(&nsqHandler{
 		Topic:   topic,
 		Channel: brk.config.Channel,
@@ -294,7 +323,7 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("nsq broker consumer connect (topic %s channel %s endpoint %s): %w", topic, brk.config.Channel, brk.config.Endpoint, err)
 	}
 
 	brk.mu.Lock()
@@ -313,7 +342,8 @@ func (brk *Nsq) Subscribe(topic string, h broker.Handler) error {
 	return nil
 }
 
-func (brk *Nsq) Unsubscribe(topic string) error {
+// Unsubscribe removes a subscription.
+func (brk *NSQ) Unsubscribe(topic string) error {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	consummer := brk.subscriptions[topic]
@@ -334,13 +364,15 @@ func (brk *Nsq) Unsubscribe(topic string) error {
 	return nil
 }
 
-func (brk *Nsq) Handle(hdls ...Handler) {
+// Handle registers handlers.
+func (brk *NSQ) Handle(hdls ...Handler) {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	for _, hdl := range hdls {
 		if hdl == nil {
 			continue
 		}
+
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
@@ -354,13 +386,14 @@ func (brk *Nsq) Handle(hdls ...Handler) {
 	}
 }
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type nsqHandler struct {
 	Topic   string
 	Channel string
-	Broker  *Nsq
+	Broker  *NSQ
 }
 
+// HandleMessage is part of the public API.
 func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 	defer func() {
 		_ = recover()
@@ -410,6 +443,7 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) error {
 	return nil
 }
 
+// Handler is a nsq component.
 type Handler interface {
 	Name() string
 	Type() string
@@ -417,6 +451,9 @@ type Handler interface {
 }
 
 /* }}} */
+
+// Deprecated: use NSQ.
+type Nsq = NSQ
 
 /*
  * Local variables:

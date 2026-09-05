@@ -38,14 +38,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/utils"
 )
 
 // ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
@@ -59,7 +60,7 @@ var ErrShutdownTimeout = errors.New("graceful shutdown timed out")
 
 /* {{{ [Server] */
 
-// FiberServer : Server definition
+// FiberServer : Server definition.
 type FiberServer struct {
 	config        *Config
 	ctx           context.Context
@@ -79,7 +80,7 @@ type FiberServer struct {
 	wg sync.WaitGroup
 }
 
-// New HTTP server (go-fiber)
+// New HTTP server (go-fiber).
 func New(opts *server.Options, cfg *Config) *FiberServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -98,6 +99,8 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
 
 	if cfg.AdvertiseAddress != "" {
@@ -108,6 +111,8 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
+
+			return nil
 		}
 	} else {
 		advertiseAddr = addr
@@ -179,9 +184,11 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 		)
 		corsCfg = (&CORSConfig{}).Ensure()
 	}
+
 	corsMiddleware := func(c *fiber.Ctx) error {
 		return c.Next()
 	}
+
 	if len(corsCfg.AllowedOrigins) > 0 {
 		corsMiddleware = cors.New(cors.Config{
 			AllowOrigins:     strings.Join(corsCfg.AllowedOrigins, ", "),
@@ -189,6 +196,7 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 			MaxAge:           corsCfg.MaxAge,
 		})
 	}
+
 	app.Use(
 		corsMiddleware,
 		NewPropagationMiddleware(),
@@ -230,26 +238,32 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	return srv
 }
 
+// Context returns the component context.
 func (srv *FiberServer) Context() context.Context {
 	return srv.ctx
 }
 
+// Options returns the runtime options.
 func (srv *FiberServer) Options() *server.Options {
 	return srv.options
 }
 
+// String returns a human-readable name.
 func (srv *FiberServer) String() string {
 	return "fiber"
 }
 
+// ID returns the unique instance ID.
 func (srv *FiberServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
+// Name returns the component name.
 func (srv *FiberServer) Name() string {
 	return srv.options.Name
 }
 
+// Start starts the component.
 func (srv *FiberServer) Start() error {
 	var (
 		listener net.Listener
@@ -321,7 +335,6 @@ func (srv *FiberServer) Start() error {
 			srv.addr.Network(),
 			srv.addr.String(),
 		)
-
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -340,6 +353,7 @@ func (srv *FiberServer) Start() error {
 	if srv.config.AdvertiseAddress == "" {
 		srv.advertiseAddr = listener.Addr()
 	}
+
 	srv.listener = listener
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
@@ -347,10 +361,7 @@ func (srv *FiberServer) Start() error {
 	srv.metadata.Set("advertise_address", srv.advertiseAddr.String())
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
-	srv.wg.Add(1)
-	go func() {
-		defer srv.wg.Done()
-
+	srv.wg.Go(func() {
 		err := srv.app.Listener(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
@@ -373,7 +384,7 @@ func (srv *FiberServer) Start() error {
 			"name", srv.options.Name,
 			"addr", srv.addr.String(),
 		)
-	}()
+	})
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -389,6 +400,7 @@ func (srv *FiberServer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (srv *FiberServer) Stop() error {
 	// Check-and-flag under lock, then release: holding Lock across
 	// Shutdown/Wait would starve all RLock readers for the whole drain.
@@ -399,6 +411,7 @@ func (srv *FiberServer) Stop() error {
 
 		return nil
 	}
+
 	srv.stopping = true
 	srv.options.RunBeforeStop()
 	app := srv.app
@@ -421,7 +434,14 @@ func (srv *FiberServer) Stop() error {
 			"error", err.Error(),
 		)
 		errs = errors.Join(errs, err)
+		// fasthttp reports an exceeded ShutdownWithTimeout as
+		// context.DeadlineExceeded; surface it as ErrShutdownTimeout
+		// (mirrors the gRPC server) so callers can errors.Is on it.
+		if errors.Is(err, context.DeadlineExceeded) {
+			errs = errors.Join(errs, ErrShutdownTimeout)
+		}
 	}
+
 	if ln := srv.listener; ln != nil {
 		if err := ln.Close(); err != nil {
 			srv.options.Logger.DebugContext(
@@ -434,6 +454,7 @@ func (srv *FiberServer) Stop() error {
 			)
 		}
 	}
+
 	srv.wg.Wait()
 
 	srv.Lock()
@@ -461,6 +482,7 @@ func isClosedConnError(err error) bool {
 	if err == nil {
 		return false
 	}
+
 	if errors.Is(err, net.ErrClosed) {
 		return true
 	}
@@ -468,6 +490,7 @@ func isClosedConnError(err error) bool {
 	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
+// Running reports whether the component is running.
 func (srv *FiberServer) Running() bool {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -475,6 +498,7 @@ func (srv *FiberServer) Running() bool {
 	return srv.running
 }
 
+// Addr returns the address.
 func (srv *FiberServer) Addr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -482,6 +506,7 @@ func (srv *FiberServer) Addr() net.Addr {
 	return srv.addr
 }
 
+// IP returns the IP.
 func (srv *FiberServer) IP() net.IP {
 	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
@@ -491,10 +516,12 @@ func (srv *FiberServer) IP() net.IP {
 	return try
 }
 
+// Port returns the port.
 func (srv *FiberServer) Port() int {
 	return utils.AddrToPort(srv.Addr())
 }
 
+// AdvertiseAddr returns the advertise address.
 func (srv *FiberServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -502,6 +529,7 @@ func (srv *FiberServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
+// AdvertiseIP returns the advertise IP.
 func (srv *FiberServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
@@ -511,10 +539,12 @@ func (srv *FiberServer) AdvertiseIP() net.IP {
 	return try
 }
 
+// AdvertisePort returns the advertise port.
 func (srv *FiberServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
+// Metadata returns the metadata.
 func (srv *FiberServer) Metadata() utils.Metadata {
 	// Snapshot: the map is written during Start while handlers may read
 	// it concurrently; returning the live map would race.
@@ -525,10 +555,12 @@ func (srv *FiberServer) Metadata() utils.Metadata {
 	return srv.metadata.Clone()
 }
 
+// App returns the app.
 func (srv *FiberServer) App() *fiber.App {
 	return srv.app
 }
 
+// Handle registers handlers.
 func (srv *FiberServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		hdl.Register(srv.app)
@@ -545,11 +577,11 @@ func (srv *FiberServer) Handle(hdls ...Handler) {
 
 /* }}} */
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
-	Register(*fiber.App)
+	Register(app *fiber.App)
 }
 
 /* }}} */

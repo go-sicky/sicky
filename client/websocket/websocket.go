@@ -33,11 +33,13 @@ package websocket
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/metrics"
-	"github.com/google/uuid"
 )
 
+// WebsocketClient is a websocket component.
 type WebsocketClient struct {
 	config  *Config
 	options *client.Options
@@ -61,7 +63,7 @@ type WebsocketClient struct {
 // 	return clients[name]
 // }
 
-// New websocket client
+// New websocket client.
 func New(opts *client.Options, cfg *Config) *WebsocketClient {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -72,30 +74,6 @@ func New(opts *client.Options, cfg *Config) *WebsocketClient {
 		options: opts,
 	}
 
-	// for _, opt := range opts {
-	// 	opt(clt.options)
-	// }
-
-	// // Set logger
-	// if clt.options.Logger() == nil {
-	// 	client.Logger(logger.Logger)(clt.options)
-	// }
-
-	// // Set global context
-	// if clt.options.Context() != nil {
-	// 	clt.ctx = clt.options.Context()
-	// } else {
-	// 	client.Context(ctx)(clt.options)
-	// }
-
-	// // Set tracer
-	// if clt.options.TraceProvider() != nil {
-	// 	clt.tracer = clt.options.TraceProvider().Tracer(clt.Name() + "@" + clt.String())
-	// }
-
-	// client.Instance(clt.Name(), clt)
-	// Instance(clt.Name(), clt)
-	// clt.options.Logger().InfoContext(clt.ctx, "Websocket client created", "id", clt.ID(), "name", clt.Name())
 	clt.options.Logger.InfoContext(
 		clt.ctx,
 		"Client created",
@@ -109,50 +87,60 @@ func New(opts *client.Options, cfg *Config) *WebsocketClient {
 	return clt
 }
 
+// Options returns the runtime options.
 func (clt *WebsocketClient) Options() *client.Options {
 	return clt.options
 }
 
+// Context returns the component context.
 func (clt *WebsocketClient) Context() context.Context {
 	return clt.ctx
 }
 
+// Connect connects to the backend.
 func (clt *WebsocketClient) Connect() error {
 	return nil
 }
 
+// Disconnect disconnects from the backend.
 func (clt *WebsocketClient) Disconnect() error {
 	return nil
 }
 
+// Call executes a call.
 func (clt *WebsocketClient) Call() error {
 	metrics.NumWebsocketClientCallCounter.Inc()
+
 	return nil
 }
 
+// String returns a human-readable name.
 func (clt *WebsocketClient) String() string {
 	return "websocket"
 }
 
+// Name returns the component name.
 func (clt *WebsocketClient) Name() string {
 	return clt.options.Name
 }
 
+// ID returns the unique instance ID.
 func (clt *WebsocketClient) ID() uuid.UUID {
 	return clt.options.ID
 }
 
+// Handle registers handlers.
 func (clt *WebsocketClient) Handle(hdl WebsocketHandler) {
 }
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type WebsocketHandler interface {
 	Name() string
 	Type() string
-	OnConnect(string) error
-	OnClose(string) error
-	OnError(string, error) error
-	OnData(string, []byte) error
+	OnConnect(url string) error
+	OnClose(url string) error
+	OnError(url string, err error) error
+	OnData(url string, data []byte) error
 }
 
 /* }}} */

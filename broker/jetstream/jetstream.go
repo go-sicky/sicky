@@ -33,20 +33,25 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"sync"
 
-	"github.com/go-sicky/sicky/broker"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
+
+	"github.com/go-sicky/sicky/broker"
 )
 
 var (
-	ErrBrokerNotConnected     = errors.New("broker not connected")
+	// ErrBrokerNotConnected is a shared jetstream value.
+	ErrBrokerNotConnected = errors.New("broker not connected")
+	// ErrTopicAlreadySubscribed is a shared jetstream value.
 	ErrTopicAlreadySubscribed = errors.New("topic already subscribed")
 )
 
-type Jetstream struct {
+// JetStream is a jetstream component.
+type JetStream struct {
 	config     *Config
 	ctx        context.Context
 	options    *broker.Options
@@ -59,11 +64,22 @@ type Jetstream struct {
 	handlers      map[string]broker.Handler
 }
 
-func New(opts *broker.Options, cfg *Config) *Jetstream {
+// New creates a new instance (nil on invalid config).
+func New(opts *broker.Options, cfg *Config) *JetStream {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
-	brk := &Jetstream{
+	if err := cfg.Validate(); err != nil {
+		opts.Logger.ErrorContext(
+			opts.Context,
+			"Jetstream broker config invalid",
+			"error", err.Error(),
+		)
+
+		return nil
+	}
+
+	brk := &JetStream{
 		config:        cfg,
 		ctx:           opts.Context,
 		options:       opts,
@@ -84,27 +100,33 @@ func New(opts *broker.Options, cfg *Config) *Jetstream {
 	return brk
 }
 
-func (brk *Jetstream) Context() context.Context {
+// Context returns the component context.
+func (brk *JetStream) Context() context.Context {
 	return brk.ctx
 }
 
-func (brk *Jetstream) Options() *broker.Options {
+// Options returns the runtime options.
+func (brk *JetStream) Options() *broker.Options {
 	return brk.options
 }
 
-func (brk *Jetstream) String() string {
+// String returns a human-readable name.
+func (brk *JetStream) String() string {
 	return "jetstream"
 }
 
-func (brk *Jetstream) ID() uuid.UUID {
+// ID returns the unique instance ID.
+func (brk *JetStream) ID() uuid.UUID {
 	return brk.options.ID
 }
 
-func (brk *Jetstream) Name() string {
+// Name returns the component name.
+func (brk *JetStream) Name() string {
 	return brk.options.Name
 }
 
-func (brk *Jetstream) Connect() error {
+// Connect connects to the backend.
+func (brk *JetStream) Connect() error {
 	nc, err := nats.Connect(
 		brk.config.URL,
 	)
@@ -118,7 +140,7 @@ func (brk *Jetstream) Connect() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("jetstream broker connect (url %s): %w", brk.config.URL, err)
 	}
 
 	brk.options.Logger.InfoContext(
@@ -141,7 +163,7 @@ func (brk *Jetstream) Connect() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("jetstream broker create stream context: %w", err)
 	}
 
 	si, err := jc.AddStream(&nats.StreamConfig{
@@ -159,7 +181,7 @@ func (brk *Jetstream) Connect() error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("jetstream broker create stream (stream %s): %w", brk.config.Stream.Name, err)
 	}
 
 	brk.conn = nc
@@ -169,9 +191,8 @@ func (brk *Jetstream) Connect() error {
 	// Handlers
 	brk.mu.RLock()
 	snapshot := make(map[string]broker.Handler, len(brk.handlers))
-	for topic, hdl := range brk.handlers {
-		snapshot[topic] = hdl
-	}
+	maps.Copy(snapshot, brk.handlers)
+
 	brk.mu.RUnlock()
 	for topic, hdl := range snapshot {
 		err := brk.Subscribe(topic, hdl)
@@ -191,16 +212,22 @@ func (brk *Jetstream) Connect() error {
 	return nil
 }
 
-func (brk *Jetstream) Disconnect() error {
+// Disconnect disconnects from the backend.
+func (brk *JetStream) Disconnect() error {
+	var unsubErr error
+
 	if brk.conn != nil && !brk.conn.IsClosed() {
 		brk.mu.RLock()
 		topics := make([]string, 0, len(brk.handlers))
 		for topic := range brk.handlers {
 			topics = append(topics, topic)
 		}
+
 		brk.mu.RUnlock()
 		for _, topic := range topics {
-			brk.Unsubscribe(topic)
+			if err := brk.Unsubscribe(topic); err != nil {
+				unsubErr = errors.Join(unsubErr, fmt.Errorf("jetstream broker unsubscribe (topic %s): %w", topic, err))
+			}
 		}
 
 		brk.conn.Close()
@@ -215,10 +242,11 @@ func (brk *Jetstream) Disconnect() error {
 		)
 	}
 
-	return nil
+	return unsubErr
 }
 
-func (brk *Jetstream) Publish(topic string, m *broker.Message) error {
+// Publish publishes a message.
+func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return ErrBrokerNotConnected
 	}
@@ -245,7 +273,7 @@ func (brk *Jetstream) Publish(topic string, m *broker.Message) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("jetstream broker publish (topic %s): %w", topic, err)
 	}
 
 	brk.options.Logger.DebugContext(
@@ -261,7 +289,8 @@ func (brk *Jetstream) Publish(topic string, m *broker.Message) error {
 	return nil
 }
 
-func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
+// Subscribe subscribes a handler.
+func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
 		return ErrBrokerNotConnected
 	}
@@ -317,7 +346,7 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 			"error", err.Error(),
 		)
 
-		return err
+		return fmt.Errorf("jetstream broker subscribe (topic %s): %w", topic, err)
 	}
 
 	brk.options.Logger.DebugContext(
@@ -336,25 +365,31 @@ func (brk *Jetstream) Subscribe(topic string, h broker.Handler) error {
 	return nil
 }
 
-func (brk *Jetstream) Unsubscribe(topic string) error {
+// Unsubscribe removes a subscription.
+func (brk *JetStream) Unsubscribe(topic string) error {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	sub := brk.subscriptions[topic]
 	if sub != nil {
-		sub.Unsubscribe()
+		if err := sub.Unsubscribe(); err != nil {
+			return fmt.Errorf("jetstream broker unsubscribe (topic %s): %w", topic, err)
+		}
+
 		delete(brk.subscriptions, topic)
 	}
 
 	return nil
 }
 
-func (brk *Jetstream) Handle(hdls ...Handler) {
+// Handle registers handlers.
+func (brk *JetStream) Handle(hdls ...Handler) {
 	brk.mu.Lock()
 	defer brk.mu.Unlock()
 	for _, hdl := range hdls {
 		if hdl == nil {
 			continue
 		}
+
 		list := hdl.Register()
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
@@ -368,7 +403,7 @@ func (brk *Jetstream) Handle(hdls ...Handler) {
 	}
 }
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
@@ -376,6 +411,9 @@ type Handler interface {
 }
 
 /* }}} */
+
+// Deprecated: use JetStream.
+type Jetstream = JetStream
 
 /*
  * Local variables:

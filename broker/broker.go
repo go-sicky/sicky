@@ -32,11 +32,13 @@ package broker
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
+// Broker is a broker component.
 type Broker interface {
 	// Get context
 	Context() context.Context
@@ -60,6 +62,7 @@ type Broker interface {
 	Unsubscribe(topic string) error
 }
 
+// Handler is a broker component.
 type Handler func(*Message) error
 
 var (
@@ -68,6 +71,7 @@ var (
 	brkMu         sync.RWMutex
 )
 
+// Set registers broker instances; the first one becomes the default.
 func Set(brks ...Broker) {
 	brkMu.Lock()
 	defer brkMu.Unlock()
@@ -80,6 +84,7 @@ func Set(brks ...Broker) {
 	}
 }
 
+// Get looks up a broker instance by ID.
 func Get(id uuid.UUID) Broker {
 	brkMu.RLock()
 	defer brkMu.RUnlock()
@@ -87,6 +92,7 @@ func Get(id uuid.UUID) Broker {
 	return brokers[id]
 }
 
+// Default returns the default broker instance.
 func Default() Broker {
 	brkMu.RLock()
 	defer brkMu.RUnlock()
@@ -94,11 +100,15 @@ func Default() Broker {
 	return defaultBroker
 }
 
+// Brokers returns a copy of the broker registry.
 func Brokers() map[uuid.UUID]Broker {
 	brkMu.RLock()
 	defer brkMu.RUnlock()
 
-	return brokers
+	out := make(map[uuid.UUID]Broker, len(brokers))
+	maps.Copy(out, brokers)
+
+	return out
 }
 
 // Clear resets the global registry. Intended for tests.
@@ -110,7 +120,7 @@ func Clear() {
 	defaultBroker = nil
 }
 
-/* {{{ [Helpers] */
+/* {{{ [Helpers]. */
 func Publish(topic string, m *Message) error {
 	brkMu.RLock()
 	defer brkMu.RUnlock()
@@ -122,6 +132,7 @@ func Publish(topic string, m *Message) error {
 	return defaultBroker.Publish(topic, m)
 }
 
+// Subscribe subscribes a handler.
 func Subscribe(topic string, h Handler) error {
 	brkMu.RLock()
 	defer brkMu.RUnlock()
@@ -133,6 +144,7 @@ func Subscribe(topic string, h Handler) error {
 	return defaultBroker.Subscribe(topic, h)
 }
 
+// Unsubscribe removes a subscription.
 func Unsubscribe(topic string) error {
 	brkMu.RLock()
 	defer brkMu.RUnlock()

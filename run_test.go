@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
 	"github.com/go-sicky/sicky/tracer"
-	"github.com/google/uuid"
 )
 
 type fakeService struct {
@@ -34,6 +35,7 @@ func (f *fakeService) Start() []error {
 
 	return f.startErr
 }
+
 func (f *fakeService) Stop() []error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -41,12 +43,14 @@ func (f *fakeService) Stop() []error {
 
 	return nil
 }
+
 func (f *fakeService) Servers(...server.Server) []server.Server { return nil }
 func (f *fakeService) Brokers(...broker.Broker) []broker.Broker { return nil }
 func (f *fakeService) Jobs(...job.Job) []job.Job                { return nil }
 func (f *fakeService) Registries(...registry.Registry) []registry.Registry {
 	return nil
 }
+
 func (f *fakeService) Tracers(...tracer.Tracer) []tracer.Tracer { return nil }
 
 // runTestGlobals snapshots process-global orchestration state so Run tests
@@ -127,14 +131,17 @@ func TestRunLifecycleOrder(t *testing.T) {
 	for i, s := range order {
 		idx[s] = i
 	}
+
 	for _, s := range want {
 		if _, ok := idx[s]; !ok {
 			t.Fatalf("missing hook %q in order %v", s, order)
 		}
 	}
-	if !(idx["beforeStart"] < idx["afterStart"] && idx["afterStart"] < idx["beforeStop"] && idx["beforeStop"] < idx["afterStop"]) {
+
+	if idx["beforeStart"] >= idx["afterStart"] || idx["afterStart"] >= idx["beforeStop"] || idx["beforeStop"] >= idx["afterStop"] {
 		t.Fatalf("hook order wrong: %v", order)
 	}
+
 	if svc.starts != 1 || svc.stops != 1 {
 		t.Fatalf("service starts=%d stops=%d, want 1/1", svc.starts, svc.stops)
 	}
@@ -163,9 +170,11 @@ func TestRunFailedServiceStopsOnce(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run must return the service start error")
 	}
+
 	if !errors.Is(err, boom) {
 		t.Fatalf("Run error must wrap the start error, got %v", err)
 	}
+
 	// One inline Stop after failed Start; the shutdown path must skip it.
 	if svc.stops != 1 {
 		t.Fatalf("failed service stopped %d times, want exactly 1", svc.stops)

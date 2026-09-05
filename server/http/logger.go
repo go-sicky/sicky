@@ -37,14 +37,16 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/uptrace/bunrouter"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
-	"github.com/uptrace/bunrouter"
 )
 
 // serverPID is cached: a syscall per request is pure overhead.
 var serverPID = os.Getpid()
 
+// AccessLoggerMiddlewareConfig is a http component.
 type AccessLoggerMiddlewareConfig struct {
 	AccessLoggerConfig *AccessLoggerConfig
 	Next               func(c context.Context) bool
@@ -72,6 +74,7 @@ func accessLoggerMiddlewareConfigDefault(config ...AccessLoggerMiddlewareConfig)
 	return cfg
 }
 
+// NewAccessLoggerMiddleware creates a new AccessLoggerMiddleware.
 func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter.MiddlewareFunc {
 	cfg := accessLoggerMiddlewareConfigDefault(config...)
 	if cfg.Logger == nil {
@@ -105,8 +108,6 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 			sampled, _ := av.(string)
 
 			err := next(w, r)
-			if err != nil {
-			}
 
 			end := time.Now()
 			// Prefer the status captured by the status middleware; fall
@@ -116,9 +117,11 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 			if status == 0 {
 				status, _ = strconv.Atoi(w.Header().Get("Status"))
 			}
+
 			if status == 0 {
 				status = http.StatusOK
 			}
+
 			// Fixed-order slice: one alloc, stable field order for log
 			// indexing (a map here costs an extra alloc plus random order).
 			args := []any{

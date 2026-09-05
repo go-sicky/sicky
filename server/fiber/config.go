@@ -32,39 +32,69 @@ package fiber
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
 const (
+	// DefaultNetwork is a fiber constant.
 	DefaultNetwork = "tcp"
+	// DefaultAddress is a fiber constant.
 	DefaultAddress = ":9990"
 
 	// Default server timeouts mirror the manager server precedents.
-	DefaultReadTimeout  = 10 * time.Second
+	// DefaultReadTimeout is a fiber constant.
+	DefaultReadTimeout = 10 * time.Second
+	// DefaultWriteTimeout is a fiber constant.
 	DefaultWriteTimeout = 10 * time.Second
-	DefaultIdleTimeout  = 60 * time.Second
+	// DefaultIdleTimeout is a fiber constant.
+	DefaultIdleTimeout = 60 * time.Second
 
-	DefaultBodyLimit       = 4 << 20
-	DefaultConcurrency     = 256 * 1024
-	DefaultReadBufferSize  = 4096
+	// DefaultBodyLimit is a fiber constant.
+	DefaultBodyLimit = 4 << 20
+	// DefaultConcurrency is a fiber constant.
+	DefaultConcurrency = 256 * 1024
+	// DefaultReadBufferSize is a fiber constant.
+	DefaultReadBufferSize = 4096
+	// DefaultWriteBufferSize is a fiber constant.
 	DefaultWriteBufferSize = 4096
 
 	// DefaultCORSMaxAge is the preflight cache lifetime in seconds.
+	// DefaultCORSMaxAge is a fiber constant.
 	DefaultCORSMaxAge = 86400
 
+	// DefaultShutdownTimeout is a fiber constant.
 	DefaultShutdownTimeout = 10 * time.Second
 
 	// AccessLogger
-	DefaultRequestIDContextKey    = "requestid"
-	DefaultTraceIDContextKey      = "traceid"
-	DefaultSpanIDContextKey       = "spanid"
+	// DefaultRequestIDContextKey is a fiber constant.
+	DefaultRequestIDContextKey = "requestid"
+	// DefaultTraceIDContextKey is a fiber constant.
+	DefaultTraceIDContextKey = "traceid"
+	// DefaultSpanIDContextKey is a fiber constant.
+	DefaultSpanIDContextKey = "spanid"
+	// DefaultParentSpanIDContextKey is a fiber constant.
 	DefaultParentSpanIDContextKey = "parentspanid"
-	DefaultSampledContextKey      = "sampled"
-	DefaultAccessLevel            = "debug"
-	DefaultClientErrorLevel       = "warn"
-	DefaultServerErrorLevel       = "error"
+	// DefaultSampledContextKey is a fiber constant.
+	DefaultSampledContextKey = "sampled"
+	// B3 propagation header names (shared by metadata/propagation/tracer).
+	// DefaultB3TraceIDHeader is a fiber constant.
+	DefaultB3TraceIDHeader = "X-B3-Traceid"
+	// DefaultB3SpanIDHeader is a fiber constant.
+	DefaultB3SpanIDHeader = "X-B3-Spanid"
+	// DefaultB3ParentSpanIDHeader is a fiber constant.
+	DefaultB3ParentSpanIDHeader = "X-B3-Parentspanid"
+	// DefaultB3SampledHeader is a fiber constant.
+	DefaultB3SampledHeader = "X-B3-Sampled"
+	// DefaultAccessLevel is a fiber constant.
+	DefaultAccessLevel = "debug"
+	// DefaultClientErrorLevel is a fiber constant.
+	DefaultClientErrorLevel = "warn"
+	// DefaultServerErrorLevel is a fiber constant.
+	DefaultServerErrorLevel = "error"
 )
 
+// DefaultAccessLogger is a shared fiber value.
 var DefaultAccessLogger = &AccessLoggerConfig{
 	RequestIDContextKey:    DefaultRequestIDContextKey,
 	TraceIDContextKey:      DefaultTraceIDContextKey,
@@ -76,56 +106,59 @@ var DefaultAccessLogger = &AccessLoggerConfig{
 	ServerErrorLevel:       DefaultServerErrorLevel,
 }
 
+// AccessLoggerConfig is a fiber component.
 type AccessLoggerConfig struct {
-	RequestIDContextKey    string `json:"request_id_context_key" yaml:"request_id_context_key" mapstructure:"request_id_context_key"`
-	TraceIDContextKey      string `json:"trace_id_context_key" yaml:"trace_id_context_key" mapstructure:"trace_id_context_key"`
-	SpanIDContextKey       string `json:"span_id_context_key" yaml:"span_id_context_key" mapstructure:"span_id_context_key"`
-	ParentSpanIDContextKey string `json:"parent_span_id_context_key" yaml:"parent_span_id_context_key" mapstructure:"parent_span_id_context_key"`
-	SampledContextKey      string `json:"sampled_context_key" yaml:"sampled_context_key" mapstructure:"sampled_context_key"`
-	AccessLevel            string `json:"access_level" yaml:"access_level" mapstructure:"access_level"`
-	ClientErrorLevel       string `json:"client_error_level" yaml:"client_error_level" mapstructure:"client_error_level"`
-	ServerErrorLevel       string `json:"server_error_level" yaml:"server_error_level" mapstructure:"server_error_level"`
+	RequestIDContextKey    string `json:"request_id_context_key"     mapstructure:"request_id_context_key"     yaml:"request_id_context_key"`
+	TraceIDContextKey      string `json:"trace_id_context_key"       mapstructure:"trace_id_context_key"       yaml:"trace_id_context_key"`
+	SpanIDContextKey       string `json:"span_id_context_key"        mapstructure:"span_id_context_key"        yaml:"span_id_context_key"`
+	ParentSpanIDContextKey string `json:"parent_span_id_context_key" mapstructure:"parent_span_id_context_key" yaml:"parent_span_id_context_key"`
+	SampledContextKey      string `json:"sampled_context_key"        mapstructure:"sampled_context_key"        yaml:"sampled_context_key"`
+	AccessLevel            string `json:"access_level"               mapstructure:"access_level"               yaml:"access_level"`
+	ClientErrorLevel       string `json:"client_error_level"         mapstructure:"client_error_level"         yaml:"client_error_level"`
+	ServerErrorLevel       string `json:"server_error_level"         mapstructure:"server_error_level"         yaml:"server_error_level"`
 }
 
+// Config is a fiber component.
 type Config struct {
-	Network             string              `json:"network" yaml:"network" mapstructure:"network"`
-	Address             string              `json:"address" yaml:"address" mapstructure:"address"`
-	AdvertiseAddress    string              `json:"advertise_address" yaml:"advertise_address" mapstructure:"advertise_address"`
-	TLSCertPEM          string              `json:"tls_cert_pem" yaml:"tls_cert_pem" mapstructure:"tls_cert_pem"`
-	TLSKeyPEM           string              `json:"tls_key_pem" yaml:"tls_key_pem" mapstructure:"tls_key_pem"`
-	StrictRouting       bool                `json:"strict_routing" yaml:"strict_routing" mapstructure:"strict_routing"`
-	CaseSensitive       bool                `json:"case_sensitive" yaml:"case_sensitive" mapstructure:"case_sensitive"`
-	Etag                bool                `json:"etag" yaml:"etag" mapstructure:"etag"`
-	BodyLimit           int                 `json:"body_limit" yaml:"body_limit" mapstructure:"body_limit"`
-	Concurrency         int                 `json:"concurrency" yaml:"concurrency" mapstructure:"concurrency"`
-	ReadBufferSize      int                 `json:"read_buffer_size" yaml:"read_buffer_size" mapstructure:"read_buffer_size"`
-	WriteBufferSize     int                 `json:"write_buffer_size" yaml:"write_buffer_size" mapstructure:"write_buffer_size"`
-	DisableKeepAlive    bool                `json:"disable_keep_alive" yaml:"disable_keep_alive" mapstructure:"disable_keep_alive"`
-	EnableSwagger       bool                `json:"enable_swagger" yaml:"enable_swagger" mapstructure:"enable_swagger"`
-	SwaggerPageTitle    string              `json:"swagger_page_title" yaml:"swagger_page_title" mapstructure:"swagger_page_title"`
-	SwaggerValidatorURL string              `json:"swagger_validator_url" yaml:"swagger_validator_url" mapstructure:"swagger_validator_url"`
-	EnableStackTrace    bool                `json:"enable_stack_trace" yaml:"enable_stack_trace" mapstructure:"enable_stack_trace"`
-	AccessLogger        *AccessLoggerConfig `json:"access_logger" yaml:"access_logger" mapstructure:"access_logger"`
-	CORS                *CORSConfig         `json:"cors" yaml:"cors" mapstructure:"cors"`
+	Network             string              `json:"network"               mapstructure:"network"               yaml:"network"`
+	Address             string              `json:"address"               mapstructure:"address"               yaml:"address"`
+	AdvertiseAddress    string              `json:"advertise_address"     mapstructure:"advertise_address"     yaml:"advertise_address"`
+	TLSCertPEM          string              `json:"tls_cert_pem"          mapstructure:"tls_cert_pem"          yaml:"tls_cert_pem"`
+	TLSKeyPEM           string              `json:"tls_key_pem"           mapstructure:"tls_key_pem"           yaml:"tls_key_pem"`
+	StrictRouting       bool                `json:"strict_routing"        mapstructure:"strict_routing"        yaml:"strict_routing"`
+	CaseSensitive       bool                `json:"case_sensitive"        mapstructure:"case_sensitive"        yaml:"case_sensitive"`
+	Etag                bool                `json:"etag"                  mapstructure:"etag"                  yaml:"etag"`
+	BodyLimit           int                 `json:"body_limit"            mapstructure:"body_limit"            yaml:"body_limit"`
+	Concurrency         int                 `json:"concurrency"           mapstructure:"concurrency"           yaml:"concurrency"`
+	ReadBufferSize      int                 `json:"read_buffer_size"      mapstructure:"read_buffer_size"      yaml:"read_buffer_size"`
+	WriteBufferSize     int                 `json:"write_buffer_size"     mapstructure:"write_buffer_size"     yaml:"write_buffer_size"`
+	DisableKeepAlive    bool                `json:"disable_keep_alive"    mapstructure:"disable_keep_alive"    yaml:"disable_keep_alive"`
+	EnableSwagger       bool                `json:"enable_swagger"        mapstructure:"enable_swagger"        yaml:"enable_swagger"`
+	SwaggerPageTitle    string              `json:"swagger_page_title"    mapstructure:"swagger_page_title"    yaml:"swagger_page_title"`
+	SwaggerValidatorURL string              `json:"swagger_validator_url" mapstructure:"swagger_validator_url" yaml:"swagger_validator_url"`
+	EnableStackTrace    bool                `json:"enable_stack_trace"    mapstructure:"enable_stack_trace"    yaml:"enable_stack_trace"`
+	AccessLogger        *AccessLoggerConfig `json:"access_logger"         mapstructure:"access_logger"         yaml:"access_logger"`
+	CORS                *CORSConfig         `json:"cors"                  mapstructure:"cors"                  yaml:"cors"`
 	// Timeouts guard against Slowloris / slow-read / slow-write DoS.
 	// Zero values fall back to the defaults above; negatives are clamped.
-	ReadTimeout  time.Duration `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
-	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
-	IdleTimeout  time.Duration `json:"idle_timeout" yaml:"idle_timeout" mapstructure:"idle_timeout"`
+	ReadTimeout  time.Duration `json:"read_timeout"  mapstructure:"read_timeout"  yaml:"read_timeout"`
+	WriteTimeout time.Duration `json:"write_timeout" mapstructure:"write_timeout" yaml:"write_timeout"`
+	IdleTimeout  time.Duration `json:"idle_timeout"  mapstructure:"idle_timeout"  yaml:"idle_timeout"`
 	// ShutdownTimeout bounds graceful shutdown; lingering connections
 	// are cut off past the deadline instead of hanging Stop forever.
-	ShutdownTimeout time.Duration `json:"shutdown_timeout" yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+	ShutdownTimeout time.Duration `json:"shutdown_timeout" mapstructure:"shutdown_timeout" yaml:"shutdown_timeout"`
 }
 
 // CORSConfig whitelists cross-origin access. An empty AllowedOrigins
 // disables the CORS middleware entirely (deny by default); use an
 // explicit "*" entry only for public APIs, never with AllowCredentials.
 type CORSConfig struct {
-	AllowedOrigins   []string `json:"allowed_origins" yaml:"allowed_origins" mapstructure:"allowed_origins"`
-	AllowCredentials bool     `json:"allow_credentials" yaml:"allow_credentials" mapstructure:"allow_credentials"`
-	MaxAge           int      `json:"max_age" yaml:"max_age" mapstructure:"max_age"`
+	AllowedOrigins   []string `json:"allowed_origins"   mapstructure:"allowed_origins"   yaml:"allowed_origins"`
+	AllowCredentials bool     `json:"allow_credentials" mapstructure:"allow_credentials" yaml:"allow_credentials"`
+	MaxAge           int      `json:"max_age"           mapstructure:"max_age"           yaml:"max_age"`
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *CORSConfig) Ensure() *CORSConfig {
 	if c == nil {
 		c = new(CORSConfig)
@@ -144,17 +177,19 @@ func (c *CORSConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
+
 	if !c.AllowCredentials {
 		return nil
 	}
-	for _, o := range c.AllowedOrigins {
-		if o == "*" {
-			return errors.New("fiber: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
-		}
+
+	if slices.Contains(c.AllowedOrigins, "*") {
+		return errors.New("fiber: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
 	}
+
 	return nil
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Network: DefaultNetwork,
@@ -162,6 +197,7 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()
@@ -214,12 +250,14 @@ func (c *Config) Ensure() *Config {
 	if c.CORS == nil {
 		c.CORS = &CORSConfig{}
 	}
+
 	c.CORS.Ensure()
 
 	// Non-positive fills the 4MB default; this version offers no opt-out.
 	if c.BodyLimit < 0 {
 		c.BodyLimit = 0
 	}
+
 	if c.BodyLimit == 0 {
 		c.BodyLimit = DefaultBodyLimit
 	}
@@ -227,6 +265,7 @@ func (c *Config) Ensure() *Config {
 	if c.Concurrency < 0 {
 		c.Concurrency = 0
 	}
+
 	if c.Concurrency == 0 {
 		c.Concurrency = DefaultConcurrency
 	}
@@ -242,6 +281,7 @@ func (c *Config) Ensure() *Config {
 	if c.ReadTimeout < 0 {
 		c.ReadTimeout = 0
 	}
+
 	if c.ReadTimeout == 0 {
 		c.ReadTimeout = DefaultReadTimeout
 	}
@@ -249,6 +289,7 @@ func (c *Config) Ensure() *Config {
 	if c.WriteTimeout < 0 {
 		c.WriteTimeout = 0
 	}
+
 	if c.WriteTimeout == 0 {
 		c.WriteTimeout = DefaultWriteTimeout
 	}
@@ -256,6 +297,7 @@ func (c *Config) Ensure() *Config {
 	if c.IdleTimeout < 0 {
 		c.IdleTimeout = 0
 	}
+
 	if c.IdleTimeout == 0 {
 		c.IdleTimeout = DefaultIdleTimeout
 	}
@@ -263,6 +305,7 @@ func (c *Config) Ensure() *Config {
 	if c.ShutdownTimeout < 0 {
 		c.ShutdownTimeout = 0
 	}
+
 	if c.ShutdownTimeout == 0 {
 		c.ShutdownTimeout = DefaultShutdownTimeout
 	}

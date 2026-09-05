@@ -6,8 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/go-sicky/sicky/utils"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
 type fakeServer struct{ id uuid.UUID }
@@ -30,14 +31,42 @@ func (f *fakeServer) Metadata() utils.Metadata { return nil }
 
 func TestRegistryConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			s := &fakeServer{id: uuid.New()}
 			Set(s)
 			_ = Get(s.id)
-		}()
+			_ = Default()
+			_ = Servers()
+		})
 	}
+
 	wg.Wait()
+}
+
+func TestRegistryDefaultAndClear(t *testing.T) {
+	Clear()
+
+	a := &fakeServer{id: uuid.New()}
+	b := &fakeServer{id: uuid.New()}
+	Set(a, b)
+
+	if Default() != Server(a) {
+		t.Fatal("first registered server should be the default")
+	}
+
+	snap := Servers()
+	if len(snap) != 2 {
+		t.Fatalf("Servers() = %d entries, want 2", len(snap))
+	}
+
+	delete(snap, a.id)
+	if len(Servers()) != 2 {
+		t.Fatal("Servers() must return a copy")
+	}
+
+	Clear()
+	if Default() != nil || len(Servers()) != 0 {
+		t.Fatal("Clear() must reset the registry")
+	}
 }

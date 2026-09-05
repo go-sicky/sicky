@@ -38,10 +38,12 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
-	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/job"
 )
 
+// Cron is a cron component.
 type Cron struct {
 	config    *Config
 	ctx       context.Context
@@ -53,7 +55,7 @@ type Cron struct {
 	sync.RWMutex
 }
 
-// New cron job schedular
+// New cron job schedular.
 func New(opts *job.Options, cfg *Config) *Cron {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -79,26 +81,32 @@ func New(opts *job.Options, cfg *Config) *Cron {
 	return j
 }
 
+// Context returns the component context.
 func (job *Cron) Context() context.Context {
 	return job.ctx
 }
 
+// Options returns the runtime options.
 func (job *Cron) Options() *job.Options {
 	return job.options
 }
 
+// String returns a human-readable name.
 func (job *Cron) String() string {
 	return "cron"
 }
 
+// ID returns the unique instance ID.
 func (job *Cron) ID() uuid.UUID {
 	return job.options.ID
 }
 
+// Name returns the component name.
 func (job *Cron) Name() string {
 	return job.options.Name
 }
 
+// Add is part of the public API.
 func (job *Cron) Add(task *Task) error {
 	job.Lock()
 	defer job.Unlock()
@@ -106,6 +114,7 @@ func (job *Cron) Add(task *Task) error {
 	if task == nil {
 		return errors.New("cron task is nil")
 	}
+
 	if task.ID == uuid.Nil {
 		task.ID = uuid.New()
 	}
@@ -124,6 +133,7 @@ func (job *Cron) Add(task *Task) error {
 	return nil
 }
 
+// Start starts the component.
 func (job *Cron) Start() error {
 	job.Lock()
 	defer job.Unlock()
@@ -144,6 +154,7 @@ func (job *Cron) Start() error {
 		if task == nil || task.Handler == nil {
 			continue
 		}
+
 		_, err := job.scheduler.NewJob(
 			gocron.CronJob(task.Expression, true),
 			gocron.NewTask(
@@ -179,6 +190,7 @@ func (job *Cron) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (job *Cron) Stop() error {
 	job.Lock()
 	defer job.Unlock()
@@ -197,9 +209,10 @@ func (job *Cron) Stop() error {
 	return nil
 }
 
-/* {{{ [Task] */
+/* {{{ [Task]. */
 type CronHandler func() error
 
+// Task is a cron component.
 type Task struct {
 	ID         uuid.UUID
 	Expression string
@@ -216,6 +229,7 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 	if task == nil || task.Timeout <= 0 || h == nil {
 		return h
 	}
+
 	timeout := task.Timeout
 
 	return func() error {

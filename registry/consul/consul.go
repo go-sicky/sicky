@@ -33,15 +33,17 @@ package consul
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
+	"github.com/hashicorp/consul/api"
 
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
-	"github.com/hashicorp/consul/api"
 )
 
+// Consul is a consul component.
 type Consul struct {
 	config  *Config
 	ctx     context.Context
@@ -50,6 +52,7 @@ type Consul struct {
 	watcher *Watcher
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *registry.Options, cfg *Config) *Consul {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -104,26 +107,32 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 	return rg
 }
 
+// Context returns the component context.
 func (rg *Consul) Context() context.Context {
 	return rg.ctx
 }
 
+// Options returns the runtime options.
 func (rg *Consul) Options() *registry.Options {
 	return rg.options
 }
 
+// String returns a human-readable name.
 func (rg *Consul) String() string {
 	return "consul"
 }
 
+// ID returns the unique instance ID.
 func (rg *Consul) ID() uuid.UUID {
 	return rg.options.ID
 }
 
+// Name returns the component name.
 func (rg *Consul) Name() string {
 	return rg.options.Name
 }
 
+// Register registers the collector.
 func (rg *Consul) Register(ins *registry.Instance) error {
 	reg := &api.AgentServiceRegistration{
 		Kind:    api.ServiceKindTypical,
@@ -137,7 +146,6 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 
 	if ins.Servers != nil {
 		for _, v := range ins.Servers {
-			// reg.Meta["server::"+n] = utils.JSONAnyString(v)
 			reg.Tags = append(reg.Tags, utils.JSONAnyString(v))
 		}
 	}
@@ -156,7 +164,7 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 
 	if ins.Tags != nil {
 		for n, v := range ins.Tags {
-			reg.Meta["tag-"+fmt.Sprintf("%d", n)] = v
+			reg.Meta["tag-"+strconv.Itoa(n)] = v
 		}
 	}
 
@@ -193,6 +201,7 @@ func (rg *Consul) Register(ins *registry.Instance) error {
 	return nil
 }
 
+// Deregister removes the registration.
 func (rg *Consul) Deregister(id uuid.UUID) error {
 	err := rg.client.Agent().ServiceDeregister(id.String())
 	if err != nil {
@@ -221,6 +230,7 @@ func (rg *Consul) Deregister(id uuid.UUID) error {
 	return nil
 }
 
+// CheckInstance checks instance liveness.
 func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	svcs, err := rg.client.Agent().Services()
 	if err != nil {
@@ -241,6 +251,7 @@ func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	return ok
 }
 
+// Load loads persisted state.
 func (rg *Consul) Load() ([]*registry.Instance, error) {
 	svcs, err := rg.client.Agent().Services()
 	if err != nil {
@@ -258,7 +269,6 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 
 	var instances []*registry.Instance
 	for _, svc := range svcs {
-		// utils.JSONAny(svc)
 		id, err := uuid.Parse(svc.ID)
 		if err != nil {
 			rg.options.Logger.WarnContext(
@@ -306,13 +316,13 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 		}
 
 		for k, v := range svc.Meta {
-			if strings.HasPrefix(k, "meta-") {
-				key := strings.TrimPrefix(k, "meta-")
+			if after, ok := strings.CutPrefix(k, "meta-"); ok {
+				key := after
 				instance.Metadata.Set(key, v)
 			}
 
-			if strings.HasPrefix(k, "topic-") {
-				key := strings.TrimPrefix(k, "topic-")
+			if after, ok := strings.CutPrefix(k, "topic-"); ok {
+				key := after
 				var topic registry.Topic
 				err = json.Unmarshal([]byte(v), &topic)
 				if err != nil {
@@ -343,9 +353,13 @@ func (rg *Consul) Load() ([]*registry.Instance, error) {
 	return instances, nil
 }
 
+// Watch watches for changes.
 func (rg *Consul) Watch() error {
 	if rg.watcher != nil {
-		rg.watcher.Start()
+		if err := rg.watcher.Start(); err != nil {
+			return err
+		}
+
 		rg.options.Logger.InfoContext(
 			rg.ctx,
 			"Consul registry watcher start",
@@ -366,9 +380,12 @@ func (rg *Consul) Watch() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (rg *Consul) Stop() error {
 	if rg.watcher != nil {
-		rg.watcher.Stop()
+		if err := rg.watcher.Stop(); err != nil {
+			return err
+		}
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,

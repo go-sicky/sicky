@@ -34,14 +34,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/registry"
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
+// Context is a internal component.
 type Context struct {
 	Base context.Context
 

@@ -30,18 +30,21 @@
 
 package standard
 
+// Config is a standard component.
 type Config struct {
-	DisableTrace          bool `json:"disable_trace" yaml:"disable_trace" mapstructure:"disable_trace"`
-	DisableServerRegister bool `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
-	DisableWrappers       bool `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
-	DisableJobs           bool `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
-	DisableTracing        bool `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
+	DisableTrace          bool `json:"disable_trace"           mapstructure:"disable_trace"           yaml:"disable_trace"`
+	DisableServerRegister bool `json:"disable_server_register" mapstructure:"disable_server_register" yaml:"disable_server_register"`
+	DisableWrappers       bool `json:"disable_wrappers"        mapstructure:"disable_wrappers"        yaml:"disable_wrappers"`
+	DisableJobs           bool `json:"disable_jobs"            mapstructure:"disable_jobs"            yaml:"disable_jobs"`
+	DisableTracing        bool `json:"disable_tracing"         mapstructure:"disable_tracing"         yaml:"disable_tracing"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

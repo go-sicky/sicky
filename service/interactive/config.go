@@ -31,27 +31,34 @@
 package interactive
 
 const (
+	// DefaultStartupInfo is a interactive constant.
 	DefaultStartupInfo = "\n @Sicky application\n"
-	DefaultPrompt      = "SICKY> "
+	// DefaultPrompt is a interactive constant.
+	DefaultPrompt = "SICKY> "
+	// DefaultPromptColor is a interactive constant.
 	DefaultPromptColor = "green"
+	// DefaultStopCommand is a interactive constant.
 	DefaultStopCommand = "exit"
 )
 
+// Config is a interactive component.
 type Config struct {
-	StartupInfo           string `json:"startup_info" yaml:"startup_info" mapstructure:"startup_info"`
-	Prompt                string `json:"prompt" yaml:"prompt" mapstructure:"prompt"`
-	PromptColor           string `json:"prompt_color" yaml:"prompt_color" mapstructure:"prompt_color"`
-	StopCommand           string `json:"stop_command" yaml:"stop_command" mapstructure:"stop_command"`
-	DisableWrappers       bool   `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
-	DisableJobs           bool   `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
-	DisableServerRegister bool   `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
-	DisableTracing        bool   `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
+	StartupInfo           string `json:"startup_info"            mapstructure:"startup_info"            yaml:"startup_info"`
+	Prompt                string `json:"prompt"                  mapstructure:"prompt"                  yaml:"prompt"`
+	PromptColor           string `json:"prompt_color"            mapstructure:"prompt_color"            yaml:"prompt_color"`
+	StopCommand           string `json:"stop_command"            mapstructure:"stop_command"            yaml:"stop_command"`
+	DisableWrappers       bool   `json:"disable_wrappers"        mapstructure:"disable_wrappers"        yaml:"disable_wrappers"`
+	DisableJobs           bool   `json:"disable_jobs"            mapstructure:"disable_jobs"            yaml:"disable_jobs"`
+	DisableServerRegister bool   `json:"disable_server_register" mapstructure:"disable_server_register" yaml:"disable_server_register"`
+	DisableTracing        bool   `json:"disable_tracing"         mapstructure:"disable_tracing"         yaml:"disable_tracing"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

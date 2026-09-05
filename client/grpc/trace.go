@@ -34,12 +34,13 @@ import (
 	"context"
 	"strings"
 
-	sickytracer "github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	sickytracer "github.com/go-sicky/sicky/tracer"
 )
 
 // injectSpanContext merges the span context into the outgoing gRPC
@@ -55,12 +56,15 @@ func injectSpanContext(ctx context.Context) context.Context {
 	} else {
 		md = md.Copy()
 	}
+
 	for k, v := range carrier {
 		if v == "" {
 			continue
 		}
+
 		md.Set(strings.ToLower(k), v)
 	}
+
 	if vals := md.Get("x-request-id"); len(vals) == 0 || vals[0] == "" {
 		md.Set("x-request-id", uuid.New().String())
 	}
@@ -68,6 +72,7 @@ func injectSpanContext(ctx context.Context) context.Context {
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
+// NewClientTracingInterceptor creates a new ClientTracingInterceptor.
 func NewClientTracingInterceptor(tracer trace.Tracer) grpc.UnaryClientInterceptor {
 	if tracer != nil {
 		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
@@ -94,6 +99,7 @@ type tracingClientStream struct {
 	span trace.Span
 }
 
+// NewClientStreamTracingInterceptor creates a new ClientStreamTracingInterceptor.
 func NewClientStreamTracingInterceptor(tracer trace.Tracer) grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		if tracer == nil {

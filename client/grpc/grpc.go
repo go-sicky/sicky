@@ -38,10 +38,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/metrics"
-	"github.com/go-sicky/sicky/registry"
-	"github.com/go-sicky/sicky/tracer"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -49,6 +45,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
+
+	"github.com/go-sicky/sicky/client"
+	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/registry"
+	"github.com/go-sicky/sicky/tracer"
 )
 
 // How often the discovery loop retries while the registry pool is not
@@ -59,7 +60,7 @@ const (
 	discoveryResyncInterval = 30 * time.Second
 )
 
-// GRPCClient : Client definition
+// GRPCClient : Client definition.
 type GRPCClient struct {
 	config    *Config
 	options   *client.Options
@@ -72,7 +73,7 @@ type GRPCClient struct {
 	closeOnce sync.Once
 }
 
-// New GRPC client
+// New GRPC client.
 func New(opts *client.Options, cfg *Config) *GRPCClient {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -128,8 +129,10 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	}
 
 	if cfg.MaxMsgSize != 0 {
-		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize)))
-		gopts = append(gopts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(cfg.MaxMsgSize)))
+		gopts = append(gopts, grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(cfg.MaxMsgSize),
+			grpc.MaxCallSendMsgSize(cfg.MaxMsgSize),
+		))
 	}
 
 	if cfg.ReadBufferSize != 0 {
@@ -154,6 +157,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		unaryChain = append(unaryChain, NewClientTracingInterceptor(tr))
 		streamChain = append(streamChain, NewClientStreamTracingInterceptor(tr))
 	}
+
 	unaryChain = append(unaryChain, NewClientLoggerInterceptor(clt.options.Logger))
 	streamChain = append(streamChain, NewClientStreamLoggerInterceptor(clt.options.Logger))
 	gopts = append(gopts,
@@ -196,8 +200,10 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 
 		// Override default service config
 		b, _ := json.Marshal(sc)
-		gopts = append(gopts, grpc.WithDefaultServiceConfig(string(b)))
-		gopts = append(gopts, grpc.WithResolvers(r))
+		gopts = append(gopts,
+			grpc.WithDefaultServiceConfig(string(b)),
+			grpc.WithResolvers(r),
+		)
 
 		conn, err = grpc.NewClient("sicky:///"+cfg.Service, gopts...)
 	}
@@ -251,17 +257,21 @@ func resolveGRPCAddrs(service string) []resolver.Address {
 		if in == nil {
 			continue
 		}
+
 		for _, srv := range in.Servers {
 			if srv == nil || srv.Type != "grpc" {
 				continue
 			}
+
 			addr := srv.AdvertiseAddress
 			if addr == "" {
 				addr = in.AdvertiseAddress
 			}
+
 			if addr == "" || srv.Port <= 0 {
 				continue
 			}
+
 			addrs = append(addrs, resolver.Address{
 				Addr: fmt.Sprintf("%s:%d", addr, srv.Port),
 			})
@@ -289,6 +299,7 @@ func watchRegistryPool(clt *GRPCClient, r *manual.Resolver, service string) {
 			case <-time.After(discoveryRetryInterval):
 				r.UpdateState(resolver.State{Addresses: resolveGRPCAddrs(service)})
 			}
+
 			continue
 		}
 
@@ -305,20 +316,24 @@ func watchRegistryPool(clt *GRPCClient, r *manual.Resolver, service string) {
 	}
 }
 
+// Options returns the runtime options.
 func (clt *GRPCClient) Options() *client.Options {
 	return clt.options
 }
 
+// Context returns the component context.
 func (clt *GRPCClient) Context() context.Context {
 	return clt.ctx
 }
 
+// Connect connects to the backend.
 func (clt *GRPCClient) Connect() error {
 	clt.connected = true
 
 	return nil
 }
 
+// Disconnect disconnects from the backend.
 func (clt *GRPCClient) Disconnect() error {
 	clt.connected = false
 	clt.closeOnce.Do(func() { close(clt.done) })
@@ -330,23 +345,27 @@ func (clt *GRPCClient) Disconnect() error {
 // go through Invoke (unary) or NewStream (streaming).
 func (clt *GRPCClient) Call() error {
 	metrics.NumGRPCClientCallCounter.Inc()
+
 	return nil
 }
 
+// String returns a human-readable name.
 func (clt *GRPCClient) String() string {
 	return "grpc"
 }
 
+// Name returns the component name.
 func (clt *GRPCClient) Name() string {
 	return clt.options.Name
 }
 
+// ID returns the unique instance ID.
 func (clt *GRPCClient) ID() uuid.UUID {
 	return clt.options.ID
 }
 
-// For GRPC client connection
-func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error {
+// For GRPC client connection.
+func (clt *GRPCClient) Invoke(ctx context.Context, method string, args, reply any, opts ...grpc.CallOption) error {
 	// Invoke logger
 	clt.options.Logger.DebugContext(
 		ctx,
@@ -368,11 +387,14 @@ func (clt *GRPCClient) Invoke(ctx context.Context, method string, args any, repl
 			"method", method,
 			"error", err.Error(),
 		)
+
+		return fmt.Errorf("grpc client invoke (method %s): %w", method, err)
 	}
 
-	return err
+	return nil
 }
 
+// NewStream creates a new Stream.
 func (clt *GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	// Stream call
 	clt.options.Logger.DebugContext(
@@ -393,7 +415,7 @@ func (clt *GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, met
 			"error", err.Error(),
 		)
 
-		return nil, err
+		return nil, fmt.Errorf("grpc client new stream (method %s): %w", method, err)
 	}
 
 	return stream, nil

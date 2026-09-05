@@ -33,14 +33,28 @@ package utils
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"reflect"
+	"slices"
 	"strings"
 	"unsafe"
 )
 
-var ErrNilConnection = errors.New("nil connection")
+// ErrNilConnection is a shared utils value.
+var ErrNilConnection = errors.New("utils: nil connection")
 
+// Well-known network names shared by the AddrToIP family.
+const (
+	networkTCP  = "tcp"
+	networkTCP4 = "tcp4"
+	networkTCP6 = "tcp6"
+	networkUDP  = "udp"
+	networkUDP4 = "udp4"
+	networkUDP6 = "udp6"
+)
+
+// ObtainIPs is a utility helper.
 func ObtainIPs() ([]net.IP, error) {
 	ret := make([]net.IP, 0)
 
@@ -68,6 +82,7 @@ func ObtainIPs() ([]net.IP, error) {
 	return ret, nil
 }
 
+// ObtainPreferIP is a utility helper.
 func ObtainPreferIP(ipv4Only bool) (net.IP, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -95,43 +110,44 @@ func ObtainPreferIP(ipv4Only bool) (net.IP, error) {
 			if ip == nil {
 				continue
 			}
+
 			if ipv4Only && ip.To4() == nil {
 				continue
 			}
 
-			if ip.IsLoopback() {
+			switch {
+			case ip.IsLoopback():
 				ips[0] = append(ips[0], ip)
-			} else if ip.IsPrivate() {
+			case ip.IsPrivate():
 				ips[1] = append(ips[1], ip)
-			} else if ip.IsMulticast() {
+			case ip.IsMulticast():
 				ips[2] = append(ips[2], ip)
-			} else if !ip.IsUnspecified() {
+			case !ip.IsUnspecified():
 				ips[3] = append(ips[3], ip)
 			}
 		}
 	}
 
-	if len(ips[3]) > 0 {
-		return ips[3][0], nil
-	} else if len(ips[2]) > 0 {
-		return ips[2][0], nil
-	} else if len(ips[1]) > 0 {
-		return ips[1][0], nil
-	} else if len(ips[0]) > 0 {
-		return ips[0][0], nil
+	// Buckets are ordered loopback < private < multicast < public: the
+	// first non-empty bucket from the top wins.
+	for i := range slices.Backward(ips) {
+		if len(ips[i]) > 0 {
+			return ips[i][0], nil
+		}
 	}
 
 	return nil, nil
 }
 
+// AddrToIP is a utility helper.
 func AddrToIP(addr net.Addr) net.IP {
 	switch addr.Network() {
-	case "tcp", "tcp4", "tcp6":
+	case networkTCP, networkTCP4, networkTCP6:
 		// TCP
 		if tcpAddr, ok := addr.(*net.TCPAddr); ok {
 			return tcpAddr.IP
 		}
-	case "udp", "udp4", "udp6":
+	case networkUDP, networkUDP4, networkUDP6:
 		// UDP
 		if udpAddr, ok := addr.(*net.UDPAddr); ok {
 			return udpAddr.IP
@@ -148,14 +164,15 @@ func AddrToIP(addr net.Addr) net.IP {
 	return nil
 }
 
+// AddrToPort is a utility helper.
 func AddrToPort(addr net.Addr) int {
 	switch addr.Network() {
-	case "tcp", "tcp4", "tcp6":
+	case networkTCP, networkTCP4, networkTCP6:
 		// TCP
 		if tcpAddr, ok := addr.(*net.TCPAddr); ok {
 			return tcpAddr.Port
 		}
-	case "udp", "udp4", "udp6":
+	case networkUDP, networkUDP4, networkUDP6:
 		// UDP
 		if udpAddr, ok := addr.(*net.UDPAddr); ok {
 			return udpAddr.Port
@@ -167,6 +184,7 @@ func AddrToPort(addr net.Addr) int {
 	return 0
 }
 
+// Advertise is a utility helper.
 func Advertise(listen, advertise, network string) net.Addr {
 	host, port, err := net.SplitHostPort(advertise)
 	if err != nil {
@@ -185,11 +203,10 @@ func Advertise(listen, advertise, network string) net.Addr {
 		if err != nil {
 			return nil
 		}
-
 	}
 
 	switch network {
-	case "tcp", "tcp4", "tcp6":
+	case networkTCP, networkTCP4, networkTCP6:
 		// TCP
 		addr, err := net.ResolveTCPAddr(network, net.JoinHostPort(host, port))
 		if err != nil {
@@ -197,7 +214,7 @@ func Advertise(listen, advertise, network string) net.Addr {
 		}
 
 		return addr
-	case "udp", "udp4", "udp6":
+	case networkUDP, networkUDP4, networkUDP6:
 		// UDP
 		addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(host, port))
 		if err != nil {
@@ -212,14 +229,16 @@ func Advertise(listen, advertise, network string) net.Addr {
 	return nil
 }
 
+// Net2fd is a utility helper.
+//
+//nolint:gosec // G103: deliberate unsafe introspection (tls.Conn unwrap + fd digging); audited, read-only use
 func Net2fd(conn net.Conn) (int, error) {
 	c := conn
 	if c == nil {
 		return -1, ErrNilConnection
 	}
 
-	switch conn.(type) {
-	case *tls.Conn:
+	if _, ok := conn.(*tls.Conn); ok {
 		innerConn := reflect.Indirect(
 			reflect.ValueOf(conn).Elem().FieldByName("conn"),
 		)
@@ -229,7 +248,12 @@ func Net2fd(conn net.Conn) (int, error) {
 				innerConn.UnsafeAddr(),
 			),
 		).Elem()
-		c = v.Interface().(net.Conn)
+		nc, ok := reflect.TypeAssert[net.Conn](v)
+		if !ok {
+			return -1, fmt.Errorf("utils: Net2fd inner conn is %T, not net.Conn", v.Interface())
+		}
+
+		c = nc
 	}
 
 	fdVal := reflect.Indirect(

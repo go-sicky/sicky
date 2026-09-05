@@ -31,19 +31,23 @@
 package ticker
 
 const (
+	// DefaultInterval is a ticker constant.
 	DefaultInterval = 1
 )
 
+// Config is a ticker component.
 type Config struct {
-	Interval int64 `json:"interval" yaml:"interval" mapstructure:"interval"`
+	Interval int64 `json:"interval" mapstructure:"interval" yaml:"interval"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Interval: DefaultInterval,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// MetadataConfig is a fiber component.
 type MetadataConfig struct {
 	Next                   func(c *fiber.Ctx) bool
 	RequestIDContextKey    string
@@ -49,18 +50,19 @@ type MetadataConfig struct {
 	SampledHeader          string
 }
 
+// MetadataConfigDefault is a shared fiber value.
 var MetadataConfigDefault = MetadataConfig{
 	Next:                   nil,
-	RequestIDContextKey:    "requestid",
-	TraceIDContextKey:      "traceid",
-	SpanIDContextKey:       "spanid",
-	ParentSpanIDContextKey: "parentspanid",
-	SampledContextKey:      "sampled",
+	RequestIDContextKey:    DefaultRequestIDContextKey,
+	TraceIDContextKey:      DefaultTraceIDContextKey,
+	SpanIDContextKey:       DefaultSpanIDContextKey,
+	ParentSpanIDContextKey: DefaultParentSpanIDContextKey,
+	SampledContextKey:      DefaultSampledContextKey,
 	RequestIDHeader:        "X-Request-ID",
-	TraceIDHeader:          "X-B3-Traceid",
-	SpanIDHeader:           "X-B3-Spanid",
-	ParentSpanIDHeader:     "X-B3-Parentspanid",
-	SampledHeader:          "X-B3-Sampled",
+	TraceIDHeader:          DefaultB3TraceIDHeader,
+	SpanIDHeader:           DefaultB3SpanIDHeader,
+	ParentSpanIDHeader:     DefaultB3ParentSpanIDHeader,
+	SampledHeader:          DefaultB3SampledHeader,
 }
 
 func metadataConfigDefault(config ...MetadataConfig) MetadataConfig {
@@ -116,6 +118,7 @@ func metadataConfigDefault(config ...MetadataConfig) MetadataConfig {
 	return cfg
 }
 
+// NewMetadataMiddleware creates a new MetadataMiddleware.
 func NewMetadataMiddleware(config ...MetadataConfig) fiber.Handler {
 	cfg := metadataConfigDefault(config...)
 

@@ -38,10 +38,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-sicky/sicky/job"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/job"
 )
 
+// Ticker is a ticker component.
 type Ticker struct {
 	config  *Config
 	ctx     context.Context
@@ -56,7 +58,7 @@ type Ticker struct {
 	sync.RWMutex
 }
 
-// New ticker job schedular
+// New ticker job schedular.
 func New(opts *job.Options, cfg *Config) *Ticker {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -82,30 +84,37 @@ func New(opts *job.Options, cfg *Config) *Ticker {
 	return j
 }
 
+// Context returns the component context.
 func (job *Ticker) Context() context.Context {
 	return job.ctx
 }
 
+// Options returns the runtime options.
 func (job *Ticker) Options() *job.Options {
 	return job.options
 }
 
+// String returns a human-readable name.
 func (job *Ticker) String() string {
 	return "ticker"
 }
 
+// ID returns the unique instance ID.
 func (job *Ticker) ID() uuid.UUID {
 	return job.options.ID
 }
 
+// Name returns the component name.
 func (job *Ticker) Name() string {
 	return job.options.Name
 }
 
+// Add is part of the public API.
 func (job *Ticker) Add(task *Task) error {
 	if task == nil {
 		return errors.New("ticker task is nil")
 	}
+
 	job.Lock()
 	defer job.Unlock()
 
@@ -122,6 +131,7 @@ func (job *Ticker) Add(task *Task) error {
 	return nil
 }
 
+// Start starts the component.
 func (job *Ticker) Start() error {
 	job.Lock()
 	defer job.Unlock()
@@ -132,15 +142,14 @@ func (job *Ticker) Start() error {
 
 	job.done = make(chan struct{})
 	job.ticker = time.NewTicker(time.Duration(job.config.Interval) * time.Second)
-	job.wg.Add(1)
-	go func() {
-		defer job.wg.Done()
+	job.wg.Go(func() {
 		for {
 			select {
 			case t, ok := <-job.ticker.C:
 				if !ok {
 					return
 				}
+
 				job.RLock()
 				snapshot := append([]*Task(nil), job.tasks...)
 				job.RUnlock()
@@ -149,6 +158,7 @@ func (job *Ticker) Start() error {
 					if hdl == nil || hdl.Handler == nil || hdl.Inteval <= 0 {
 						continue
 					}
+
 					if count%hdl.Inteval == 0 {
 						func() {
 							defer func() {
@@ -172,7 +182,7 @@ func (job *Ticker) Start() error {
 				return
 			}
 		}
-	}()
+	})
 
 	job.running = true
 
@@ -189,10 +199,12 @@ func (job *Ticker) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (job *Ticker) Stop() error {
 	job.Lock()
 	if !job.running {
 		job.Unlock()
+
 		return nil
 	}
 
@@ -217,8 +229,10 @@ func (job *Ticker) Stop() error {
 
 /* {{{ [Task] */
 
+// TickerHandler is a ticker component.
 type TickerHandler func(time.Time, uint64) error
 
+// Task is a ticker component.
 type Task struct {
 	ID      uuid.UUID
 	Inteval uint64
@@ -238,6 +252,7 @@ func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
 
 		return hdl.Handler(t, count)
 	}
+
 	timeout := hdl.Timeout
 
 	done := make(chan error, 1)

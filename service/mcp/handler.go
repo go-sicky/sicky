@@ -30,12 +30,13 @@
 
 package mcp
 
+// Handler is a mcp component.
 type Handler interface {
 	Name() string
 	Description() string
 
 	Tools() []Tool
-	CallTool(name string, args map[string]interface{}) (*ToolsCallResult, error)
+	CallTool(name string, args map[string]any) (*ToolsCallResult, error)
 
 	Resources() []Resource
 	ReadResource(uri string) (*ResourcesReadResult, error)

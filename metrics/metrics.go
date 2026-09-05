@@ -31,6 +31,7 @@
 package metrics
 
 import (
+	"maps"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -44,36 +45,42 @@ var (
 
 var (
 	// Server Metrics
+	// NumGRPCServerAccessCounter is a shared metrics value.
 	NumGRPCServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_grpc_server_access",
 			Help: "Number of grpc access",
 		},
 	)
+	// NumHTTPServerAccessCounter is a shared metrics value.
 	NumHTTPServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_http_server_access",
 			Help: "Number of http access",
 		},
 	)
+	// NumFiberServerAccessCounter is a shared metrics value.
 	NumFiberServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_fiber_server_access",
 			Help: "Number of fiber access",
 		},
 	)
+	// NumTCPServerAccessCounter is a shared metrics value.
 	NumTCPServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_tcp_server_access",
 			Help: "Number of tcp access",
 		},
 	)
+	// NumUDPServerAccessCounter is a shared metrics value.
 	NumUDPServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_udp_server_access",
 			Help: "Number of udp access",
 		},
 	)
+	// NumWebsocketServerAccessCounter is a shared metrics value.
 	NumWebsocketServerAccessCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_websocket_server_access",
@@ -82,30 +89,35 @@ var (
 	)
 
 	// Client Metrics
+	// NumGRPCClientCallCounter is a shared metrics value.
 	NumGRPCClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_grpc_client_call",
 			Help: "Number of grpc call",
 		},
 	)
+	// NumHTTPClientCallCounter is a shared metrics value.
 	NumHTTPClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_http_client_call",
 			Help: "Number of http call",
 		},
 	)
+	// NumTCPClientCallCounter is a shared metrics value.
 	NumTCPClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_tcp_client_call",
 			Help: "Number of tcp call",
 		},
 	)
+	// NumUDPClientCallCounter is a shared metrics value.
 	NumUDPClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_udp_client_call",
 			Help: "Number of udp call",
 		},
 	)
+	// NumWebsocketClientCallCounter is a shared metrics value.
 	NumWebsocketClientCallCounter = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "num_websocket_client_call",
@@ -114,6 +126,7 @@ var (
 	)
 )
 
+// Register registers the collector.
 func Register(name string, c prometheus.Collector) {
 	lock.Lock()
 	defer lock.Unlock()
@@ -121,6 +134,7 @@ func Register(name string, c prometheus.Collector) {
 	pool[name] = c
 }
 
+// Unregister removes the collector.
 func Unregister(name string) {
 	lock.Lock()
 	defer lock.Unlock()
@@ -128,6 +142,7 @@ func Unregister(name string) {
 	delete(pool, name)
 }
 
+// UnregisterAll removes all collectors.
 func UnregisterAll() {
 	lock.Lock()
 	defer lock.Unlock()
@@ -137,6 +152,7 @@ func UnregisterAll() {
 	}
 }
 
+// Get looks up a metrics instance by ID.
 func Get(name string) prometheus.Collector {
 	lock.RLock()
 	defer lock.RUnlock()
@@ -144,14 +160,13 @@ func Get(name string) prometheus.Collector {
 	return pool[name]
 }
 
+// GetAll returns a copy of all registered collectors.
 func GetAll() map[string]prometheus.Collector {
 	lock.RLock()
 	defer lock.RUnlock()
 
 	out := make(map[string]prometheus.Collector, len(pool))
-	for k, v := range pool {
-		out[k] = v
-	}
+	maps.Copy(out, pool)
 
 	return out
 }

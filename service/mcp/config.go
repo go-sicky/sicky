@@ -31,29 +31,35 @@
 package mcp
 
 const (
+	// MCPTransportStdio is a mcp constant.
 	MCPTransportStdio = "stdio"
-	MCPTransportHTTP  = "http"
+	// MCPTransportHTTP is a mcp constant.
+	MCPTransportHTTP = "http"
 )
 
 const (
+	// DefaultTransport is a mcp constant.
 	DefaultTransport = MCPTransportStdio
 )
 
+// Config is a mcp component.
 type Config struct {
-	DisableWrappers       bool   `json:"disable_wrappers" yaml:"disable_wrappers" mapstructure:"disable_wrappers"`
-	DisableJobs           bool   `json:"disable_jobs" yaml:"disable_jobs" mapstructure:"disable_jobs"`
-	DisableServerRegister bool   `json:"disable_server_register" yaml:"disable_server_register" mapstructure:"disable_server_register"`
-	DisableTracing        bool   `json:"disable_tracing" yaml:"disable_tracing" mapstructure:"disable_tracing"`
-	Transport             string `json:"transport" yaml:"transport" mapstructure:"transport"`
-	Listen                string `json:"listen" yaml:"listen" mapstructure:"listen"`
+	DisableWrappers       bool   `json:"disable_wrappers"        mapstructure:"disable_wrappers"        yaml:"disable_wrappers"`
+	DisableJobs           bool   `json:"disable_jobs"            mapstructure:"disable_jobs"            yaml:"disable_jobs"`
+	DisableServerRegister bool   `json:"disable_server_register" mapstructure:"disable_server_register" yaml:"disable_server_register"`
+	DisableTracing        bool   `json:"disable_tracing"         mapstructure:"disable_tracing"         yaml:"disable_tracing"`
+	Transport             string `json:"transport"               mapstructure:"transport"               yaml:"transport"`
+	Listen                string `json:"listen"                  mapstructure:"listen"                  yaml:"listen"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Transport: DefaultTransport,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

@@ -38,7 +38,7 @@ import (
 func TestRandomString(t *testing.T) {
 	t.Run("length zero", func(t *testing.T) {
 		s := RandomString(0)
-		if len(s) != 0 {
+		if s != "" {
 			t.Errorf("expected empty string, got %q", s)
 		}
 	})

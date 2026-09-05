@@ -31,19 +31,23 @@
 package consul
 
 const (
+	// DefaultConsulEndpoint is a consul constant.
 	DefaultConsulEndpoint = "http://localhost:8500"
 )
 
+// Config is a consul component.
 type Config struct {
-	Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+	Endpoint string `json:"endpoint" mapstructure:"endpoint" yaml:"endpoint"`
 }
 
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Endpoint: DefaultConsulEndpoint,
 	}
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = DefaultConfig()

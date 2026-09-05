@@ -37,18 +37,25 @@ import (
 	"strconv"
 )
 
+// JSONRPCVersion is a protocol constant.
 const JSONRPCVersion = "2.0"
 
 var (
-	ErrInvalidRequest       = errors.New("invalid request")
-	ErrParseError           = errors.New("parse error")
-	ErrMethodNotFound       = errors.New("method not found")
-	ErrInvalidParams        = errors.New("invalid params")
-	ErrInternalError        = errors.New("internal error")
+	// ErrInvalidRequest is a shared protocol value.
+	ErrInvalidRequest = errors.New("invalid request")
+	// ErrParseError is a shared protocol value.
+	ErrParseError = errors.New("parse error")
+	// ErrMethodNotFound is a shared protocol value.
+	ErrMethodNotFound = errors.New("method not found")
+	// ErrInvalidParams is a shared protocol value.
+	ErrInvalidParams = errors.New("invalid params")
+	// ErrInternalError is a shared protocol value.
+	ErrInternalError = errors.New("internal error")
+	// ErrServerNotInitialized is a shared protocol value.
 	ErrServerNotInitialized = errors.New("server not initialized")
 )
 
-// JSON-RPC 2.0 error codes
+// JSON-RPC 2.0 error codes.
 const (
 	ErrCodeParseError     = -32700
 	ErrCodeInvalidRequest = -32600
@@ -57,6 +64,7 @@ const (
 	ErrCodeInternalError  = -32603
 )
 
+// Request is a protocol component.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      *RequestID      `json:"id,omitempty"`
@@ -64,14 +72,19 @@ type Request struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// RequestID is a protocol component.
 type RequestID struct {
 	value string
 	isNum bool
 }
 
+// NewStringID creates a new StringID.
 func NewStringID(s string) *RequestID { return &RequestID{value: s} }
-func NewNumberID(n int64) *RequestID  { return &RequestID{value: strconv.FormatInt(n, 10), isNum: true} }
 
+// NewNumberID creates a new NumberID.
+func NewNumberID(n int64) *RequestID { return &RequestID{value: strconv.FormatInt(n, 10), isNum: true} }
+
+// MarshalJSON encodes to JSON.
 func (r *RequestID) MarshalJSON() ([]byte, error) {
 	if r.isNum {
 		n, err := strconv.ParseInt(r.value, 10, 64)
@@ -85,6 +98,7 @@ func (r *RequestID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.value)
 }
 
+// UnmarshalJSON decodes from JSON.
 func (r *RequestID) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 || string(data) == "null" {
 		r.value = ""
@@ -108,13 +122,19 @@ func (r *RequestID) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	return fmt.Errorf("RequestID must be string or number, got %s", string(data))
+	return fmt.Errorf("requestID must be string or number, got %s", string(data))
 }
 
+// String returns a human-readable name.
 func (r *RequestID) String() string { return r.value }
-func (r *RequestID) Int64() int64   { n, _ := strconv.ParseInt(r.value, 10, 64); return n }
-func (r *RequestID) IsNum() bool    { return r.isNum }
 
+// Int64 returns the numeric ID.
+func (r *RequestID) Int64() int64 { n, _ := strconv.ParseInt(r.value, 10, 64); return n }
+
+// IsNum reports whether the ID is numeric.
+func (r *RequestID) IsNum() bool { return r.isNum }
+
+// Response is a protocol component.
 type Response struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      *RequestID      `json:"id,omitempty"`
@@ -122,7 +142,8 @@ type Response struct {
 	Error   *ResponseError  `json:"error,omitempty"`
 }
 
-func NewResponse(id *RequestID, result interface{}) *Response {
+// NewResponse creates a new Response.
+func NewResponse(id *RequestID, result any) *Response {
 	data, _ := json.Marshal(result)
 
 	return &Response{
@@ -132,6 +153,7 @@ func NewResponse(id *RequestID, result interface{}) *Response {
 	}
 }
 
+// NewErrorResponse creates a new ErrorResponse.
 func NewErrorResponse(id *RequestID, code int, message string) *Response {
 	return &Response{
 		JSONRPC: JSONRPCVersion,
@@ -143,7 +165,8 @@ func NewErrorResponse(id *RequestID, code int, message string) *Response {
 	}
 }
 
-func NewErrorResponseWithData(id *RequestID, code int, message string, data interface{}) *Response {
+// NewErrorResponseWithData creates a new ErrorResponseWithData.
+func NewErrorResponseWithData(id *RequestID, code int, message string, data any) *Response {
 	return &Response{
 		JSONRPC: JSONRPCVersion,
 		ID:      id,
@@ -155,26 +178,30 @@ func NewErrorResponseWithData(id *RequestID, code int, message string, data inte
 	}
 }
 
+// ResponseError is a protocol component.
 type ResponseError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
+// Error returns the error string.
 func (e *ResponseError) Error() string {
 	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
 }
 
+// Notification is a protocol component.
 type Notification struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// ParseRequest parses a JSON-RPC request.
 func ParseRequest(data []byte) (*Request, error) {
 	req := &Request{}
 	if err := json.Unmarshal(data, req); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrParseError, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrParseError, err)
 	}
 
 	if req.JSONRPC != JSONRPCVersion {
@@ -188,10 +215,11 @@ func ParseRequest(data []byte) (*Request, error) {
 	return req, nil
 }
 
+// ParseNotification parses a JSON-RPC notification.
 func ParseNotification(data []byte) (*Notification, error) {
 	notif := &Notification{}
 	if err := json.Unmarshal(data, notif); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrParseError, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrParseError, err)
 	}
 
 	if notif.JSONRPC != JSONRPCVersion {
@@ -205,6 +233,7 @@ func ParseNotification(data []byte) (*Notification, error) {
 	return notif, nil
 }
 
+// IsNotification reports whether the message is a notification.
 func IsNotification(data []byte) bool {
 	var check struct {
 		ID *json.RawMessage `json:"id"`

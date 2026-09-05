@@ -32,17 +32,19 @@ package fiber
 
 import (
 	"context"
-	"fmt"
+	"encoding/hex"
 	"net/http"
 
-	"github.com/go-sicky/sicky/tracer"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/fiber/v2"
 	futils "github.com/gofiber/fiber/v2/utils"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/go-sicky/sicky/tracer"
+	"github.com/go-sicky/sicky/utils"
 )
 
+// TracerConfig is a fiber component.
 type TracerConfig struct {
 	Next              func(c *fiber.Ctx) bool
 	Tracer            trace.Tracer
@@ -57,11 +59,12 @@ type TracerConfig struct {
 // DefaultTracerSkipPaths covers the conventional probe endpoints.
 var DefaultTracerSkipPaths = []string{"/health", "/metrics", "/docs"}
 
+// TracerConfigDefault is a shared fiber value.
 var TracerConfigDefault = TracerConfig{
 	Next:              nil,
 	Tracer:            nil,
-	SpanIDContextKey:  "spanid",
-	TraceIDContextKey: "traceid",
+	SpanIDContextKey:  DefaultSpanIDContextKey,
+	TraceIDContextKey: DefaultTraceIDContextKey,
 	SkipPaths:         DefaultTracerSkipPaths,
 }
 
@@ -90,6 +93,7 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 	return cfg
 }
 
+// NewTracerMiddleware creates a new TracerMiddleware.
 func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 	cfg := tracerConfigDefault(config...)
 
@@ -105,7 +109,7 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		}
 
 		if cfg.Tracer == nil {
-			c.Locals(cfg.SpanIDContextKey, fmt.Sprintf("%x", utils.RandomHex(8)))
+			c.Locals(cfg.SpanIDContextKey, hex.EncodeToString(utils.RandomHex(8)))
 
 			return c.Next()
 		}
@@ -116,7 +120,7 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		// on every request. W3C (traceparent/tracestate/baggage) + B3
 		// dual-extract via the shared propagator.
 		reqHeader := make(http.Header, 9)
-		for _, k := range []string{"traceparent", "tracestate", "baggage", "B3", "X-Request-Id", "X-B3-Traceid", "X-B3-Spanid", "X-B3-Parentspanid", "X-B3-Sampled"} {
+		for _, k := range []string{"traceparent", "tracestate", "baggage", "B3", "X-Request-Id", DefaultB3TraceIDHeader, DefaultB3SpanIDHeader, DefaultB3ParentSpanIDHeader, DefaultB3SampledHeader} {
 			if v := c.Get(k); v != "" {
 				reqHeader.Set(k, v)
 			}
@@ -130,9 +134,10 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		if route := c.Route().Path; route != "" {
 			spanName = futils.CopyString(route)
 		}
+
 		spanedCtx, span := cfg.Tracer.Start(newCtx, spanName)
 		defer func() {
-			// End the span before cancelling its parent context so
+			// End the span before canceling its parent context so
 			// the export is never cut off mid-flight.
 			span.End()
 			cancel()
@@ -148,7 +153,7 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		err := c.Next()
 		if err != nil {
 			span.RecordError(err)
-			c.App().Config().ErrorHandler(c, err)
+			_ = c.App().Config().ErrorHandler(c, err)
 		}
 
 		return err

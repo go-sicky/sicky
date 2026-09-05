@@ -34,12 +34,15 @@ import (
 	"context"
 	"net"
 
-	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// ServerWrapper is a server component.
 type ServerWrapper func() error
 
+// Options is a server component.
 type Options struct {
 	Name   string
 	ID     uuid.UUID
@@ -54,6 +57,7 @@ type Options struct {
 	afterStop   []ServerWrapper
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (o *Options) Ensure() *Options {
 	if o == nil {
 		o = new(Options)
@@ -94,7 +98,7 @@ func (o *Options) Ensure() *Options {
 	return o
 }
 
-/* {{{ [Wrappers] */
+/* {{{ [Wrappers]. */
 func (o *Options) BeforeStart(wrappers ...ServerWrapper) *Options {
 	if o != nil {
 		o.beforeStart = append(o.beforeStart, wrappers...)
@@ -103,6 +107,7 @@ func (o *Options) BeforeStart(wrappers ...ServerWrapper) *Options {
 	return o
 }
 
+// AfterStart is part of the public API.
 func (o *Options) AfterStart(wrappers ...ServerWrapper) *Options {
 	if o != nil {
 		o.afterStart = append(o.afterStart, wrappers...)
@@ -111,6 +116,7 @@ func (o *Options) AfterStart(wrappers ...ServerWrapper) *Options {
 	return o
 }
 
+// BeforeStop is part of the public API.
 func (o *Options) BeforeStop(wrappers ...ServerWrapper) *Options {
 	if o != nil {
 		o.beforeStop = append(o.beforeStop, wrappers...)
@@ -119,6 +125,7 @@ func (o *Options) BeforeStop(wrappers ...ServerWrapper) *Options {
 	return o
 }
 
+// AfterStop is part of the public API.
 func (o *Options) AfterStop(wrappers ...ServerWrapper) *Options {
 	if o != nil {
 		o.afterStop = append(o.afterStop, wrappers...)
@@ -129,7 +136,7 @@ func (o *Options) AfterStop(wrappers ...ServerWrapper) *Options {
 
 /* }}} */
 
-/* {{{ [Hook runners] */
+/* {{{ [Hook runners]. */
 func (o *Options) RunBeforeStart() {
 	for _, fn := range o.beforeStart {
 		if err := fn(); err != nil {
@@ -138,6 +145,7 @@ func (o *Options) RunBeforeStart() {
 	}
 }
 
+// RunAfterStart is part of the public API.
 func (o *Options) RunAfterStart() {
 	for _, fn := range o.afterStart {
 		if err := fn(); err != nil {
@@ -146,6 +154,7 @@ func (o *Options) RunAfterStart() {
 	}
 }
 
+// RunBeforeStop is part of the public API.
 func (o *Options) RunBeforeStop() {
 	for _, fn := range o.beforeStop {
 		if err := fn(); err != nil {
@@ -154,6 +163,7 @@ func (o *Options) RunBeforeStop() {
 	}
 }
 
+// RunAfterStop is part of the public API.
 func (o *Options) RunAfterStop() {
 	for _, fn := range o.afterStop {
 		if err := fn(); err != nil {

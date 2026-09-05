@@ -38,7 +38,6 @@ import (
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
-	"github.com/go-sicky/sicky/logger"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/godoes/gorm-dameng/dm8"
 	_ "github.com/ncruces/go-sqlite3/driver"
@@ -50,27 +49,31 @@ import (
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/pgdriver"
 	"github.com/uptrace/bun/extra/bundebug"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// BunConfig is a infra component.
 type BunConfig struct {
-	Driver string `json:"driver" yaml:"driver" mapstructure:"driver"`
-	DSN    string `json:"dsn" yaml:"dsn" mapstructure:"dsn"`
-	Debug  bool   `json:"debug" yaml:"debug" mapstructure:"debug"`
+	Driver string `json:"driver" mapstructure:"driver" yaml:"driver"`
+	DSN    string `json:"dsn"    mapstructure:"dsn"    yaml:"dsn"`
+	Debug  bool   `json:"debug"  mapstructure:"debug"  yaml:"debug"`
 	// Verbose enables full query logging including bound arguments.
 	// Arguments may contain secrets: keep false in production.
-	Verbose bool `json:"verbose" yaml:"verbose" mapstructure:"verbose"`
+	Verbose bool `json:"verbose" mapstructure:"verbose" yaml:"verbose"`
 	// SlowDuration enables the query hook when >0, in milliseconds.
 	// Reserved for threshold filtering; bundebug v1.2.x exposes no
 	// threshold option, so the value itself only gates the hook.
-	SlowDuration int `json:"slow_duration" yaml:"slow_duration" mapstructure:"slow_duration"`
+	SlowDuration int `json:"slow_duration" mapstructure:"slow_duration" yaml:"slow_duration"`
 	// Connection pool. Zero means driver default (unlimited open
 	// connections); negative aborts startup.
-	MaxOpenConns       int `json:"max_open_conns" yaml:"max_open_conns" mapstructure:"max_open_conns"`
-	MaxIdleConns       int `json:"max_idle_conns" yaml:"max_idle_conns" mapstructure:"max_idle_conns"`
-	ConnMaxLifetimeSec int `json:"conn_max_lifetime_sec" yaml:"conn_max_lifetime_sec" mapstructure:"conn_max_lifetime_sec"`
-	ConnMaxIdleTimeSec int `json:"conn_max_idle_time_sec" yaml:"conn_max_idle_time_sec" mapstructure:"conn_max_idle_time_sec"`
+	MaxOpenConns       int `json:"max_open_conns"         mapstructure:"max_open_conns"         yaml:"max_open_conns"`
+	MaxIdleConns       int `json:"max_idle_conns"         mapstructure:"max_idle_conns"         yaml:"max_idle_conns"`
+	ConnMaxLifetimeSec int `json:"conn_max_lifetime_sec"  mapstructure:"conn_max_lifetime_sec"  yaml:"conn_max_lifetime_sec"`
+	ConnMaxIdleTimeSec int `json:"conn_max_idle_time_sec" mapstructure:"conn_max_idle_time_sec" yaml:"conn_max_idle_time_sec"`
 }
 
+// Bun is a shared infra value.
 var Bun *bun.DB
 
 // ErrBunDSNEmpty aborts startup: a non-nil BunConfig means "enable SQL"
@@ -84,6 +87,7 @@ var (
 	ErrBunPoolInvalid       = errors.New("infra: bun pool setting is negative")
 )
 
+// InitBun is part of the public API.
 func InitBun(cfg *BunConfig) (*bun.DB, error) {
 	var (
 		sqldb *sql.DB
@@ -209,12 +213,15 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 	} else {
 		sqldb.SetMaxOpenConns(cfg.MaxOpenConns)
 	}
+
 	if cfg.MaxIdleConns > 0 {
 		sqldb.SetMaxIdleConns(cfg.MaxIdleConns)
 	}
+
 	if cfg.ConnMaxLifetimeSec > 0 {
 		sqldb.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetimeSec) * time.Second)
 	}
+
 	if cfg.ConnMaxIdleTimeSec > 0 {
 		sqldb.SetConnMaxIdleTime(time.Duration(cfg.ConnMaxIdleTimeSec) * time.Second)
 	}
@@ -227,6 +234,7 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 			"driver", cfg.Driver,
 		)
 	}
+
 	if cfg.Debug {
 		db.AddQueryHook(bundebug.NewQueryHook(
 			bundebug.WithEnabled(true),
@@ -259,11 +267,13 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 
 		return Bun, nil
 	}
+
 	Bun = db
 
 	return db, nil
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *BunConfig) Ensure() *BunConfig {
 	if c == nil {
 		c = new(BunConfig)
@@ -272,6 +282,7 @@ func (c *BunConfig) Ensure() *BunConfig {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *BunConfig) Validate() error {
 	if c == nil {
 		return nil

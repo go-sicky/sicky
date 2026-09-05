@@ -39,28 +39,30 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v9"
+
 	"github.com/go-sicky/sicky/logger"
 )
 
+// ElasticConfig is a infra component.
 type ElasticConfig struct {
-	Addresses []string `json:"addresses" yaml:"addresses" mapstructure:"addresses"`
-	Username  string   `json:"username" yaml:"username" mapstructure:"username"`
-	Password  string   `json:"password" yaml:"password" mapstructure:"password"`
+	Addresses []string `json:"addresses" mapstructure:"addresses" yaml:"addresses"`
+	Username  string   `json:"username"  mapstructure:"username"  yaml:"username"`
+	Password  string   `json:"password"  mapstructure:"password"  yaml:"password"`
 	// CloudID targets Elastic Cloud; when set it takes precedence over
 	// Addresses (following client semantics).
-	CloudID string `json:"cloud_id" yaml:"cloud_id" mapstructure:"cloud_id"`
+	CloudID string `json:"cloud_id" mapstructure:"cloud_id" yaml:"cloud_id"`
 	// APIKey (base64) overrides Username/Password and ServiceToken.
-	APIKey string `json:"api_key" yaml:"api_key" mapstructure:"api_key"`
+	APIKey string `json:"api_key" mapstructure:"api_key" yaml:"api_key"`
 	// ServiceToken overrides Username/Password.
-	ServiceToken string `json:"service_token" yaml:"service_token" mapstructure:"service_token"`
+	ServiceToken string `json:"service_token" mapstructure:"service_token" yaml:"service_token"`
 	// CertificateFingerprint pins the server certificate (SHA256 hex).
-	CertificateFingerprint string `json:"certificate_fingerprint" yaml:"certificate_fingerprint" mapstructure:"certificate_fingerprint"`
+	CertificateFingerprint string `json:"certificate_fingerprint" mapstructure:"certificate_fingerprint" yaml:"certificate_fingerprint"`
 	// CACertFile loads a custom CA bundle (PEM file path).
-	CACertFile string `json:"ca_cert_file" yaml:"ca_cert_file" mapstructure:"ca_cert_file"`
+	CACertFile string `json:"ca_cert_file" mapstructure:"ca_cert_file" yaml:"ca_cert_file"`
 	// TimeoutSec bounds the startup Info() check. Seconds.
 	// It does not bound regular API calls: pass a context deadline per
 	// call (manager health uses a 2s context).
-	TimeoutSec int `json:"timeout_sec" yaml:"timeout_sec" mapstructure:"timeout_sec"`
+	TimeoutSec int `json:"timeout_sec" mapstructure:"timeout_sec" yaml:"timeout_sec"`
 }
 
 // ErrElasticNoEndpoint aborts startup: a non-nil ElasticConfig means
@@ -80,8 +82,10 @@ var (
 // DefaultElasticTimeoutSec bounds the startup Info() check.
 const DefaultElasticTimeoutSec = 5
 
+// Elastic is a shared infra value.
 var Elastic *elasticsearch.Client
 
+// InitElastic is part of the public API.
 func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	if cfg == nil {
 		return nil, nil
@@ -106,6 +110,7 @@ func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		ServiceToken:           cfg.ServiceToken,
 		CertificateFingerprint: cfg.CertificateFingerprint,
 	}
+
 	if strings.TrimSpace(cfg.CACertFile) != "" {
 		pem, err := os.ReadFile(cfg.CACertFile)
 		if err != nil {
@@ -117,6 +122,7 @@ func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 
 			return nil, fmt.Errorf("%w: %s", ErrElasticCACertUnreadable, cfg.CACertFile)
 		}
+
 		esCfg.CACert = pem
 	}
 
@@ -172,6 +178,7 @@ func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 
 		return Elastic, nil
 	}
+
 	Elastic = client
 
 	logger.Logger.InfoContext(
@@ -197,6 +204,7 @@ func (c *ElasticConfig) endpoint() string {
 	for _, a := range c.Addresses {
 		safe = append(safe, redactDSN(strings.TrimSpace(a)))
 	}
+
 	return strings.Join(safe, ",")
 }
 
@@ -204,9 +212,10 @@ func (c *ElasticConfig) endpoint() string {
 func pingElastic(ctx context.Context, client *elasticsearch.Client) error {
 	res, err := client.Info(client.Info.WithContext(ctx))
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrElasticUnhealthy, err)
+		return fmt.Errorf("%w: %w", ErrElasticUnhealthy, err)
 	}
-	defer res.Body.Close()
+
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		return fmt.Errorf("%w: %s", ErrElasticUnhealthy, res.Status())
@@ -225,6 +234,7 @@ func PingElastic(ctx context.Context) error {
 	return pingElastic(ctx, c)
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *ElasticConfig) Ensure() *ElasticConfig {
 	if c == nil {
 		c = new(ElasticConfig)
@@ -238,6 +248,7 @@ func (c *ElasticConfig) Ensure() *ElasticConfig {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *ElasticConfig) Validate() error {
 	if c == nil {
 		return nil
@@ -252,6 +263,7 @@ func (c *ElasticConfig) Validate() error {
 				break
 			}
 		}
+
 		if empty {
 			return ErrElasticNoEndpoint
 		}

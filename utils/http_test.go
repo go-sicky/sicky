@@ -41,15 +41,19 @@ func TestWrapHTTPResponse(t *testing.T) {
 	if e == nil {
 		t.Fatal("WrapHTTPResponse returned nil")
 	}
+
 	if e.Code != CodeOK {
 		t.Errorf("expected code %d, got %d", CodeOK, e.Code)
 	}
+
 	if e.Message != MsgOK {
 		t.Errorf("expected message %q, got %q", MsgOK, e.Message)
 	}
+
 	if val, ok := e.Data.(map[string]string); !ok || val["key"] != "value" {
 		t.Errorf("expected data map with key=value, got %v", e.Data)
 	}
+
 	if e.Timestamp.IsZero() {
 		t.Error("expected non-zero timestamp")
 	}
@@ -60,6 +64,7 @@ func TestWrapHTTPResponseNilData(t *testing.T) {
 	if e == nil {
 		t.Fatal("WrapHTTPResponse returned nil for nil data")
 	}
+
 	if e.Data != nil {
 		t.Errorf("expected nil data, got %v", e.Data)
 	}
@@ -73,6 +78,7 @@ func TestEnvelopeSetCode(t *testing.T) {
 	if result != e {
 		t.Error("SetCode should return same envelope for chaining")
 	}
+
 	if e.Code != customCode {
 		t.Errorf("expected code %d, got %d", customCode, e.Code)
 	}
@@ -86,6 +92,7 @@ func TestEnvelopeSetStatus(t *testing.T) {
 	if result != e {
 		t.Error("SetStatus should return same envelope for chaining")
 	}
+
 	if e.Status != customStatus {
 		t.Errorf("expected status %d, got %d", customStatus, e.Status)
 	}
@@ -99,6 +106,7 @@ func TestEnvelopeSetMessage(t *testing.T) {
 	if result != e {
 		t.Error("SetMessage should return same envelope for chaining")
 	}
+
 	if e.Message != customMsg {
 		t.Errorf("expected message %q, got %q", customMsg, e.Message)
 	}
@@ -112,6 +120,7 @@ func TestEnvelopeSetRequestID(t *testing.T) {
 	if result != e {
 		t.Error("SetRequestID should return same envelope for chaining")
 	}
+
 	if e.RequestID != rid {
 		t.Errorf("expected request_id %q, got %q", rid, e.RequestID)
 	}
@@ -125,6 +134,7 @@ func TestEnvelopeSetData(t *testing.T) {
 	if result != e {
 		t.Error("SetData should return same envelope for chaining")
 	}
+
 	if e.Data != 42 {
 		t.Errorf("expected data 42, got %v", e.Data)
 	}
@@ -141,15 +151,19 @@ func TestEnvelopeChainedBuild(t *testing.T) {
 	if e.Code != 2000 {
 		t.Errorf("expected code 2000, got %d", e.Code)
 	}
+
 	if e.Status != 400 {
 		t.Errorf("expected status 400, got %d", e.Status)
 	}
+
 	if e.Message != "Bad Request" {
 		t.Errorf("expected message 'Bad Request', got %q", e.Message)
 	}
+
 	if e.RequestID != "abc-123" {
 		t.Errorf("expected request_id 'abc-123', got %q", e.RequestID)
 	}
+
 	if e.Data != data {
 		t.Error("data should be preserved through chaining")
 	}
@@ -167,15 +181,19 @@ func TestPagination(t *testing.T) {
 	if p.Total != 100 {
 		t.Errorf("expected Total=100, got %d", p.Total)
 	}
+
 	if p.Limit != 10 {
 		t.Errorf("expected Limit=10, got %d", p.Limit)
 	}
+
 	if p.Offset != 20 {
 		t.Errorf("expected Offset=20, got %d", p.Offset)
 	}
+
 	if p.Current != 3 {
 		t.Errorf("expected Current=3, got %d", p.Current)
 	}
+
 	if p.Pages != 10 {
 		t.Errorf("expected Pages=10, got %d", p.Pages)
 	}

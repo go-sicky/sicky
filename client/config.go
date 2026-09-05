@@ -30,8 +30,10 @@
 
 package client
 
+// Config is a client component.
 type Config struct{}
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *Config) Ensure() *Config {
 	if c == nil {
 		c = new(Config)

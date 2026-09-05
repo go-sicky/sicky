@@ -33,30 +33,52 @@ package mcp
 import "github.com/go-sicky/sicky/service/mcp/protocol"
 
 type (
-	ServerCapabilities  = protocol.ServerCapabilities
-	ToolsCapability     = protocol.ToolsCapability
+	// ServerCapabilities is a mcp component.
+	ServerCapabilities = protocol.ServerCapabilities
+	// ToolsCapability is a mcp component.
+	ToolsCapability = protocol.ToolsCapability
+	// ResourcesCapability is a mcp component.
 	ResourcesCapability = protocol.ResourcesCapability
-	PromptsCapability   = protocol.PromptsCapability
-	ImplementationInfo  = protocol.ImplementationInfo
+	// PromptsCapability is a mcp component.
+	PromptsCapability = protocol.PromptsCapability
+	// ImplementationInfo is a mcp component.
+	ImplementationInfo = protocol.ImplementationInfo
 
-	Tool            = protocol.Tool
-	InputSchema     = protocol.InputSchema
-	Property        = protocol.Property
-	ContentBlock    = protocol.ContentBlock
-	Resource        = protocol.Resource
+	// Tool is a mcp component.
+	Tool = protocol.Tool
+	// InputSchema is a mcp component.
+	InputSchema = protocol.InputSchema
+	// Property is a mcp component.
+	Property = protocol.Property
+	// ContentBlock is a mcp component.
+	ContentBlock = protocol.ContentBlock
+	// Resource is a mcp component.
+	Resource = protocol.Resource
+	// ResourceContent is a mcp component.
 	ResourceContent = protocol.ResourceContent
-	Prompt          = protocol.Prompt
-	PromptArgument  = protocol.PromptArgument
-	PromptMessage   = protocol.PromptMessage
-	PromptContent   = protocol.PromptContent
+	// Prompt is a mcp component.
+	Prompt = protocol.Prompt
+	// PromptArgument is a mcp component.
+	PromptArgument = protocol.PromptArgument
+	// PromptMessage is a mcp component.
+	PromptMessage = protocol.PromptMessage
+	// PromptContent is a mcp component.
+	PromptContent = protocol.PromptContent
 
-	ToolsListResult     = protocol.ToolsListResult
-	ToolsCallParams     = protocol.ToolsCallParams
-	ToolsCallResult     = protocol.ToolsCallResult
+	// ToolsListResult is a mcp component.
+	ToolsListResult = protocol.ToolsListResult
+	// ToolsCallParams is a mcp component.
+	ToolsCallParams = protocol.ToolsCallParams
+	// ToolsCallResult is a mcp component.
+	ToolsCallResult = protocol.ToolsCallResult
+	// ResourcesListResult is a mcp component.
 	ResourcesListResult = protocol.ResourcesListResult
+	// ResourcesReadResult is a mcp component.
 	ResourcesReadResult = protocol.ResourcesReadResult
-	PromptsListResult   = protocol.PromptsListResult
-	PromptsGetResult    = protocol.PromptsGetResult
+	// PromptsListResult is a mcp component.
+	PromptsListResult = protocol.PromptsListResult
+	// PromptsGetResult is a mcp component.
+	PromptsGetResult = protocol.PromptsGetResult
 )
 
 /*

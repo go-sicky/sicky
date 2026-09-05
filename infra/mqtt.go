@@ -41,27 +41,30 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/go-sicky/sicky/logger"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/logger"
 )
 
+// MQTT is a shared infra value.
 var MQTT mqtt.Client
 
+// MQTTConfig is a infra component.
 type MQTTConfig struct {
-	Broker   string `json:"broker" yaml:"broker" mapstructure:"broker"`
-	ClientID string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
-	Username string `json:"username" yaml:"username" mapstructure:"username"`
-	Password string `json:"password" yaml:"password" mapstructure:"password"`
+	Broker   string `json:"broker"    mapstructure:"broker"    yaml:"broker"`
+	ClientID string `json:"client_id" mapstructure:"client_id" yaml:"client_id"`
+	Username string `json:"username"  mapstructure:"username"  yaml:"username"`
+	Password string `json:"password"  mapstructure:"password"  yaml:"password"`
 	// EnableTLS wraps the connection in TLS 1.2+. CAFile optionally pins
 	// a custom CA bundle (PEM path).
-	EnableTLS bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
-	CAFile    string `json:"ca_file" yaml:"ca_file" mapstructure:"ca_file"`
+	EnableTLS bool   `json:"enable_tls" mapstructure:"enable_tls" yaml:"enable_tls"`
+	CAFile    string `json:"ca_file"    mapstructure:"ca_file"    yaml:"ca_file"`
 	// KeepAliveSec is the paho keepalive interval. Seconds.
-	KeepAliveSec int `json:"keep_alive_sec" yaml:"keep_alive_sec" mapstructure:"keep_alive_sec"`
+	KeepAliveSec int `json:"keep_alive_sec" mapstructure:"keep_alive_sec" yaml:"keep_alive_sec"`
 	// ConnectTimeoutSec bounds the initial connect. Seconds.
-	ConnectTimeoutSec int `json:"connect_timeout_sec" yaml:"connect_timeout_sec" mapstructure:"connect_timeout_sec"`
+	ConnectTimeoutSec int `json:"connect_timeout_sec" mapstructure:"connect_timeout_sec" yaml:"connect_timeout_sec"`
 	// CleanSession toggles a clean session on connect (default true).
-	CleanSession *bool `json:"clean_session" yaml:"clean_session" mapstructure:"clean_session"`
+	CleanSession *bool `json:"clean_session" mapstructure:"clean_session" yaml:"clean_session"`
 }
 
 // Defaults for MQTT timing in seconds.
@@ -84,6 +87,7 @@ var (
 	ErrMQTTPasswordOrphan = errors.New("infra: mqtt password without username is discarded")
 )
 
+// InitMQTT is part of the public API.
 func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	if cfg == nil {
 		return nil, nil
@@ -115,11 +119,13 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 			opts.SetPassword(c.Password)
 		}
 	}
+
 	opts.SetKeepAlive(time.Duration(c.KeepAliveSec) * time.Second)
 	opts.SetConnectTimeout(time.Duration(c.ConnectTimeoutSec) * time.Second)
 	if c.CleanSession != nil {
 		opts.SetCleanSession(*c.CleanSession)
 	}
+
 	if c.EnableTLS {
 		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 		if strings.TrimSpace(c.CAFile) != "" {
@@ -133,6 +139,7 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 
 				return nil, fmt.Errorf("%w: %s", ErrMQTTCAUnreadable, c.CAFile)
 			}
+
 			pool := x509.NewCertPool()
 			if !pool.AppendCertsFromPEM(pem) {
 				logger.Logger.Error(
@@ -142,10 +149,13 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 
 				return nil, fmt.Errorf("%w: %s", ErrMQTTCAUnreadable, c.CAFile)
 			}
+
 			tlsCfg.RootCAs = pool
 		}
+
 		opts.SetTLSConfig(tlsCfg)
 	}
+
 	client := mqtt.NewClient(opts)
 
 	token := client.Connect()
@@ -158,6 +168,7 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 
 		return nil, ErrMQTTConnectTimeout
 	}
+
 	if token.Error() != nil {
 		logger.Logger.Error(
 			"MQTT connect failed",
@@ -178,6 +189,7 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 
 		return MQTT, nil
 	}
+
 	MQTT = client
 
 	logger.Logger.InfoContext(
@@ -191,6 +203,7 @@ func InitMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	return client, nil
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *MQTTConfig) Ensure() *MQTTConfig {
 	if c == nil {
 		c = new(MQTTConfig)
@@ -211,6 +224,7 @@ func (c *MQTTConfig) Ensure() *MQTTConfig {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *MQTTConfig) Validate() error {
 	if c == nil {
 		return nil

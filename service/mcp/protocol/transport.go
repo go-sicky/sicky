@@ -30,11 +30,12 @@
 
 package protocol
 
+// Transport is a protocol component.
 type Transport interface {
 	Start() error
 	Stop() error
 	Read() ([]byte, error)
-	Write([]byte) error
+	Write(data []byte) error
 }
 
 /*

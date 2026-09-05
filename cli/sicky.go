@@ -37,12 +37,17 @@ import (
 )
 
 var (
-	Version   = "dev"
-	Branch    = "main"
-	Commit    = ""
+	// Version is a shared cli value.
+	Version = "dev"
+	// Branch is a shared cli value.
+	Branch = "main"
+	// Commit is a shared cli value.
+	Commit = ""
+	// BuildTime is a shared cli value.
 	BuildTime = ""
 )
 
+// Run runs the component.
 func Run() int {
 	args := os.Args[1:]
 
@@ -57,6 +62,24 @@ func Run() int {
 	case "serve", "s":
 		return serveRun(cmdArgs)
 
+	case "mcp":
+		return mcpRun("mcp", cmdArgs)
+
+	case "run", "r":
+		return runRun(cmdArgs)
+
+	case "doctor":
+		return doctorRun(cmdArgs)
+
+	case "info", "i":
+		return infoRun(cmdArgs)
+
+	case "config", "c":
+		return configRun(cmdArgs)
+
+	case "proto", "p":
+		return protoRun(cmdArgs)
+
 	case "new", "n":
 		return newRun(cmdArgs)
 
@@ -65,18 +88,22 @@ func Run() int {
 
 	case "version", "v":
 		versionRun()
+
 		return 0
 
 	case "help", "-h", "--help":
 		helpRun()
+
 		return 0
 
 	default:
 		if strings.HasPrefix(cmd, "-") {
 			return serveRun(args)
 		}
+
 		fmt.Fprintf(os.Stderr, "sicky: unknown command %q\n", cmd)
 		fmt.Fprintf(os.Stderr, "Run 'sicky help' for usage.\n")
+
 		return 1
 	}
 }
@@ -87,8 +114,14 @@ func helpRun() {
 Usage:
   sicky                   Run as MCP server (stdio)
   sicky serve             Run as MCP server (explicit)
+  sicky mcp               Alias of serve (MCP meta-server)
+  sicky run [--watch]     Run the business project (go run .)
   sicky new <name>        Scaffold a new project (interactive)
   sicky generate          Generate code in an existing project
+  sicky proto <build|new> Build .proto files or scaffold a new one
+  sicky config <sub>      Validate/init/show config
+  sicky doctor            Check toolchain, ports and config
+  sicky info              Print runtime info
   sicky version           Print version information
   sicky help              Show this help
 
@@ -98,6 +131,13 @@ Commands:
     --listen string      HTTP listen address (default ":3000")
     --name string        Server name
     --version string     Server version
+
+  mcp          Alias of serve (same flags)
+
+  run, r       Run business project via 'go run .'
+    -C, --config string       Config base name or path (forwarded)
+    --config-type string      Config format (forwarded, default "json")
+    -w, --watch               Watch *.go files and restart on change
 
   new, n       Scaffold a new project
     --type string        standard, mcp, interactive
@@ -110,6 +150,28 @@ Commands:
     tool     <name>      Generate a tool definition
     resource <name>      Generate a resource definition
     doc                  Generate documentation
+    server   <type> [name]   Wire a server instance (fiber, http, grpc, tcp, udp, websocket)
+    client   <type> [name]   Wrap an outbound client
+    service  <type>           Wire a service (standard, mcp, interactive)
+    broker   <type>           Subscribe to a broker (nats, jetstream, nsq)
+    job      <type> [name]    Implement a background job (cron, ticker)
+    middleware <name>    Generate an HTTP middleware stub
+    proto    <name>           Scaffold a .proto file (also via 'sicky proto new')
+    config               Generate config.json from project defaults
+    docker               Generate Dockerfile + .dockerignore
+    k8s [name]           Generate k8s deployment + service
+
+  proto, p    Protobuf helpers
+    build [--dir proto] [--dry-run]   Run protoc over .proto files
+    new <name>                        Scaffold proto/<name>.proto
+
+  config, c   Config helpers
+    validate [--config C] [--config-type json]
+    init [-o dir] [--force]
+    show [--config C] [--config-type json] [--show-secrets]
+
+  doctor       Check go/protoc/docker, go.mod, config, ports
+  info, i      Print version + runtime + module info
 
   version, v   Print version information`)
 }

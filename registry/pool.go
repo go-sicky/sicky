@@ -33,11 +33,13 @@ package registry
 import (
 	"sync"
 
+	"github.com/google/uuid"
+
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/utils"
-	"github.com/google/uuid"
 )
 
+// PoolEvent is a registry component.
 type PoolEvent struct {
 	Changed bool
 }
@@ -49,58 +51,61 @@ var (
 
 // Pool definition
 
+// Pool is a registry component.
 type Pool struct {
 	Services map[string]*Service `json:"services" yaml:"services"`
-	Notify   chan PoolEvent      `json:"-" yaml:"-"`
+	Notify   chan PoolEvent      `json:"-"        yaml:"-"`
 
 	sync.RWMutex
 }
 
-// Service definition
+// Service definition.
 type Service struct {
-	Service   string                  `json:"service" yaml:"service"`
-	Kind      string                  `json:"kind" yaml:"kind"`
-	Self      bool                    `json:"self" yaml:"self"`
-	Tags      []string                `json:"tags" yaml:"tags"`
-	Metadata  utils.Metadata          `json:"metadata" yaml:"metadata"`
+	Service   string                  `json:"service"   yaml:"service"`
+	Kind      string                  `json:"kind"      yaml:"kind"`
+	Self      bool                    `json:"self"      yaml:"self"`
+	Tags      []string                `json:"tags"      yaml:"tags"`
+	Metadata  utils.Metadata          `json:"metadata"  yaml:"metadata"`
 	Instances map[uuid.UUID]*Instance `json:"instances" yaml:"instances"`
 }
 
-// Service instance
+// Service instance.
 type Instance struct {
-	ID               uuid.UUID          `json:"id" yaml:"id"`
-	ServiceName      string             `json:"service_name" yaml:"service_name"`
-	Type             string             `json:"type" yaml:"type"`
+	ID               uuid.UUID          `json:"id"                yaml:"id"`
+	ServiceName      string             `json:"service_name"      yaml:"service_name"`
+	Type             string             `json:"type"              yaml:"type"`
 	AdvertiseAddress string             `json:"advertise_address" yaml:"advertise_address"`
-	ManagerPort      int                `json:"manager_port" yaml:"manager_port"`
-	ManagerAddress   string             `json:"manager_address" yaml:"manager_address"`
-	Tags             []string           `json:"tags" yaml:"tags"`
-	Metadata         utils.Metadata     `json:"metadata" yaml:"metadata"`
-	Weight           int                `json:"weight" yaml:"weight"`
-	Status           int                `json:"status" yaml:"status"`
+	ManagerPort      int                `json:"manager_port"      yaml:"manager_port"`
+	ManagerAddress   string             `json:"manager_address"   yaml:"manager_address"`
+	Tags             []string           `json:"tags"              yaml:"tags"`
+	Metadata         utils.Metadata     `json:"metadata"          yaml:"metadata"`
+	Weight           int                `json:"weight"            yaml:"weight"`
+	Status           int                `json:"status"            yaml:"status"`
 	CheckEntryPoint  string             `json:"check_entry_point" yaml:"check_entry_point"`
-	TTL              int                `json:"ttl" yaml:"ttl"`
-	Servers          map[string]*Server `json:"servers" yaml:"servers"`
-	Topics           map[string]*Topic  `json:"topics" yaml:"topics"`
+	TTL              int                `json:"ttl"               yaml:"ttl"`
+	Servers          map[string]*Server `json:"servers"           yaml:"servers"`
+	Topics           map[string]*Topic  `json:"topics"            yaml:"topics"`
 }
 
+// Server is a registry component.
 type Server struct {
-	ID               uuid.UUID `json:"id" yaml:"id"`
-	InstanceID       uuid.UUID `json:"instance_id" yaml:"instance_id"`
-	Type             string    `json:"type" yaml:"type"`
-	Name             string    `json:"name" yaml:"name"`
+	ID               uuid.UUID `json:"id"                yaml:"id"`
+	InstanceID       uuid.UUID `json:"instance_id"       yaml:"instance_id"`
+	Type             string    `json:"type"              yaml:"type"`
+	Name             string    `json:"name"              yaml:"name"`
 	AdvertiseAddress string    `json:"advertise_address" yaml:"advertise_address"`
-	Port             int       `json:"port" yaml:"port"`
+	Port             int       `json:"port"              yaml:"port"`
 }
 
+// Topic is a registry component.
 type Topic struct {
 	Instance *Instance `json:"instance" yaml:"instance"`
-	Name     string    `json:"name" yaml:"name"`
-	Type     string    `json:"type" yaml:"type"`
-	Group    string    `json:"group" yaml:"group"`
+	Name     string    `json:"name"     yaml:"name"`
+	Type     string    `json:"type"     yaml:"type"`
+	Group    string    `json:"group"    yaml:"group"`
 }
 
-// Init pool
+// Init pool.
 func InitPool() *Pool {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -113,6 +118,9 @@ func InitPool() *Pool {
 	return currentPool
 }
 
+// Deprecated: creates a pool disconnected from the global discovery state.
+// Prefer InitPool, which installs the global pool and preserves the stable
+// NotifyChan contract relied upon by watchers (e.g. the gRPC client).
 func NewPool() *Pool {
 	return &Pool{
 		Services: make(map[string]*Service),
@@ -120,6 +128,7 @@ func NewPool() *Pool {
 	}
 }
 
+// GetPool returns a snapshot copy of the discovery pool.
 func GetPool() *Pool {
 	poolLock.RLock()
 	defer poolLock.RUnlock()
@@ -136,6 +145,9 @@ func GetPool() *Pool {
 	return currentPool.clone()
 }
 
+// Deprecated: replacing the pool swaps the Notify channel out from under
+// existing watchers. Prefer PurgePool, which merges in place and keeps the
+// channel (and pool pointer) stable.
 func SetPool(p *Pool) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -158,6 +170,7 @@ func NotifyChan() <-chan PoolEvent {
 	return currentPool.Notify
 }
 
+// RegisterService registers a service in the pool.
 func (p *Pool) RegisterService(svc *Service) {
 	if p == nil {
 		return
@@ -170,6 +183,8 @@ func (p *Pool) RegisterService(svc *Service) {
 	logger.Debug("Service registered", "service", svc.Service)
 }
 
+// GetService looks up a service by name.
+// The result is a deep copy: mutating it never races with pool writers.
 func (p *Pool) GetService(service string) *Service {
 	if p == nil {
 		return nil
@@ -178,9 +193,10 @@ func (p *Pool) GetService(service string) *Service {
 	p.RLock()
 	defer p.RUnlock()
 
-	return p.Services[service]
+	return cloneService(p.Services[service])
 }
 
+// RegisterInstance registers an instance.
 func (p *Pool) RegisterInstance(ins *Instance) {
 	p.Lock()
 	defer p.Unlock()
@@ -200,6 +216,8 @@ func (p *Pool) RegisterInstance(ins *Instance) {
 	}
 }
 
+// GetInstance looks up an instance.
+// The result is a deep copy: mutating it never races with pool writers.
 func (p *Pool) GetInstance(service string, id uuid.UUID) *Instance {
 	p.RLock()
 	defer p.RUnlock()
@@ -208,9 +226,10 @@ func (p *Pool) GetInstance(service string, id uuid.UUID) *Instance {
 		return nil
 	}
 
-	return p.Services[service].Instances[id]
+	return cloneInstance(p.Services[service].Instances[id])
 }
 
+// UnregisterInstance removes an instance.
 func (p *Pool) UnregisterInstance(service string, id uuid.UUID) {
 	p.Lock()
 	defer p.Unlock()
@@ -223,6 +242,7 @@ func (p *Pool) UnregisterInstance(service string, id uuid.UUID) {
 	logger.Debug("Instance unregistered", "service", service, "instance", id.String())
 }
 
+// GetInstances lists instances of a service.
 func (p *Pool) GetInstances(service string) map[uuid.UUID]*Instance {
 	p.RLock()
 	defer p.RUnlock()
@@ -233,13 +253,14 @@ func (p *Pool) GetInstances(service string) map[uuid.UUID]*Instance {
 		for id, in := range s.Instances {
 			out[id] = cloneInstance(in)
 		}
+
 		return out
 	}
 
 	return nil
 }
 
-/* {{{ [Helpers] */
+/* {{{ [Helpers]. */
 func RegisterInstance(ins *Instance) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -251,6 +272,7 @@ func RegisterInstance(ins *Instance) {
 	currentPool.RegisterInstance(ins)
 }
 
+// GetInstance looks up an instance.
 func GetInstance(service string, id uuid.UUID) *Instance {
 	poolLock.RLock()
 	defer poolLock.RUnlock()
@@ -262,6 +284,7 @@ func GetInstance(service string, id uuid.UUID) *Instance {
 	return currentPool.GetInstance(service, id)
 }
 
+// UnregisterInstance removes an instance.
 func UnregisterInstance(service string, id uuid.UUID) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -273,6 +296,7 @@ func UnregisterInstance(service string, id uuid.UUID) {
 	currentPool.UnregisterInstance(service, id)
 }
 
+// GetInstances lists instances of a service.
 func GetInstances(service string) map[uuid.UUID]*Instance {
 	poolLock.RLock()
 	defer poolLock.RUnlock()
@@ -284,6 +308,7 @@ func GetInstances(service string) map[uuid.UUID]*Instance {
 	return currentPool.GetInstances(service)
 }
 
+// RegisterService registers a service in the pool.
 func RegisterService(svc *Service) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -295,6 +320,7 @@ func RegisterService(svc *Service) {
 	currentPool.RegisterService(svc)
 }
 
+// GetService looks up a service by name.
 func GetService(service string) *Service {
 	poolLock.RLock()
 	defer poolLock.RUnlock()
@@ -308,6 +334,7 @@ func GetService(service string) *Service {
 
 /* }}} */
 
+// PurgePool merges fresh discovery results in place.
 func PurgePool(ins []*Instance) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -323,17 +350,21 @@ func PurgePool(ins []*Instance) {
 		if in == nil {
 			continue
 		}
+
 		svc := services[in.ServiceName]
 		if svc == nil {
 			svc = &Service{
 				Service:   in.ServiceName,
 				Instances: make(map[uuid.UUID]*Instance),
 			}
+
 			services[in.ServiceName] = svc
 		}
+
 		if svc.Instances == nil {
 			svc.Instances = make(map[uuid.UUID]*Instance)
 		}
+
 		svc.Instances[in.ID] = in
 	}
 
@@ -364,18 +395,8 @@ func (p *Pool) clone() *Pool {
 		if svc == nil {
 			continue
 		}
-		dup := &Service{
-			Service:   svc.Service,
-			Kind:      svc.Kind,
-			Self:      svc.Self,
-			Tags:      append([]string(nil), svc.Tags...),
-			Metadata:  cloneMetadata(svc.Metadata),
-			Instances: make(map[uuid.UUID]*Instance, len(svc.Instances)),
-		}
-		for id, in := range svc.Instances {
-			dup.Instances[id] = cloneInstance(in)
-		}
-		out.Services[name] = dup
+
+		out.Services[name] = cloneService(svc)
 	}
 
 	return out
@@ -387,6 +408,27 @@ func cloneMetadata(md utils.Metadata) utils.Metadata {
 	}
 
 	return md.Copy()
+}
+
+func cloneService(svc *Service) *Service {
+	if svc == nil {
+		return nil
+	}
+
+	dup := &Service{
+		Service:   svc.Service,
+		Kind:      svc.Kind,
+		Self:      svc.Self,
+		Tags:      append([]string(nil), svc.Tags...),
+		Metadata:  cloneMetadata(svc.Metadata),
+		Instances: make(map[uuid.UUID]*Instance, len(svc.Instances)),
+	}
+
+	for id, in := range svc.Instances {
+		dup.Instances[id] = cloneInstance(in)
+	}
+
+	return dup
 }
 
 func cloneInstance(in *Instance) *Instance {
@@ -415,6 +457,7 @@ func cloneInstance(in *Instance) *Instance {
 		if srv == nil {
 			continue
 		}
+
 		dup := *srv
 		out.Servers[name] = &dup
 	}
@@ -423,6 +466,7 @@ func cloneInstance(in *Instance) *Instance {
 		if tp == nil {
 			continue
 		}
+
 		dup := *tp
 		dup.Instance = out
 		out.Topics[name] = &dup

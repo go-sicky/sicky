@@ -37,20 +37,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sicky/sicky/metrics"
-	"github.com/go-sicky/sicky/server"
-	"github.com/go-sicky/sicky/utils"
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/server"
+	"github.com/go-sicky/sicky/utils"
 )
 
 const (
+	// ControlDeadline is a websocket constant.
 	ControlDeadline = 5 * time.Second
 )
 
-// WebsocketServer : Server definition
+// WebsocketServer : Server definition.
 type WebsocketServer struct {
 	config        *Config
 	ctx           context.Context
@@ -67,7 +69,7 @@ type WebsocketServer struct {
 	wg sync.WaitGroup
 }
 
-// New Websocket server
+// New Websocket server.
 func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -86,6 +88,8 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
+
+		return nil
 	}
 
 	if cfg.AdvertiseAddress != "" {
@@ -96,6 +100,8 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
+
+			return nil
 		}
 	} else {
 		advertiseAddr = addr
@@ -154,26 +160,32 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	return srv
 }
 
+// Context returns the component context.
 func (srv *WebsocketServer) Context() context.Context {
 	return srv.ctx
 }
 
+// Options returns the runtime options.
 func (srv *WebsocketServer) Options() *server.Options {
 	return srv.options
 }
 
+// String returns a human-readable name.
 func (srv *WebsocketServer) String() string {
 	return "websocket"
 }
 
+// ID returns the unique instance ID.
 func (srv *WebsocketServer) ID() uuid.UUID {
 	return srv.options.ID
 }
 
+// Name returns the component name.
 func (srv *WebsocketServer) Name() string {
 	return srv.options.Name
 }
 
+// Start starts the component.
 func (srv *WebsocketServer) Start() error {
 	var (
 		listener net.Listener
@@ -232,7 +244,6 @@ func (srv *WebsocketServer) Start() error {
 			srv.addr.Network(),
 			srv.addr.String(),
 		)
-
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
@@ -254,10 +265,7 @@ func (srv *WebsocketServer) Start() error {
 	srv.metadata.Set("advertise_address", srv.advertiseAddr.String())
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
-	srv.wg.Add(1)
-	go func() {
-		defer srv.wg.Done()
-
+	srv.wg.Go(func() {
 		err := srv.app.Listener(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
@@ -278,7 +286,7 @@ func (srv *WebsocketServer) Start() error {
 			"id", srv.options.ID,
 			"name", srv.options.Name,
 		)
-	}()
+	})
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -295,13 +303,16 @@ func (srv *WebsocketServer) Start() error {
 	return nil
 }
 
+// Stop stops the component and releases resources.
 func (srv *WebsocketServer) Stop() error {
 	srv.Lock()
 	if !srv.running {
 		srv.Unlock()
+
 		// Not running
 		return nil
 	}
+
 	srv.running = false
 	app := srv.app
 	srv.Unlock()
@@ -314,6 +325,7 @@ func (srv *WebsocketServer) Stop() error {
 			stopErr = serr
 		}
 	}
+
 	srv.wg.Wait()
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -327,6 +339,7 @@ func (srv *WebsocketServer) Stop() error {
 	return stopErr
 }
 
+// Running reports whether the component is running.
 func (srv *WebsocketServer) Running() bool {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -334,6 +347,7 @@ func (srv *WebsocketServer) Running() bool {
 	return srv.running
 }
 
+// Addr returns the address.
 func (srv *WebsocketServer) Addr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -341,6 +355,7 @@ func (srv *WebsocketServer) Addr() net.Addr {
 	return srv.addr
 }
 
+// IP returns the IP.
 func (srv *WebsocketServer) IP() net.IP {
 	try := utils.AddrToIP(srv.Addr())
 	if try == nil || try.IsUnspecified() {
@@ -350,10 +365,12 @@ func (srv *WebsocketServer) IP() net.IP {
 	return try
 }
 
+// Port returns the port.
 func (srv *WebsocketServer) Port() int {
 	return utils.AddrToPort(srv.Addr())
 }
 
+// AdvertiseAddr returns the advertise address.
 func (srv *WebsocketServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -361,6 +378,7 @@ func (srv *WebsocketServer) AdvertiseAddr() net.Addr {
 	return srv.advertiseAddr
 }
 
+// AdvertiseIP returns the advertise IP.
 func (srv *WebsocketServer) AdvertiseIP() net.IP {
 	try := utils.AddrToIP(srv.AdvertiseAddr())
 	if try == nil || try.IsUnspecified() {
@@ -370,18 +388,22 @@ func (srv *WebsocketServer) AdvertiseIP() net.IP {
 	return try
 }
 
+// AdvertisePort returns the advertise port.
 func (srv *WebsocketServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }
 
+// Metadata returns the metadata.
 func (srv *WebsocketServer) Metadata() utils.Metadata {
 	return srv.metadata
 }
 
+// App returns the app.
 func (srv *WebsocketServer) App() *fiber.App {
 	return srv.app
 }
 
+// Handle registers handlers.
 func (srv *WebsocketServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.handlers = append(srv.handlers, hdl)
@@ -439,7 +461,17 @@ read:
 		if err != nil {
 			// Read error
 			for _, hdl := range srv.handlers {
-				hdl.OnError(sess, err)
+				if herr := hdl.OnError(sess, err); herr != nil {
+					srv.options.Logger.ErrorContext(
+						srv.ctx,
+						"Websocket error-handler error",
+						"server", srv.String(),
+						"id", srv.options.ID,
+						"name", srv.options.Name,
+						"client", c.RemoteAddr().String(),
+						"error", herr.Error(),
+					)
+				}
 			}
 
 			break read
@@ -528,14 +560,14 @@ read:
 	}
 }
 
-/* {{{ [Handler] */
+/* {{{ [Handler]. */
 type Handler interface {
 	Name() string
 	Type() string
-	OnConnect(*Session) error
-	OnClose(*Session) error
-	OnError(*Session, error) error
-	OnData(*Session, int, []byte) error
+	OnConnect(sess *Session) error
+	OnClose(sess *Session) error
+	OnError(sess *Session, err error) error
+	OnData(sess *Session, msgType int, data []byte) error
 }
 
 /* }}} */

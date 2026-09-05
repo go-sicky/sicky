@@ -23,10 +23,12 @@ func TestNewOTLPProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stdout exporter: %v", err)
 	}
+
 	p, err := NewOTLPProvider("svc", "v1", "instance-1", 1.0, exp)
 	if err != nil || p == nil {
 		t.Fatalf("provider = %v, err = %v", p, err)
 	}
+
 	if err := p.Shutdown(context.Background()); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}

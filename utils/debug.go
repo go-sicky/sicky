@@ -39,6 +39,7 @@ import (
 	"unsafe"
 )
 
+// PrintContextInternals is a debugging helper.
 func PrintContextInternals(ctx any, inner bool) {
 	contextValues := reflect.ValueOf(ctx).Elem()
 	contextKeys := reflect.TypeOf(ctx).Elem()
@@ -47,8 +48,9 @@ func PrintContextInternals(ctx any, inner bool) {
 	}
 
 	if contextKeys.Kind() == reflect.Struct {
-		for i := 0; i < contextValues.NumField(); i++ {
+		for i := range contextValues.NumField() {
 			reflectValue := contextValues.Field(i)
+			//nolint:gosec // G103: deliberate unsafe introspection in a debug-only printer; never on a hot path
 			reflectValue = reflect.NewAt(reflectValue.Type(), unsafe.Pointer(reflectValue.UnsafeAddr())).Elem()
 
 			reflectField := contextKeys.Field(i)
@@ -65,6 +67,7 @@ func PrintContextInternals(ctx any, inner bool) {
 	}
 }
 
+// JSONAny is a debugging helper.
 func JSONAny(d any) {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -74,6 +77,7 @@ func JSONAny(d any) {
 	fmt.Println(string(b))
 }
 
+// JSONAnyString is a debugging helper.
 func JSONAnyString(d any) string {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -83,6 +87,7 @@ func JSONAnyString(d any) string {
 	return string(b)
 }
 
+// JSONAnyBytes is a debugging helper.
 func JSONAnyBytes(d any) []byte {
 	b, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -92,6 +97,7 @@ func JSONAnyBytes(d any) []byte {
 	return b
 }
 
+// XMLAny is a debugging helper.
 func XMLAny(d any) {
 	b, err := xml.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -101,6 +107,7 @@ func XMLAny(d any) {
 	fmt.Println(string(b))
 }
 
+// XMLAnyString is a debugging helper.
 func XMLAnyString(d any) string {
 	b, err := xml.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -110,6 +117,7 @@ func XMLAnyString(d any) string {
 	return string(b)
 }
 
+// XMLAnyBytes is a debugging helper.
 func XMLAnyBytes(d any) []byte {
 	b, err := xml.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -119,7 +127,8 @@ func XMLAnyBytes(d any) []byte {
 	return b
 }
 
-func E(level string, format string, args ...any) {
+// E is a debugging helper.
+func E(level, format string, args ...any) {
 	fmt.Println()
 
 	switch strings.ToLower(level) {

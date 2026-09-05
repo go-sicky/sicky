@@ -33,6 +33,7 @@ package infra
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -40,31 +41,33 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/go-sicky/sicky/logger"
 )
 
+// S3Config is a infra component.
 type S3Config struct {
 	// Region is required: without it every S3 call fails at request time,
 	// so a missing region aborts startup instead of failing late.
-	Region string `json:"region" yaml:"region" mapstructure:"region"`
+	Region string `json:"region" mapstructure:"region" yaml:"region"`
 	// Endpoint overrides the service endpoint (MinIO, LocalStack, ...).
-	Endpoint string `json:"endpoint" yaml:"endpoint" mapstructure:"endpoint"`
+	Endpoint string `json:"endpoint" mapstructure:"endpoint" yaml:"endpoint"`
 	// Static credentials. Empty means fall back to the default chain
 	// (env, shared config, IMDS).
-	AccessKey    string `json:"access_key" yaml:"access_key" mapstructure:"access_key"`
-	SecretKey    string `json:"secret_key" yaml:"secret_key" mapstructure:"secret_key"`
-	SessionToken string `json:"session_token" yaml:"session_token" mapstructure:"session_token"`
+	AccessKey    string `json:"access_key"    mapstructure:"access_key"    yaml:"access_key"`
+	SecretKey    string `json:"secret_key"    mapstructure:"secret_key"    yaml:"secret_key"`
+	SessionToken string `json:"session_token" mapstructure:"session_token" yaml:"session_token"`
 	// Bucket is optional: it may be selected at call time instead.
-	Bucket string `json:"bucket" yaml:"bucket" mapstructure:"bucket"`
+	Bucket string `json:"bucket" mapstructure:"bucket" yaml:"bucket"`
 	// UsePathStyle forces path-style addressing (required by MinIO).
-	UsePathStyle bool `json:"use_path_style" yaml:"use_path_style" mapstructure:"use_path_style"`
+	UsePathStyle bool `json:"use_path_style" mapstructure:"use_path_style" yaml:"use_path_style"`
 	// Timeout bounds LoadDefaultConfig (IMDS lookups can stall for
 	// seconds outside AWS). Seconds, defaults to DefaultInitTimeoutSec.
-	Timeout int `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	Timeout int `json:"timeout" mapstructure:"timeout" yaml:"timeout"`
 	// RequestTimeoutSec bounds whole S3 API calls (headers + body) via the
 	// HTTP client. 0 keeps the SDK default (unbounded); negative aborts.
 	// Prefer a context deadline per call when you need tighter control.
-	RequestTimeoutSec int `json:"request_timeout_sec" yaml:"request_timeout_sec" mapstructure:"request_timeout_sec"`
+	RequestTimeoutSec int `json:"request_timeout_sec" mapstructure:"request_timeout_sec" yaml:"request_timeout_sec"`
 }
 
 // s3Bucket mirrors the configured bucket for PingS3. Guarded by mu.
@@ -85,8 +88,11 @@ func PingS3(ctx context.Context) error {
 	}
 
 	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucket})
+	if err != nil {
+		return fmt.Errorf("infra: s3 head bucket (bucket %s): %w", bucket, err)
+	}
 
-	return err
+	return nil
 }
 
 // ErrS3RegionEmpty aborts startup: a non-nil S3Config means "enable s3".
@@ -97,8 +103,10 @@ var (
 	ErrS3TimeoutInvalid = errors.New("infra: s3 timeout is negative")
 )
 
+// S3 is a shared infra value.
 var S3 *s3.Client
 
+// InitS3 is part of the public API.
 func InitS3(cfg *S3Config) (*s3.Client, error) {
 	if cfg == nil {
 		return nil, nil
@@ -122,11 +130,13 @@ func InitS3(cfg *S3Config) (*s3.Client, error) {
 	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 	}
+
 	if cfg.RequestTimeoutSec > 0 {
 		loadOpts = append(loadOpts, config.WithHTTPClient(&http.Client{
 			Timeout: time.Duration(cfg.RequestTimeoutSec) * time.Second,
 		}))
 	}
+
 	if strings.TrimSpace(cfg.AccessKey) != "" {
 		loadOpts = append(loadOpts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, cfg.SessionToken),
@@ -150,8 +160,10 @@ func InitS3(cfg *S3Config) (*s3.Client, error) {
 			endpoint := strings.TrimSpace(cfg.Endpoint)
 			o.BaseEndpoint = &endpoint
 		}
+
 		o.UsePathStyle = cfg.UsePathStyle
 	}
+
 	client := s3.NewFromConfig(c, clientOpts)
 
 	mu.Lock()
@@ -163,6 +175,7 @@ func InitS3(cfg *S3Config) (*s3.Client, error) {
 
 		return S3, nil
 	}
+
 	S3 = client
 	s3Bucket = strings.TrimSpace(cfg.Bucket)
 
@@ -177,6 +190,7 @@ func InitS3(cfg *S3Config) (*s3.Client, error) {
 	return client, nil
 }
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *S3Config) Ensure() *S3Config {
 	if c == nil {
 		c = new(S3Config)
@@ -189,6 +203,7 @@ func (c *S3Config) Ensure() *S3Config {
 	return c
 }
 
+// Validate rejects half-configured or illegal values.
 func (c *S3Config) Validate() error {
 	if c == nil {
 		return nil

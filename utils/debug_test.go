@@ -37,7 +37,7 @@ import (
 )
 
 type testStruct struct {
-	Name  string `json:"name" xml:"name"`
+	Name  string `json:"name"  xml:"name"`
 	Value int    `json:"value" xml:"value"`
 }
 
@@ -53,6 +53,7 @@ func TestJSONAnyString(t *testing.T) {
 		if err := json.Unmarshal([]byte(got), &parsed); err != nil {
 			t.Errorf("failed to parse JSON output: %v", err)
 		}
+
 		if parsed.Name != "test" || parsed.Value != 42 {
 			t.Errorf("unexpected parsed value: %+v", parsed)
 		}
@@ -78,6 +79,7 @@ func TestJSONAnyBytes(t *testing.T) {
 		if err := json.Unmarshal(got, &parsed); err != nil {
 			t.Errorf("failed to parse JSON output: %v", err)
 		}
+
 		if parsed.Name != "test" || parsed.Value != 42 {
 			t.Errorf("unexpected parsed value: %+v", parsed)
 		}
@@ -103,6 +105,7 @@ func TestXMLAnyString(t *testing.T) {
 		if err := xml.Unmarshal([]byte(got), &parsed); err != nil {
 			t.Errorf("failed to parse XML output: %v", err)
 		}
+
 		if parsed.Name != "test" || parsed.Value != 42 {
 			t.Errorf("unexpected parsed value: %+v", parsed)
 		}
@@ -128,6 +131,7 @@ func TestXMLAnyBytes(t *testing.T) {
 		if err := xml.Unmarshal(got, &parsed); err != nil {
 			t.Errorf("failed to parse XML output: %v", err)
 		}
+
 		if parsed.Name != "test" || parsed.Value != 42 {
 			t.Errorf("unexpected parsed value: %+v", parsed)
 		}

@@ -16,19 +16,24 @@ func TestConfigEnsureDefaults(t *testing.T) {
 	if c.Network != DefaultNetwork || c.Address != DefaultAddress {
 		t.Fatalf("network/address defaults: %+v", c)
 	}
+
 	if c.ReadTimeout != DefaultReadTimeout || c.ReadHeaderTimeout != DefaultReadHeaderTimeout ||
 		c.WriteTimeout != DefaultWriteTimeout || c.IdleTimeout != DefaultIdleTimeout {
 		t.Fatalf("timeout defaults: %+v", c)
 	}
+
 	if c.MaxHeaderBytes != DefaultMaxHeaderBytes {
 		t.Fatalf("max_header_bytes default = %d", c.MaxHeaderBytes)
 	}
+
 	if c.BodyLimit != DefaultBodyLimit {
 		t.Fatalf("body_limit default = %d", c.BodyLimit)
 	}
+
 	if c.CORS == nil || c.CORS.MaxAge != DefaultCORSMaxAge {
 		t.Fatalf("cors defaults: %+v", c.CORS)
 	}
+
 	if c.ShutdownTimeout != DefaultShutdownTimeout {
 		t.Fatalf("shutdown_timeout default = %v", c.ShutdownTimeout)
 	}
@@ -43,9 +48,11 @@ func TestConfigEnsureClamps(t *testing.T) {
 	if c.ReadTimeout != DefaultReadTimeout {
 		t.Fatalf("read_timeout clamp = %v", c.ReadTimeout)
 	}
+
 	if c.MaxHeaderBytes != DefaultMaxHeaderBytes {
 		t.Fatalf("max_header_bytes clamp = %d", c.MaxHeaderBytes)
 	}
+
 	if c.BodyLimit != DefaultBodyLimit {
 		t.Fatalf("body_limit clamp = %d", c.BodyLimit)
 	}
@@ -59,6 +66,7 @@ func TestSanitizePropagatedValue(t *testing.T) {
 		"a/b":           "",
 		"":              "",
 	}
+
 	for in, want := range cases {
 		if got := sanitizePropagatedValue(in); got != want {
 			t.Fatalf("sanitize(%q) = %q, want %q", in, got, want)
@@ -69,12 +77,14 @@ func TestSanitizePropagatedValue(t *testing.T) {
 func callCORS(t *testing.T, cfg *CORSConfig, method, origin string) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(method, "http://x.test/", nil)
+	req := httptest.NewRequest(method, "http://x.test/", http.NoBody)
 	if origin != "" {
 		req.Header.Set("Origin", origin)
 	}
+
 	h := NewCORSMiddleware(cfg)(func(w http.ResponseWriter, r bunrouter.Request) error {
 		w.WriteHeader(http.StatusTeapot)
+
 		return nil
 	})
 	if err := h(w, bunrouter.NewRequest(req)); err != nil {
@@ -92,9 +102,11 @@ func TestCORSMiddlewareWhitelist(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://app.test" {
 		t.Fatalf("ACAO = %q", got)
 	}
+
 	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Fatalf("ACAC = %q", got)
 	}
+
 	if w.Code != http.StatusTeapot {
 		t.Fatalf("handler not reached, code = %d", w.Code)
 	}
@@ -104,6 +116,7 @@ func TestCORSMiddlewareWhitelist(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("untrusted origin echoed: %q", got)
 	}
+
 	if w.Code != http.StatusTeapot {
 		t.Fatalf("handler not reached, code = %d", w.Code)
 	}
@@ -113,9 +126,11 @@ func TestCORSMiddlewareWhitelist(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("preflight code = %d", w.Code)
 	}
+
 	if got := w.Header().Get("Access-Control-Max-Age"); got != "86400" {
 		t.Fatalf("max-age = %q", got)
 	}
+
 	if h := w.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(h, "X-B3-Traceid") {
 		t.Fatalf("allow-headers missing tracing headers: %q", h)
 	}
@@ -134,12 +149,14 @@ func TestStatusMiddleware(t *testing.T) {
 	h := NewStatusMiddleware()(func(w http.ResponseWriter, r bunrouter.Request) error {
 		w.WriteHeader(http.StatusNotFound)
 		got = StatusFromContext(r.Context())
+
 		return nil
 	})
 	w := httptest.NewRecorder()
-	if err := h(w, bunrouter.NewRequest(httptest.NewRequest(http.MethodGet, "/", nil))); err != nil {
+	if err := h(w, bunrouter.NewRequest(httptest.NewRequest(http.MethodGet, "/", http.NoBody))); err != nil {
 		t.Fatalf("middleware error: %v", err)
 	}
+
 	if got != http.StatusNotFound {
 		t.Fatalf("recorded status = %d", got)
 	}
@@ -148,11 +165,13 @@ func TestStatusMiddleware(t *testing.T) {
 	h2 := NewStatusMiddleware()(func(w http.ResponseWriter, r bunrouter.Request) error {
 		_, _ = w.Write([]byte("hi"))
 		got = StatusFromContext(r.Context())
+
 		return nil
 	})
-	if err := h2(httptest.NewRecorder(), bunrouter.NewRequest(httptest.NewRequest(http.MethodGet, "/", nil))); err != nil {
+	if err := h2(httptest.NewRecorder(), bunrouter.NewRequest(httptest.NewRequest(http.MethodGet, "/", http.NoBody))); err != nil {
 		t.Fatalf("middleware error: %v", err)
 	}
+
 	if got != http.StatusOK {
 		t.Fatalf("implicit status = %d", got)
 	}
@@ -164,6 +183,7 @@ func TestBodyLimitMiddleware(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected body-too-large error")
 		}
+
 		return nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("0123456789"))

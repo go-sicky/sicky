@@ -31,16 +31,21 @@
 package local
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+
 	"github.com/go-sicky/sicky/registry"
 )
 
+// Watcher is a local component.
 type Watcher struct {
 	registry *Local
 	watcher  *fsnotify.Watcher
+
+	closeOnce sync.Once
 
 	sync.RWMutex
 }
@@ -48,22 +53,22 @@ type Watcher struct {
 func newWatcher(rg *Local) (*Watcher, error) {
 	fw, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("local registry create watcher: %w", err)
 	}
 
 	dir := rg.config.RegistryFilePath
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			fw.Close()
+			_ = fw.Close()
 
-			return nil, err
+			return nil, fmt.Errorf("local registry mkdir (dir %s): %w", dir, err)
 		}
 	}
 
 	if err := fw.Add(dir); err != nil {
-		fw.Close()
+		_ = fw.Close()
 
-		return nil, err
+		return nil, fmt.Errorf("local registry watch (dir %s): %w", dir, err)
 	}
 
 	return &Watcher{
@@ -72,9 +77,20 @@ func newWatcher(rg *Local) (*Watcher, error) {
 	}, nil
 }
 
+// close releases the fsnotify handle. Safe for concurrent and repeated
+// calls: Start's goroutine and Stop() both funnel through here.
+func (w *Watcher) close() {
+	w.closeOnce.Do(func() {
+		if w.watcher != nil {
+			_ = w.watcher.Close()
+		}
+	})
+}
+
+// Start starts the component.
 func (w *Watcher) Start() {
 	go func() {
-		defer w.watcher.Close()
+		defer w.close()
 
 		for {
 			select {
@@ -133,10 +149,9 @@ func (w *Watcher) Start() {
 	}()
 }
 
+// Stop stops the component and releases resources.
 func (w *Watcher) Stop() {
-	if w.watcher != nil {
-		w.watcher.Close()
-	}
+	w.close()
 }
 
 /*

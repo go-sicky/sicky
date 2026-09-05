@@ -32,25 +32,33 @@ package infra
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/dgraph-io/ristretto/v2"
+
 	"github.com/go-sicky/sicky/logger"
 )
 
 var (
-	ErrRistrettoNegativeNumCounters = errors.New("ristretto num_counters is negative")
-	ErrRistrettoNegativeMaxCost     = errors.New("ristretto max_cost is negative")
-	ErrRistrettoNegativeBufferItems = errors.New("ristretto buffer_items is negative")
+	// ErrRistrettoNegativeNumCounters is a shared infra value.
+	ErrRistrettoNegativeNumCounters = errors.New("infra: ristretto num_counters is negative")
+	// ErrRistrettoNegativeMaxCost is a shared infra value.
+	ErrRistrettoNegativeMaxCost = errors.New("infra: ristretto max_cost is negative")
+	// ErrRistrettoNegativeBufferItems is a shared infra value.
+	ErrRistrettoNegativeBufferItems = errors.New("infra: ristretto buffer_items is negative")
 )
 
+// RistrettoConfig is a infra component.
 type RistrettoConfig struct {
-	NumCounters int64 `json:"num_counters" yaml:"num_counters" mapstructure:"num_counters"`
-	MaxCost     int64 `json:"max_cost" yaml:"max_cost" mapstructure:"max_cost"`
-	BufferItems int64 `json:"buffer_items" yaml:"buffer_items" mapstructure:"buffer_items"`
+	NumCounters int64 `json:"num_counters" mapstructure:"num_counters" yaml:"num_counters"`
+	MaxCost     int64 `json:"max_cost"     mapstructure:"max_cost"     yaml:"max_cost"`
+	BufferItems int64 `json:"buffer_items" mapstructure:"buffer_items" yaml:"buffer_items"`
 }
 
+// Ristretto is a shared infra value.
 var Ristretto *ristretto.Cache[string, any]
 
+// InitRistretto is part of the public API.
 func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) {
 	if cfg == nil {
 		return nil, nil
@@ -79,7 +87,7 @@ func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 			"error", err.Error(),
 		)
 
-		return nil, err
+		return nil, fmt.Errorf("infra: ristretto new cache: %w", err)
 	}
 
 	logger.Logger.Info(
@@ -99,17 +107,22 @@ func InitRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 
 		return Ristretto, nil
 	}
+
 	Ristretto = cache
 
 	return cache, nil
 }
 
 const (
+	// DefaultRistrettoNumCounters is a infra constant.
 	DefaultRistrettoNumCounters = 10000000
-	DefaultRistrettoMaxCost     = 100000000
+	// DefaultRistrettoMaxCost is a infra constant.
+	DefaultRistrettoMaxCost = 100000000
+	// DefaultRistrettoBufferItems is a infra constant.
 	DefaultRistrettoBufferItems = 64
 )
 
+// Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
 func (c *RistrettoConfig) Ensure() *RistrettoConfig {
 	if c == nil {
 		c = new(RistrettoConfig)
@@ -136,15 +149,19 @@ func (c *RistrettoConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
+
 	if c.NumCounters < 0 {
 		return ErrRistrettoNegativeNumCounters
 	}
+
 	if c.MaxCost < 0 {
 		return ErrRistrettoNegativeMaxCost
 	}
+
 	if c.BufferItems < 0 {
 		return ErrRistrettoNegativeBufferItems
 	}
+
 	return nil
 }
 

@@ -41,6 +41,7 @@ import (
 	"github.com/go-sicky/sicky/tracer"
 )
 
+// Standard is a standard component.
 type Standard struct {
 	config  *Config
 	ctx     context.Context
@@ -53,6 +54,7 @@ type Standard struct {
 	tracers    []tracer.Tracer
 }
 
+// New creates a new instance (nil on invalid config).
 func New(opts *service.Options, cfg *Config) *Standard {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
@@ -84,18 +86,22 @@ func New(opts *service.Options, cfg *Config) *Standard {
 	return svc
 }
 
+// Context returns the component context.
 func (s *Standard) Context() context.Context {
 	return s.ctx
 }
 
+// Options returns the runtime options.
 func (s *Standard) Options() *service.Options {
 	return s.options
 }
 
+// String returns a human-readable name.
 func (s *Standard) String() string {
 	return "standard"
 }
 
+// Start starts the component.
 func (s *Standard) Start() []error {
 	var (
 		err  error
@@ -140,6 +146,7 @@ func (s *Standard) Start() []error {
 	return errs
 }
 
+// Stop stops the component and releases resources.
 func (s *Standard) Stop() []error {
 	var (
 		err  error
@@ -184,7 +191,7 @@ func (s *Standard) Stop() []error {
 	return errs
 }
 
-/* {{{ [Standard] */
+/* {{{ [Standard]. */
 func (s *Standard) Servers(srvs ...server.Server) []server.Server {
 	if len(srvs) > 0 {
 		s.servers = append(s.servers, srvs...)
@@ -193,6 +200,7 @@ func (s *Standard) Servers(srvs ...server.Server) []server.Server {
 	return s.servers
 }
 
+// Brokers returns a copy of the broker registry.
 func (s *Standard) Brokers(brks ...broker.Broker) []broker.Broker {
 	if len(brks) > 0 {
 		s.brokers = append(s.brokers, brks...)
@@ -201,6 +209,7 @@ func (s *Standard) Brokers(brks ...broker.Broker) []broker.Broker {
 	return s.brokers
 }
 
+// Jobs returns a copy of the job registry.
 func (s *Standard) Jobs(jobs ...job.Job) []job.Job {
 	if !s.config.DisableJobs && len(jobs) > 0 {
 		s.jobs = append(s.jobs, jobs...)
@@ -209,6 +218,7 @@ func (s *Standard) Jobs(jobs ...job.Job) []job.Job {
 	return s.jobs
 }
 
+// Registries returns the managed registries.
 func (s *Standard) Registries(rgs ...registry.Registry) []registry.Registry {
 	if !s.config.DisableServerRegister && len(rgs) > 0 {
 		s.registries = append(s.registries, rgs...)
@@ -217,6 +227,7 @@ func (s *Standard) Registries(rgs ...registry.Registry) []registry.Registry {
 	return s.registries
 }
 
+// Tracers returns the managed tracers.
 func (s *Standard) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
 	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)

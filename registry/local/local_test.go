@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/go-sicky/sicky/registry"
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/registry"
 )
 
 func TestValidateRejectsRelativePath(t *testing.T) {
@@ -15,6 +16,7 @@ func TestValidateRejectsRelativePath(t *testing.T) {
 	if err := cfg.Validate(); !errors.Is(err, ErrLocalPathNotAbsolute) {
 		t.Fatalf("relative path must fail validation, got %v", err)
 	}
+
 	if got := New(&registry.Options{}, cfg); got != nil {
 		t.Fatal("New with relative path must return nil")
 	}
@@ -26,6 +28,7 @@ func TestCleanupKeepsNonUUIDFiles(t *testing.T) {
 	if err := os.WriteFile(keep, []byte("{}"), 0o600); err != nil {
 		t.Fatalf("fixture: %v", err)
 	}
+
 	stale := filepath.Join(dir, uuid.New().String()+".json")
 	if err := os.WriteFile(stale, []byte("{}"), 0o600); err != nil {
 		t.Fatalf("fixture: %v", err)
@@ -35,9 +38,11 @@ func TestCleanupKeepsNonUUIDFiles(t *testing.T) {
 	if rg == nil {
 		t.Fatal("New must succeed on absolute tmp path")
 	}
+
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatal("uuid-named stale file must be removed")
 	}
+
 	if _, err := os.Stat(keep); err != nil {
 		t.Fatal("non-uuid file must be preserved")
 	}
@@ -54,6 +59,7 @@ func TestRegisterLoadDeregisterRoundTrip(t *testing.T) {
 	if err := rg.Register(ins); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
+
 	if !rg.CheckInstance(ins.ID) {
 		t.Fatal("CheckInstance must find registered instance")
 	}
@@ -62,12 +68,14 @@ func TestRegisterLoadDeregisterRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+
 	found := false
 	for _, in := range loaded {
 		if in != nil && in.ID == ins.ID {
 			found = true
 		}
 	}
+
 	if !found {
 		t.Fatalf("Load must return registered instance, got %d", len(loaded))
 	}
@@ -75,6 +83,7 @@ func TestRegisterLoadDeregisterRoundTrip(t *testing.T) {
 	if err := rg.Deregister(ins.ID); err != nil {
 		t.Fatalf("Deregister: %v", err)
 	}
+
 	if rg.CheckInstance(ins.ID) {
 		t.Fatal("CheckInstance must miss deregistered instance")
 	}

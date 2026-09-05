@@ -22,17 +22,16 @@ func (f *fakeClient) ID() uuid.UUID            { return f.id }
 func TestRegistryConcurrentAccess(t *testing.T) {
 	Clear()
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 8 {
+		wg.Go(func() {
 			c := &fakeClient{id: uuid.New()}
 			Set(c)
 			_ = Get(c.id)
 			_ = Default()
 			_ = Clients()
-		}()
+		})
 	}
+
 	wg.Wait()
 }
 
@@ -41,15 +40,18 @@ func TestRegistryDefaultAndClear(t *testing.T) {
 	if Default() != nil {
 		t.Fatal("Default must be nil after Clear")
 	}
+
 	a := &fakeClient{id: uuid.New()}
 	b := &fakeClient{id: uuid.New()}
 	Set(a, b)
 	if Default() != a {
 		t.Fatal("first registered must be Default")
 	}
+
 	if len(Clients()) != 2 {
 		t.Fatalf("Clients = %d, want 2", len(Clients()))
 	}
+
 	Clear()
 	if len(Clients()) != 0 || Default() != nil {
 		t.Fatal("Clear must reset registry")

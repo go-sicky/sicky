@@ -32,36 +32,41 @@ package utils
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // G501: MD5String is a non-cryptographic helper (checksums/ETags); never used for auth/secrets in-tree
 	crand "crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"runtime"
 	"strconv"
 
-	// For submodule upgrade
+	// For submodule upgrade.
 	_ "google.golang.org/genproto/protobuf/api"
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
+// RandomString is a utility helper.
 func RandomString(length int) string {
 	if length <= 0 {
 		return ""
 	}
+
 	// Rejection-sample uniformly without per-byte big.Int allocs.
-	max := 256 - (256 % len(letterBytes))
+	ceiling := 256 - (256 % len(letterBytes))
 	b := make([]byte, 0, length)
 	raw := make([]byte, length*2)
 	for len(b) < length {
 		if _, err := crand.Read(raw); err != nil {
 			// crypto/rand must never silently degrade; fail fast.
-			panic(fmt.Sprintf("crypto/rand unavailable: %s", err.Error()))
+			panic("crypto/rand unavailable: " + err.Error())
 		}
+
 		for _, v := range raw {
-			if int(v) >= max {
+			if int(v) >= ceiling {
 				continue
 			}
+
 			b = append(b, letterBytes[int(v)%len(letterBytes)])
 			if len(b) == length {
 				break
@@ -72,22 +77,30 @@ func RandomString(length int) string {
 	return string(b)
 }
 
+// RandomHex is a utility helper.
 func RandomHex(length int) []byte {
 	if length <= 0 {
 		return nil
 	}
+
 	b := make([]byte, length)
 	if _, err := crand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand unavailable: %s", err.Error()))
+		panic("crypto/rand unavailable: " + err.Error())
 	}
 
 	return b
 }
 
+// MD5String is a utility helper for non-security checksums (ETags, cache
+// keys). Do not use it for passwords, tokens, or integrity of untrusted
+// data — use sha256.
+//
+//nolint:gosec // G401: non-cryptographic use by documented contract
 func MD5String(input string) string {
 	return fmt.Sprintf("%x", md5.Sum([]byte(input)))
 }
 
+// GoroutineID is a utility helper.
 func GoroutineID() uint64 {
 	b := make([]byte, 64)
 	b = b[:runtime.Stack(b, false)]
@@ -98,13 +111,15 @@ func GoroutineID() uint64 {
 	return n
 }
 
+// CryptoPassword is a utility helper.
 func CryptoPassword(original, salt string) string {
 	h := sha256.New()
 	h.Write([]byte(original + "@@" + salt))
 
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
+// EnsureStatus is a utility helper.
 func EnsureStatus(status, bit int64) bool {
 	if bit < 0 || bit > 63 {
 		return false
