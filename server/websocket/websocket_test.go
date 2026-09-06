@@ -40,7 +40,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/valyala/fasthttp"
 )
 
@@ -74,6 +74,10 @@ func TestConfigEnsureDefaults(t *testing.T) {
 	if (*Config)(nil).Ensure() == nil {
 		t.Error("nil Ensure must return a default config")
 	}
+
+	if cfg.TrustProxy == nil || !*cfg.TrustProxy {
+		t.Error("TrustProxy must default to true")
+	}
 }
 
 func TestStartHalfTLSFailFast(t *testing.T) {
@@ -106,7 +110,7 @@ func TestStartHalfTLSFailFast(t *testing.T) {
 }
 
 func TestCheckOrigin(t *testing.T) {
-	newCtx := func(origin, host string) *fiber.Ctx {
+	newCtx := func(origin, host string) fiber.Ctx {
 		var fctx fasthttp.RequestCtx
 		if origin != "" {
 			fctx.Request.Header.Set("Origin", origin)

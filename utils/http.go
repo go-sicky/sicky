@@ -31,9 +31,8 @@
 package utils
 
 import (
+	"net/http"
 	"time"
-
-	"github.com/gofiber/fiber/v2"
 )
 
 const (
@@ -58,7 +57,7 @@ type Envelope struct {
 func WrapHTTPResponse(data any) *Envelope {
 	e := &Envelope{
 		Code:      CodeOK,
-		Status:    fiber.StatusOK,
+		Status:    http.StatusOK,
 		Timestamp: time.Now(),
 		Message:   MsgOK,
 		Data:      data,

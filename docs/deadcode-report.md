@@ -14,7 +14,7 @@
 | `client/http/http.go:80-103`, `client/websocket/websocket.go:78-99` | 24+22 lines | Legacy functional-options comments; safe-delete candidate |
 | `server/grpc/tracer.go:123-125` | 3 lines | Superseded by `metadata.Join` at `:128`; safe-delete candidate |
 | `server/grpc/metadata.go:40-52` `NewMetadataInterceptor` | 13 lines | Placeholder for future baggage propagation; 0 callers by design, now marked `Deprecated: do not mount` |
-| `tracer/fiber.go:79-122`, `logger/fiber.go:106-191` `NewFiberMiddleware` x2 | ~330 lines live-but-deprecated | Never mount logger variant alongside `server/fiber` built-in chain (double-counts `sicky_server_requests_total{server="fiber"}`); tracer variant is counter-free and safe to stack |
+| ~~`tracer/fiber.go:79-122`, `logger/fiber.go:106-191` `NewFiberMiddleware` x2~~ | deleted 2026-09-06 | Removed in the Fiber v3 migration (zero importers); `server/fiber`'s built-in chain is the sole owner of the series |
 | `registry/pool.go NewPool/SetPool` | 2 funcs | Now marked `Deprecated`: `NewPool` creates a pool disconnected from global state, `SetPool` swaps the `Notify` channel under watchers; use `InitPool`/`PurgePool` instead. Instance methods (`RegisterService/GetService/...`) stay — they serve snapshot readers |
 | `server/http/cors.go:86-95` `CORSMiddleware` | 10 lines | Deny-all alias; use `NewCORSMiddleware` with explicit whitelist |
 
@@ -39,7 +39,7 @@
 
 ## Gate whitelist (mirrors `.golangci.yml`)
 
-`staticcheck U1000` exclusions cover exactly: `registry/mdns/*`, `server/grpc/metadata.go`, `logger/fiber.go + tracer/fiber.go NewFiberMiddleware`, `server/http/cors.go CORSMiddleware`, `cli/generate_extra.go firstPositional`, empty-`Config.Ensure`, `Deprecated` aliases, defense-in-depth `default` branches. Any **new** unused symbol outside this list fails CI.
+`staticcheck U1000` exclusions cover exactly: `registry/mdns/*`, `server/grpc/metadata.go`, `server/http/cors.go CORSMiddleware`, `cli/generate_extra.go firstPositional`, empty-`Config.Ensure`, `Deprecated` aliases, defense-in-depth `default` branches. Any **new** unused symbol outside this list fails CI. (`logger/fiber.go + tracer/fiber.go` exclusion dropped 2026-09-06: files deleted in the Fiber v3 migration.)
 
 ## §4 — CLI orphans wired back (2026-09-05, no longer dead)
 

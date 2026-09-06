@@ -36,12 +36,12 @@ Go-Sicky 提供统一、可插拔的架构，把基础设施、通信协议、�
 
 | 协议 | 实现 | 网络 | 默认监听 | 说明 |
 |---|---|---|---|---|
-| HTTP（Fiber） | gofiber/v2 | `tcp` | `:9990` | |
+| HTTP（Fiber） | gofiber/v3 | `tcp` | `:9990` | |
 | net/http | 标准库 + `uptrace/bunrouter` | `tcp` | `:9980` | 与 UDP 同端口号、不同 network，可共存 |
 | gRPC | google.golang.org/grpc | `tcp` | `:0`（随机） | 系统分配临时端口，实际端口以 `listener.Addr()` 为准并注册 |
 | TCP | 原生 socket | `tcp` | `:9981` | 支持 `MaxMessageBytes` 按连接累计接收上限（0=不限） |
 | UDP | 原生 socket | `udp` | `:9980` | 与 net/http 同端口号、不同 network，可共存；支持 `MaxPacketsPerSecond` 限流 |
-| WebSocket | Fiber + `gofiber/contrib/websocket` | `tcp` | `:9991` | 默认路径 `/conn`（注：`gorilla/websocket` 只是间接依赖，直接依赖是 contrib 包） |
+| WebSocket | Fiber + `gofiber/contrib/v3/websocket` | `tcp` | `:9991` | 默认路径 `/conn`（注：`gorilla/websocket` 只是间接依赖，直接依赖是 contrib 包） |
 
 ### 可插拔基础设施（10 个组件）
 
@@ -169,7 +169,7 @@ import (
     "github.com/go-sicky/sicky/service"
     svcStandard "github.com/go-sicky/sicky/service/standard"
     srvFiber "github.com/go-sicky/sicky/server/fiber"
-    "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/fiber/v3"
 )
 
 func main() {
@@ -192,7 +192,7 @@ func main() {
     })
 
     // 注册路由
-    srv.App().Get("/", func(c *fiber.Ctx) error {
+    srv.App().Get("/", func(c fiber.Ctx) error {
         return c.JSON(fiber.Map{"message": "Hello from Go-Sicky!"})
     })
 
@@ -430,7 +430,7 @@ svc := svcStandard.New(&service.Options{
 import (
     srvFiber "github.com/go-sicky/sicky/server/fiber"
     "github.com/go-sicky/sicky/server"
-    "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/fiber/v3"
 )
 
 srv := srvFiber.New(&server.Options{Name: "api"}, &srvFiber.Config{
@@ -728,7 +728,7 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 | `client` | Client 接口 + gRPC、HTTP、TCP、UDP、WebSocket 实现（gRPC 支持 TLS 1.2+ mTLS fail-fast 和基于注册池的服务发现；发现模式有 NotifyChan watcher + 30s resync，`Disconnect` 停） |
 | `service` | Service 接口 + Standard（后台）、Interactive（CLI）、MCP（+ `mcp/protocol`） |
 | `registry` | Registry 接口 + Consul、Redis、Local（文件 JSON）—— `mdns` 已废弃（注释保留）；`pool.go` 有 `NotifyChan()`（`InitPool` 前为 nil，`PurgePool` 后保持稳定）供 gRPC client 这类实时订阅者用 |
-| `tracer` | Tracer 接口 + OTLP/gRPC、OTLP/HTTP、Stdout、Uptrace（+ 已废弃的 `tracer/fiber.go` B3 helper，新代码用 `server/fiber` 的 tracer 中间件）；TCP/UDP/WebSocket 无 tracing（无标准载体，by design） |
+| `tracer` | Tracer 接口 + OTLP/gRPC、OTLP/HTTP、Stdout、Uptrace（Fiber 侧用 `server/fiber` 内建 tracer 中间件）；TCP/UDP/WebSocket 无 tracing（无标准载体，by design） |
 | `infra` | 10 个驱动（Redis、Bun、Ristretto、Badger、Elasticsearch、Clickhouse、MongoDB、MQTT、NATS、S3）—— 扁平 `infra/*.go`，无接口、无 `interface.go` |
 | `job` | Job 接口 + Cron（gocron）、Ticker 实现 |
 | `runner` | Runner 接口 + Static goroutine 池 |
@@ -768,7 +768,7 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 
 - `registry/mdns/`：100% 注释，纪念保留，不支持，不引 `zeroconf`。
 - `server/grpc/metadata.go:40 NewMetadataInterceptor`：no-op 占位，故意不接线。
-- `logger/fiber.go:113 NewFiberMiddleware`、`tracer/fiber.go`：已废弃，保留不维护；别和新链路叠挂。
+- `logger/fiber.go`、`tracer/fiber.go`：v3 迁移时已删除（零引用）；Fiber 侧统一用 `server/fiber` 内建链路。
 - 脚手架里 `tool.go.gotmpl`（`ReadResource`/`GetPrompt`）、`resource.go.gotmpl`（`CallTool`/`GetPrompt`）
   会返回显式 `not implemented` error（和 `project/mcp/handler.go.gotmpl` 一致），不是静默 `nil, nil`。
 - CLI 悬空命令与 generate stub（见 [CLI](#cli)），有定义、无注册。

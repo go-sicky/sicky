@@ -38,9 +38,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/etag"
+	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
@@ -136,22 +137,20 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 
 	app := fiber.New(
 		fiber.Config{
-			Prefork:               false,
-			DisableStartupMessage: true,
-			ServerHeader:          opts.Name,
-			AppName:               opts.Name,
-			Network:               cfg.Network,
-			DisableKeepalive:      cfg.DisableKeepAlive,
-			StrictRouting:         cfg.StrictRouting,
-			CaseSensitive:         cfg.CaseSensitive,
-			ETag:                  cfg.Etag,
-			BodyLimit:             cfg.BodyLimit,
-			Concurrency:           cfg.Concurrency,
-			ReadBufferSize:        cfg.ReadBufferSize,
-			WriteBufferSize:       cfg.WriteBufferSize,
-			ReadTimeout:           cfg.ReadTimeout,
-			WriteTimeout:          cfg.WriteTimeout,
-			IdleTimeout:           cfg.IdleTimeout,
+			ServerHeader:     opts.Name,
+			AppName:          opts.Name,
+			TrustProxy:       cfg.TrustProxy == nil || *cfg.TrustProxy,
+			TrustProxyConfig: fiber.TrustProxyConfig{Loopback: true, LinkLocal: true, Private: true},
+			DisableKeepalive: cfg.DisableKeepAlive,
+			StrictRouting:    cfg.StrictRouting,
+			CaseSensitive:    cfg.CaseSensitive,
+			BodyLimit:        cfg.BodyLimit,
+			Concurrency:      cfg.Concurrency,
+			ReadBufferSize:   cfg.ReadBufferSize,
+			WriteBufferSize:  cfg.WriteBufferSize,
+			ReadTimeout:      cfg.ReadTimeout,
+			WriteTimeout:     cfg.WriteTimeout,
+			IdleTimeout:      cfg.IdleTimeout,
 		},
 	)
 
@@ -165,6 +164,12 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 		app.Use(recover.New(
 			recover.ConfigDefault,
 		))
+	}
+
+	// ETag was a built-in router flag in v2; v3 ships it as middleware.
+	// Mount it outermost so every response carries a validator when enabled.
+	if cfg.Etag {
+		app.Use(etag.New())
 	}
 
 	// The order of middlewares is important
@@ -185,13 +190,13 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 		corsCfg = (&CORSConfig{}).Ensure()
 	}
 
-	corsMiddleware := func(c *fiber.Ctx) error {
+	corsMiddleware := func(c fiber.Ctx) error {
 		return c.Next()
 	}
 
 	if len(corsCfg.AllowedOrigins) > 0 {
 		corsMiddleware = cors.New(cors.Config{
-			AllowOrigins:     strings.Join(corsCfg.AllowedOrigins, ", "),
+			AllowOrigins:     corsCfg.AllowedOrigins,
 			AllowCredentials: corsCfg.AllowCredentials,
 			MaxAge:           corsCfg.MaxAge,
 		})
@@ -379,7 +384,10 @@ func (srv *FiberServer) Start() error {
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Go(func() {
-		err := srv.app.Listener(listener)
+		err := srv.app.Listener(listener, fiber.ListenConfig{
+			DisableStartupMessage: true,
+			ListenerNetwork:       srv.config.Network,
+		})
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,

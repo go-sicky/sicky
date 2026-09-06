@@ -66,6 +66,10 @@ const (
 	// DefaultShutdownTimeout is a fiber constant.
 	DefaultShutdownTimeout = 10 * time.Second
 
+	// DefaultTrustProxy enables Fiber's trusted-proxy handling unless
+	// explicitly disabled via Config.TrustProxy.
+	DefaultTrustProxy = true
+
 	// AccessLogger
 	// DefaultRequestIDContextKey is a fiber constant.
 	DefaultRequestIDContextKey = "requestid"
@@ -147,6 +151,12 @@ type Config struct {
 	// ShutdownTimeout bounds graceful shutdown; lingering connections
 	// are cut off past the deadline instead of hanging Stop forever.
 	ShutdownTimeout time.Duration `json:"shutdown_timeout" mapstructure:"shutdown_timeout" yaml:"shutdown_timeout"`
+	// TrustProxy enables Fiber's trusted-proxy handling (X-Forwarded-*
+	// honored for IP/host/scheme). It is a pointer so the zero config
+	// keeps the secure default: nil means DefaultTrustProxy (true),
+	// covering loopback, link-local and private ranges. Set an explicit
+	// false only for direct-exposure deployments without a proxy.
+	TrustProxy *bool `json:"trust_proxy" mapstructure:"trust_proxy" yaml:"trust_proxy"`
 }
 
 // CORSConfig whitelists cross-origin access. An empty AllowedOrigins
@@ -308,6 +318,11 @@ func (c *Config) Ensure() *Config {
 
 	if c.ShutdownTimeout == 0 {
 		c.ShutdownTimeout = DefaultShutdownTimeout
+	}
+
+	if c.TrustProxy == nil {
+		c.TrustProxy = new(bool)
+		*c.TrustProxy = DefaultTrustProxy
 	}
 
 	return c

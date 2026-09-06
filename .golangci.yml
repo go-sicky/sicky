@@ -83,8 +83,6 @@ linters:
       # P0/P2: deliberately-kept placeholders & deprecated shims
       - path: server/grpc/metadata\.go
         linters: [unused, staticcheck, revive, gocritic]
-      - path: (logger/fiber\.go|tracer/fiber\.go)
-        linters: [unused, staticcheck, revive, gocritic]
       - path: server/http/cors\.go
         linters: [unused, staticcheck, revive, gocritic]
       # P2: reserved extension point (incl. unused extraJobs var)

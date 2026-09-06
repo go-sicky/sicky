@@ -16,11 +16,11 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 ### Multi-Protocol Servers
 | Protocol | Implementation | Network | Default Address | Notes |
 |---|---|---|---|---|
-| HTTP (Fiber) | Fiber (gofiber/v2) | `tcp` | `:9990` | |
+| HTTP (Fiber) | Fiber (gofiber/v3) | `tcp` | `:9990` | |
 | gRPC | google.golang.org/grpc | `tcp` | `:0` (random) | OS-assigned ephemeral port; actual port registered via `listener.Addr()` |
 | TCP | Raw socket | `tcp` | `:9981` | |
 | UDP | Raw socket | `udp` | `:9980` | Same numeric port as net/http but different network — can coexist |
-| WebSocket | Fiber + gorilla/websocket | `tcp` | `:9991` | Path `/conn` by default |
+| WebSocket | Fiber + `gofiber/contrib/v3/websocket` | `tcp` | `:9991` | Path `/conn` by default |
 | net/http | Standard library (bunrouter) | `tcp` | `:9980` | Same numeric port as UDP but different network — can coexist |
 
 ### Pluggable Infrastructure
@@ -121,7 +121,7 @@ import (
     "github.com/go-sicky/sicky/service"
     svcStandard "github.com/go-sicky/sicky/service/standard"
     srvFiber "github.com/go-sicky/sicky/server/fiber"
-    "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/fiber/v3"
 )
 
 func main() {
@@ -144,7 +144,7 @@ func main() {
     })
 
     // Register routes
-    srv.App().Get("/", func(c *fiber.Ctx) error {
+    srv.App().Get("/", func(c fiber.Ctx) error {
         return c.JSON(fiber.Map{"message": "Hello from Go-Sicky!"})
     })
 
@@ -349,7 +349,7 @@ svc := svcStandard.New(&service.Options{
 import (
     srvFiber "github.com/go-sicky/sicky/server/fiber"
     "github.com/go-sicky/sicky/server"
-    "github.com/gofiber/fiber/v2"
+    "github.com/gofiber/fiber/v3"
 )
 
 srv := srvFiber.New(&server.Options{Name: "api"}, &srvFiber.Config{
@@ -625,7 +625,7 @@ sicky help        # also: sicky serve -h, sicky new -h
 | `client` | Client interface + gRPC, HTTP, TCP, UDP, WebSocket implementations (gRPC supports TLS 1.2+ mTLS fail-fast and registry-based service discovery) |
 | `service` | Service interface + Standard (background), Interactive (CLI), MCP (+ `mcp/protocol`) |
 | `registry` | Registry interface + Consul, Redis, Local (file JSON) — `mdns` deprecated (commented, kept) |
-| `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace (+ `tracer/fiber.go` B3 helper) |
+| `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace (Fiber side uses the built-in `server/fiber` tracer middleware) |
 | `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 10 files, no interface |
 | `job` | Job interface + Cron (gocron), Ticker implementations |
 | `runner` | Runner interface + Static goroutine pool implementation |

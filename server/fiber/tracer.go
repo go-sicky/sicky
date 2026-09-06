@@ -34,9 +34,9 @@ import (
 	"context"
 	"encoding/hex"
 	"net/http"
+	"strings"
 
-	"github.com/gofiber/fiber/v2"
-	futils "github.com/gofiber/fiber/v2/utils"
+	"github.com/gofiber/fiber/v3"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
@@ -46,7 +46,7 @@ import (
 
 // TracerConfig is a fiber component.
 type TracerConfig struct {
-	Next              func(c *fiber.Ctx) bool
+	Next              func(c fiber.Ctx) bool
 	Tracer            trace.Tracer
 	SpanIDContextKey  string
 	TraceIDContextKey string
@@ -97,7 +97,7 @@ func tracerConfigDefault(config ...TracerConfig) TracerConfig {
 func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 	cfg := tracerConfigDefault(config...)
 
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
@@ -109,12 +109,12 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		}
 
 		if cfg.Tracer == nil {
-			c.Locals(cfg.SpanIDContextKey, hex.EncodeToString(utils.RandomHex(8)))
+			fiber.Locals[string](c, cfg.SpanIDContextKey, hex.EncodeToString(utils.RandomHex(8)))
 
 			return c.Next()
 		}
 
-		savedCtx, cancel := context.WithCancel(c.UserContext())
+		savedCtx, cancel := context.WithCancel(c.Context())
 		// Extract only the propagation headers instead of copying the
 		// whole header set: full copies cost a string alloc per header
 		// on every request. W3C (traceparent/tracestate/baggage) + B3
@@ -132,7 +132,7 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		// the tracing backend index).
 		spanName := "HTTP " + c.Method()
 		if route := c.Route().Path; route != "" {
-			spanName = futils.CopyString(route)
+			spanName = strings.Clone(route)
 		}
 
 		spanedCtx, span := cfg.Tracer.Start(newCtx, spanName)
@@ -147,9 +147,9 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		spanID := self.SpanID().String()
 		traceID := self.TraceID().String()
 
-		c.Locals(cfg.SpanIDContextKey, spanID)
-		c.Locals(cfg.TraceIDContextKey, traceID)
-		c.SetUserContext(spanedCtx)
+		fiber.Locals[string](c, cfg.SpanIDContextKey, spanID)
+		fiber.Locals[string](c, cfg.TraceIDContextKey, traceID)
+		c.SetContext(spanedCtx)
 		err := c.Next()
 		if err != nil {
 			span.RecordError(err)

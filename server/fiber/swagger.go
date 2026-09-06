@@ -31,8 +31,8 @@
 package fiber
 
 import (
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/swagger"
+	"github.com/gofiber/contrib/v3/swaggo"
+	"github.com/gofiber/fiber/v3"
 )
 
 // Swagger is a fiber component.
@@ -53,7 +53,9 @@ func NewSwagger(title, url string) *Swagger {
 
 // Register registers the collector.
 func (h *Swagger) Register(app *fiber.App) {
-	cfg := swagger.ConfigDefault
+	cfg := swaggo.Config{
+		URL: "doc.json",
+	}
 	if h.validatorURL != "" {
 		cfg.ValidatorUrl = h.validatorURL
 	} else {
@@ -69,7 +71,7 @@ func (h *Swagger) Register(app *fiber.App) {
 	}
 
 	// Docs are read-only: expose GET only, never All().
-	app.Get("/docs/*", swagger.New(cfg))
+	app.Get("/docs/*", swaggo.New(cfg))
 }
 
 // Name returns the component name.

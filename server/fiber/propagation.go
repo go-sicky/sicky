@@ -31,7 +31,7 @@
 package fiber
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/tracer"
@@ -47,7 +47,7 @@ func sanitizePropagatedValue(v string) string {
 
 // PropagationConfig is a fiber component.
 type PropagationConfig struct {
-	Next                   func(c *fiber.Ctx) bool
+	Next                   func(c fiber.Ctx) bool
 	RequestIDContextKey    string
 	TraceIDContextKey      string
 	SpanIDContextKey       string
@@ -132,7 +132,7 @@ func propagationConfigDefault(config ...PropagationConfig) PropagationConfig {
 func NewPropagationMiddleware(config ...PropagationConfig) fiber.Handler {
 	cfg := propagationConfigDefault(config...)
 
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
@@ -146,11 +146,11 @@ func NewPropagationMiddleware(config ...PropagationConfig) fiber.Handler {
 			requestID = uuid.New().String()
 		}
 
-		c.Locals(cfg.RequestIDContextKey, requestID)
-		c.Locals(cfg.TraceIDContextKey, traceID)
+		fiber.Locals[string](c, cfg.RequestIDContextKey, requestID)
+		fiber.Locals[string](c, cfg.TraceIDContextKey, traceID)
 		// Chained
-		c.Locals(cfg.ParentSpanIDContextKey, spanID)
-		c.Locals(cfg.SampledContextKey, sampled)
+		fiber.Locals[string](c, cfg.ParentSpanIDContextKey, spanID)
+		fiber.Locals[string](c, cfg.SampledContextKey, sampled)
 
 		c.Set(cfg.RequestIDHeader, requestID)
 

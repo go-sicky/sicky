@@ -31,13 +31,13 @@
 package fiber
 
 import (
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"google.golang.org/grpc/metadata"
 )
 
 // MetadataConfig is a fiber component.
 type MetadataConfig struct {
-	Next                   func(c *fiber.Ctx) bool
+	Next                   func(c fiber.Ctx) bool
 	RequestIDContextKey    string
 	TraceIDContextKey      string
 	SpanIDContextKey       string
@@ -122,21 +122,16 @@ func metadataConfigDefault(config ...MetadataConfig) MetadataConfig {
 func NewMetadataMiddleware(config ...MetadataConfig) fiber.Handler {
 	cfg := metadataConfigDefault(config...)
 
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
 
-		rv := c.Locals(cfg.RequestIDContextKey)
-		requestID, _ := rv.(string)
-		tv := c.Locals(cfg.TraceIDContextKey)
-		traceID, _ := tv.(string)
-		sv := c.Locals(cfg.SpanIDContextKey)
-		spanID, _ := sv.(string)
-		pv := c.Locals(cfg.ParentSpanIDContextKey)
-		parentSpanID, _ := pv.(string)
-		av := c.Locals(cfg.SampledContextKey)
-		sampled, _ := av.(string)
+		requestID := fiber.Locals[string](c, cfg.RequestIDContextKey)
+		traceID := fiber.Locals[string](c, cfg.TraceIDContextKey)
+		spanID := fiber.Locals[string](c, cfg.SpanIDContextKey)
+		parentSpanID := fiber.Locals[string](c, cfg.ParentSpanIDContextKey)
+		sampled := fiber.Locals[string](c, cfg.SampledContextKey)
 
 		md := metadata.Pairs(
 			cfg.RequestIDHeader, requestID,
@@ -146,8 +141,8 @@ func NewMetadataMiddleware(config ...MetadataConfig) fiber.Handler {
 			cfg.SampledHeader, sampled,
 		)
 
-		newCtx := metadata.NewOutgoingContext(c.UserContext(), md)
-		c.SetUserContext(newCtx)
+		newCtx := metadata.NewOutgoingContext(c.Context(), md)
+		c.SetContext(newCtx)
 
 		return c.Next()
 	}

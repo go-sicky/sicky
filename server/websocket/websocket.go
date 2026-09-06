@@ -41,9 +41,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gofiber/contrib/websocket"
-	"github.com/gofiber/fiber/v2"
-	recovermiddleware "github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
+	recovermiddleware "github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/metrics"
@@ -126,11 +126,10 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 
 	app := fiber.New(
 		fiber.Config{
-			Prefork:               false,
-			DisableStartupMessage: true,
-			ServerHeader:          opts.Name,
-			AppName:               opts.Name,
-			Network:               cfg.Network,
+			ServerHeader:     opts.Name,
+			AppName:          opts.Name,
+			TrustProxy:       cfg.TrustProxy == nil || *cfg.TrustProxy,
+			TrustProxyConfig: fiber.TrustProxyConfig{Loopback: true, LinkLocal: true, Private: true},
 		},
 	)
 	app.Use(recovermiddleware.New(recovermiddleware.ConfigDefault))
@@ -145,7 +144,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		"path", cfg.Path,
 	)
 
-	app.Use(cfg.Path, func(c *fiber.Ctx) error {
+	app.Use(cfg.Path, func(c fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
 			if !srv.checkOrigin(c) {
 				srv.options.Logger.WarnContext(
@@ -161,7 +160,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 				return fiber.ErrForbidden
 			}
 
-			c.Locals("allowed", true)
+			fiber.Locals[bool](c, "allowed", true)
 
 			return c.Next()
 		}
@@ -188,7 +187,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 // Non-browser clients (no Origin header) are always allowed. With an empty
 // Origins list the default same-origin policy applies: the Origin must match
 // the request Host. An explicit list whitelists exact origins; "*" allows all.
-func (srv *WebsocketServer) checkOrigin(c *fiber.Ctx) bool {
+func (srv *WebsocketServer) checkOrigin(c fiber.Ctx) bool {
 	origin := string(c.Request().Header.Peek("Origin"))
 	if origin == "" {
 		return true
@@ -362,7 +361,10 @@ func (srv *WebsocketServer) Start() error {
 	srv.metadata.Set("name", srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	srv.wg.Go(func() {
-		err := srv.app.Listener(listener)
+		err := srv.app.Listener(listener, fiber.ListenConfig{
+			DisableStartupMessage: true,
+			ListenerNetwork:       srv.config.Network,
+		})
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx, "websocket server listen failed",

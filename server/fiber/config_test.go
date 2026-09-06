@@ -27,6 +27,10 @@ func TestConfigEnsureDefaults(t *testing.T) {
 	if len(c.CORS.AllowedOrigins) != 0 {
 		t.Fatalf("cors must deny by default, got %v", c.CORS.AllowedOrigins)
 	}
+
+	if c.TrustProxy == nil || !*c.TrustProxy {
+		t.Fatalf("trust_proxy must default to true, got %+v", c.TrustProxy)
+	}
 }
 
 func TestConfigEnsureClamps(t *testing.T) {

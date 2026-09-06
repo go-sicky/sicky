@@ -45,6 +45,9 @@ const (
 	DefaultMaxIdleDuration = 60
 	// DefaultShutdownTimeout is a websocket constant.
 	DefaultShutdownTimeout = 10
+	// DefaultTrustProxy enables Fiber's trusted-proxy handling unless
+	// explicitly disabled via Config.TrustProxy.
+	DefaultTrustProxy = true
 )
 
 // ErrIncompleteTLSConfig is returned when only one of tls_cert_pem and
@@ -65,6 +68,12 @@ type Config struct {
 	ShutdownTimeout  int      `json:"shutdown_timeout"  mapstructure:"shutdown_timeout"  yaml:"shutdown_timeout"`
 	Origins          []string `json:"origins"           mapstructure:"origins"           yaml:"origins"`
 	MaxMessageBytes  int      `json:"max_message_bytes" mapstructure:"max_message_bytes" yaml:"max_message_bytes"`
+	// TrustProxy enables Fiber's trusted-proxy handling (X-Forwarded-*
+	// honored for IP/host/scheme). It is a pointer so the zero config
+	// keeps the secure default: nil means DefaultTrustProxy (true),
+	// covering loopback, link-local and private ranges. Set an explicit
+	// false only for direct-exposure deployments without a proxy.
+	TrustProxy *bool `json:"trust_proxy" mapstructure:"trust_proxy" yaml:"trust_proxy"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -112,6 +121,10 @@ func (c *Config) Ensure() *Config {
 	// Origins: empty means same-origin enforcement (browser clients only),
 	// non-browser clients without an Origin header are always allowed.
 	// MaxMessageBytes: 0 means unlimited (read limit disabled).
+	if c.TrustProxy == nil {
+		c.TrustProxy = new(bool)
+		*c.TrustProxy = DefaultTrustProxy
+	}
 
 	return c
 }

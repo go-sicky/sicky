@@ -35,7 +35,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
@@ -47,7 +47,7 @@ var serverPID = os.Getpid()
 // AccessLoggerMiddlewareConfig is a fiber component.
 type AccessLoggerMiddlewareConfig struct {
 	AccessLoggerConfig *AccessLoggerConfig
-	Next               func(c *fiber.Ctx) bool
+	Next               func(c fiber.Ctx) bool
 	Logger             logger.GeneralLogger
 }
 
@@ -79,22 +79,17 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 		cfg.Logger = logger.Logger
 	}
 
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if cfg.Next != nil && cfg.Next(c) {
 			return c.Next()
 		}
 
 		start := time.Now()
-		rv := c.Locals(cfg.AccessLoggerConfig.RequestIDContextKey)
-		requestID, _ := rv.(string)
-		tv := c.Locals(cfg.AccessLoggerConfig.TraceIDContextKey)
-		traceID, _ := tv.(string)
-		sv := c.Locals(cfg.AccessLoggerConfig.SpanIDContextKey)
-		spanID, _ := sv.(string)
-		pv := c.Locals(cfg.AccessLoggerConfig.ParentSpanIDContextKey)
-		parentSpanID, _ := pv.(string)
-		av := c.Locals(cfg.AccessLoggerConfig.SampledContextKey)
-		sampled, _ := av.(string)
+		requestID := fiber.Locals[string](c, cfg.AccessLoggerConfig.RequestIDContextKey)
+		traceID := fiber.Locals[string](c, cfg.AccessLoggerConfig.TraceIDContextKey)
+		spanID := fiber.Locals[string](c, cfg.AccessLoggerConfig.SpanIDContextKey)
+		parentSpanID := fiber.Locals[string](c, cfg.AccessLoggerConfig.ParentSpanIDContextKey)
+		sampled := fiber.Locals[string](c, cfg.AccessLoggerConfig.SampledContextKey)
 		chainErr := c.Next()
 		// The fiber core invokes ErrorHandler exactly once for a chain
 		// error; calling it here as well would run the handler 2-3 times
