@@ -21,16 +21,38 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package main
+package handler
 
 import (
-	"github.com/go-sicky/sicky"
-	"github.com/go-sicky/sicky/service/interactive"
+	"github.com/go-sicky/sicky/utils"
+	"github.com/gofiber/fiber/v2"
 )
 
-type ConfigDef struct {
-	Service *interactive.Config `json:"service" yaml:"service" mapstructure:"service"`
-	Sicky   *sicky.Config       `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
+type {{.ExportedName}}Fiber struct{}
+
+func New{{.ExportedName}}Fiber() *{{.ExportedName}}Fiber {
+	h := &{{.ExportedName}}Fiber{}
+
+	return h
 }
 
-var config ConfigDef
+func (h *{{.ExportedName}}Fiber) Name() string {
+	return "{{.Name}}.fiber"
+}
+
+func (h *{{.ExportedName}}Fiber) Type() string {
+	return "fiber"
+}
+
+func (h *{{.ExportedName}}Fiber) Register(app *fiber.App) {
+	app.Get("/ping", h.ping).Name("{{.ExportedName}}GetPing")
+}
+
+/* ===== [Fiber handlers] ===== */
+func (h *{{.ExportedName}}Fiber) ping(c *fiber.Ctx) error {
+	return c.JSON(utils.WrapHTTPResponse(map[string]string{
+		"message": "pong",
+	}))
+}
+
+/* ===== [/Fiber handlers] ===== */

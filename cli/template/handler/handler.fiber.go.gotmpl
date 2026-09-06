@@ -24,47 +24,35 @@
 package handler
 
 import (
-	"fmt"
-
-	mcp "github.com/go-sicky/sicky/service/mcp"
+	"github.com/go-sicky/sicky/utils"
+	"github.com/gofiber/fiber/v2"
 )
 
 type {{.ExportedName}} struct{}
 
 func New{{.ExportedName}}() *{{.ExportedName}} {
-	return &{{.ExportedName}}{}
+	h := &{{.ExportedName}}{}
+
+	return h
 }
 
-func (h *{{.ExportedName}}) Name() string        { return "{{.Name}}" }
-func (h *{{.ExportedName}}) Description() string { return "{{.Name}} handler" }
-
-func (h *{{.ExportedName}}) Tools() []mcp.Tool {
-	return []mcp.Tool{
-		{
-			Name:        "ping",
-			Description: "Responds with pong",
-			InputSchema: mcp.InputSchema{
-				Type:       "object",
-				Properties: map[string]mcp.Property{},
-			},
-		},
-	}
+func (h *{{.ExportedName}}) Name() string {
+	return "{{.Name}}.fiber"
 }
 
-func (h *{{.ExportedName}}) CallTool(name string, args map[string]interface{}) (*mcp.ToolsCallResult, error) {
-	return &mcp.ToolsCallResult{
-		Content: []mcp.ContentBlock{
-			{Type: "text", Text: fmt.Sprintf("pong from %s", h.Name())},
-		},
-	}, nil
+func (h *{{.ExportedName}}) Type() string {
+	return "fiber"
 }
 
-func (h *{{.ExportedName}}) Resources() []mcp.Resource { return nil }
-func (h *{{.ExportedName}}) ReadResource(uri string) (*mcp.ResourcesReadResult, error) {
-	return nil, fmt.Errorf("not implemented")
+func (h *{{.ExportedName}}) Register(app *fiber.App) {
+	app.Get("/ping", h.ping).Name("{{.ExportedName}}GetPing")
 }
 
-func (h *{{.ExportedName}}) Prompts() []mcp.Prompt { return nil }
-func (h *{{.ExportedName}}) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
-	return nil, fmt.Errorf("not implemented")
+/* ===== [Fiber handlers] ===== */
+func (h *{{.ExportedName}}) ping(c *fiber.Ctx) error {
+	return c.JSON(utils.WrapHTTPResponse(map[string]string{
+		"message": "pong",
+	}))
 }
+
+/* ===== [/Fiber handlers] ===== */

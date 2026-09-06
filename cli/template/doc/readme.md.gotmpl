@@ -1,6 +1,6 @@
 # {{.ExportedName}}
 
-A go-sicky MCP server project.
+A go-sicky service project.
 
 ## Getting Started
 
@@ -9,7 +9,25 @@ make build
 make run
 ```
 
+## Configuration
+
+Edit `config.json` to change server addresses and framework options:
+
+- Fiber server listens on `:3000` (fasthttp)
+- net/http server listens on `:9980` (bunrouter)
+- gRPC server listens on `:44945`
+- Manager endpoints (`:8888`): `/metrics`, `/health`, `/ready`, `/live`
+
+Verify a running HTTP stack:
+
+```bash
+curl localhost:3000/ping   # fiber
+curl localhost:9980/ping   # net/http
+```
+
 ## MCP Configuration
+
+For MCP-type services over stdio:
 
 ```json
 {
@@ -21,6 +39,16 @@ make run
 }
 ```
 
+## Docker
+
+Plain tags resolve to docker.io by default (no registry prefix).
+Retag explicitly for a private registry.
+
+```bash
+make docker
+make push
+```
+
 ## Project Structure
 
 ```
@@ -28,8 +56,7 @@ make run
   main.go        # Entry point
   config.go      # Configuration struct
   config.json    # Default configuration
-  handler/       # MCP handlers
-  tool/          # Tool definitions
-  resource/      # Resource definitions
+  handler/       # Server handlers (fiber.go, http.go, grpc.go)
+  Dockerfile     # Multi-stage image build
   Makefile       # Build targets
 ```

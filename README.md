@@ -592,15 +592,16 @@ fail := utils.FailT[any](utils.CodeNotFound, "").
 ```bash
 # Scaffold a new standard microservice (project name is required positional arg)
 sicky new myapp --type standard --module github.com/myorg/myapp
-# Optional: --output/-o <dir> (default "."), --no-grpc
+# Optional: --output/-o <dir> (default "."), --no-grpc, --fiber/--fiber=false, --http
 
 # Scaffold an MCP server
 sicky new my-mcp --type mcp --module github.com/myorg/my-mcp
 
-# Generate handler/tool/resource (name is positional, no --name flag)
-sicky generate handler User
+# Generate handler/tool/resource/prompt (name is positional, no --name flag)
+sicky generate handler User --type fiber   # or --type http
 sicky generate tool Search
 sicky generate resource Article
+sicky generate prompt Greet
 sicky generate doc
 
 # Run as MCP server (transport: stdio or http)

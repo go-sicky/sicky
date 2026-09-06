@@ -687,15 +687,16 @@ fail := utils.FailT[any](utils.CodeNotFound, "").
 ```bash
 # 脚手架：标准微服务（项目名是必填位置参数）
 sicky new myapp --type standard --module github.com/myorg/myapp
-# 可选：--output/-o <dir>（默认 "."）、--no-grpc
+# 可选：--output/-o <dir>（默认 "."）、--no-grpc、--fiber/--fiber=false、--http
 
 # 脚手架：MCP server
 sicky new my-mcp --type mcp --module github.com/myorg/my-mcp
 
-# 生成 handler/tool/resource（名字是位置参数，没有 --name flag）
-sicky generate handler User
+# 生成 handler/tool/resource/prompt（名字是位置参数，没有 --name flag）
+sicky generate handler User --type fiber   # 或 --type http
 sicky generate tool Search
 sicky generate resource Article
+sicky generate prompt Greet
 sicky generate doc
 
 # 以 MCP server 运行（--name/--version 也可用）
@@ -707,7 +708,7 @@ sicky version
 sicky help        # 另有：sicky serve -h、sicky new -h
 ```
 
-`new` 缺省进交互式提问（standard/mcp/interactive + gRPC/Fiber/Proto 追问）。
+`new` 缺省进交互式提问（standard/mcp/interactive + gRPC/Fiber/net/http/Proto 追问）。
 
 > ⚠️ 不可达功能（保留标注，当前调了会报 `unknown command`）：
 > `sicky config（validate|init|show）`、`sicky proto（build|new）`、`sicky doctor`、

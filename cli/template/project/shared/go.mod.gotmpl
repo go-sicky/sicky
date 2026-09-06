@@ -1,3 +1,8 @@
 module {{.Module}}
 
 go 1.26.0
+{{if .GoMetricsVersion}}
+replace github.com/armon/go-metrics => github.com/hashicorp/go-metrics {{.GoMetricsVersion}}
+
+exclude github.com/hashicorp/go-metrics {{.GoMetricsVersion}}
+{{end}}

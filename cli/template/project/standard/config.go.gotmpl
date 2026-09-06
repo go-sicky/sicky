@@ -1,16 +1,41 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2024 HereweTech Co.LTD
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 package main
 
 import (
-{{if .WithGRPC}}	srvGRPC "github.com/go-sicky/sicky/server/grpc"
-{{end}}{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
-{{end}}	"github.com/go-sicky/sicky"
-	"github.com/go-sicky/sicky/service/standard"
+	"github.com/go-sicky/sicky"
+{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
+{{end}}{{if .WithGRPC}}	srvGRPC "github.com/go-sicky/sicky/server/grpc"
+{{end}}{{if .WithHTTP}}	srvHTTP "github.com/go-sicky/sicky/server/http"
+{{end}}	"github.com/go-sicky/sicky/service/standard"
 )
 
 type ConfigDef struct {
 	Server struct {
-{{if .WithGRPC}}		GRPC  *srvGRPC.Config  `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
-{{end}}{{if .WithFiber}}		Fiber *srvFiber.Config `json:"fiber" yaml:"fiber" mapstructure:"fiber"`
+{{if .WithFiber}}		Fiber *srvFiber.Config `json:"fiber" yaml:"fiber" mapstructure:"fiber"`
+{{end}}{{if .WithGRPC}}		GRPC  *srvGRPC.Config  `json:"grpc" yaml:"grpc" mapstructure:"grpc"`
+{{end}}{{if .WithHTTP}}		HTTP  *srvHTTP.Config  `json:"http" yaml:"http" mapstructure:"http"`
 {{end}}	} `json:"server" yaml:"server" mapstructure:"server"`
 	Service *standard.Config `json:"service" yaml:"service" mapstructure:"service"`
 	Sicky   *sicky.Config    `json:"sicky" yaml:"sicky" mapstructure:"sicky"`

@@ -144,11 +144,14 @@ Commands:
     --module string      Go module path
     --output, -o string  Output directory (default ".")
     --no-grpc            Skip gRPC server
+    --fiber              Add Fiber server (default true, use --fiber=false to skip)
+    --http               Add net/http (bunrouter) server (default false)
 
   generate, g  Generate code
-    handler  <name>      Generate a handler
+    handler  <name> [--type fiber|http]  Generate a handler
     tool     <name>      Generate a tool definition
     resource <name>      Generate a resource definition
+    prompt   <name>      Generate a prompt definition
     doc                  Generate documentation
     server   <type> [name]   Wire a server instance (fiber, http, grpc, tcp, udp, websocket)
     client   <type> [name]   Wrap an outbound client

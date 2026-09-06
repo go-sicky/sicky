@@ -24,47 +24,36 @@
 package handler
 
 import (
-	"fmt"
+	"net/http"
 
-	mcp "github.com/go-sicky/sicky/service/mcp"
+	"github.com/uptrace/bunrouter"
 )
 
 type {{.ExportedName}} struct{}
 
 func New{{.ExportedName}}() *{{.ExportedName}} {
-	return &{{.ExportedName}}{}
+	h := &{{.ExportedName}}{}
+
+	return h
 }
 
-func (h *{{.ExportedName}}) Name() string        { return "{{.Name}}" }
-func (h *{{.ExportedName}}) Description() string { return "{{.Name}} handler" }
-
-func (h *{{.ExportedName}}) Tools() []mcp.Tool {
-	return []mcp.Tool{
-		{
-			Name:        "ping",
-			Description: "Responds with pong",
-			InputSchema: mcp.InputSchema{
-				Type:       "object",
-				Properties: map[string]mcp.Property{},
-			},
-		},
-	}
+func (h *{{.ExportedName}}) Name() string {
+	return "{{.Name}}.http"
 }
 
-func (h *{{.ExportedName}}) CallTool(name string, args map[string]interface{}) (*mcp.ToolsCallResult, error) {
-	return &mcp.ToolsCallResult{
-		Content: []mcp.ContentBlock{
-			{Type: "text", Text: fmt.Sprintf("pong from %s", h.Name())},
-		},
-	}, nil
+func (h *{{.ExportedName}}) Type() string {
+	return "http"
 }
 
-func (h *{{.ExportedName}}) Resources() []mcp.Resource { return nil }
-func (h *{{.ExportedName}}) ReadResource(uri string) (*mcp.ResourcesReadResult, error) {
-	return nil, fmt.Errorf("not implemented")
+func (h *{{.ExportedName}}) Register(router *bunrouter.Router) {
+	router.GET("/ping", h.ping)
 }
 
-func (h *{{.ExportedName}}) Prompts() []mcp.Prompt { return nil }
-func (h *{{.ExportedName}}) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
-	return nil, fmt.Errorf("not implemented")
+/* ===== [HTTP handlers] ===== */
+func (h *{{.ExportedName}}) ping(w http.ResponseWriter, _ bunrouter.Request) error {
+	return bunrouter.JSON(w, bunrouter.H{
+		"message": "pong",
+	})
 }
+
+/* ===== [/HTTP handlers] ===== */

@@ -1,6 +1,6 @@
 {
-{{if .WithFiber}}    "server": {
-        "fiber": {
+{{if or .WithFiber .WithHTTP}}    "server": {
+{{if .WithFiber}}        "fiber": {
             "address": ":3000",
             "body_limit": 4194304,
             "read_timeout": "10s",
@@ -11,8 +11,22 @@
                 "allow_credentials": false,
                 "max_age": 86400
             }
+        }{{if .WithHTTP}},{{end}}
+{{end}}{{if .WithHTTP}}        "http": {
+            "address": ":9980",
+            "body_limit": 4194304,
+            "read_timeout": "10s",
+            "read_header_timeout": "10s",
+            "write_timeout": "10s",
+            "idle_timeout": "60s",
+            "max_header_bytes": 1048576,
+            "cors": {
+                "allowed_origins": [],
+                "allow_credentials": false,
+                "max_age": 86400
+            }
         }
-    },
+{{end}}    },
 {{end}}    "sicky": {
         "log_level": "debug",
         "tracer": {

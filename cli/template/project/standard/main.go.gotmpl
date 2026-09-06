@@ -1,13 +1,37 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2024 HereweTech Co.LTD
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 package main
 
 import (
 	"context"
 
-	"{{.Module}}/handler"
-	"github.com/go-sicky/sicky"
-	"github.com/go-sicky/sicky/server"
-{{if .WithGRPC}}	srvGRPC "github.com/go-sicky/sicky/server/grpc"
+{{if or .WithGRPC .WithFiber .WithHTTP}}	"{{.Module}}/handler"
+{{end}}	"github.com/go-sicky/sicky"
+{{if or .WithGRPC .WithFiber .WithHTTP}}	"github.com/go-sicky/sicky/server"
 {{end}}{{if .WithFiber}}	srvFiber "github.com/go-sicky/sicky/server/fiber"
+{{end}}{{if .WithGRPC}}	srvGRPC "github.com/go-sicky/sicky/server/grpc"
+{{end}}{{if .WithHTTP}}	srvHTTP "github.com/go-sicky/sicky/server/http"
 {{end}}	"github.com/go-sicky/sicky/service"
 	"github.com/go-sicky/sicky/service/standard"
 )
@@ -23,6 +47,7 @@ var (
 func main() {
 	ctx := context.Background()
 
+	// Sicky
 	sicky.Init(
 		&sicky.Options{
 			AppName:   AppName,
@@ -33,10 +58,10 @@ func main() {
 			Context:   ctx,
 		},
 	)
-
 	sicky.ConfigUnmarshal(&config)
 
-{{if .WithGRPC}}	grpcSrv := srvGRPC.New(
+{{if .WithGRPC}}	// GRPC server
+	grpcSrv := srvGRPC.New(
 		&server.Options{
 			Name:    AppName + "@grpc",
 			Context: ctx,
@@ -45,25 +70,41 @@ func main() {
 	)
 	grpcSrv.Handle(handler.New{{.ExportedName}}GRPC())
 
-{{end}}{{if .WithFiber}}	fiberSrv := srvFiber.New(
+{{end}}{{if .WithFiber}}	// Fiber server
+	fiberSrv := srvFiber.New(
 		&server.Options{
 			Name:    AppName + "@fiber",
 			Context: ctx,
 		},
 		config.Server.Fiber,
 	)
-	fiberSrv.Handle(handler.New{{.ExportedName}}HTTP())
+	fiberSrv.Handle(handler.New{{.ExportedName}}Fiber())
 
-{{end}}	svc := standard.New(
+{{end}}{{if .WithHTTP}}	// HTTP server
+	httpSrv := srvHTTP.New(
+		&server.Options{
+			Name:    AppName + "@http",
+			Context: ctx,
+		},
+		config.Server.HTTP,
+	)
+	httpSrv.Handle(handler.New{{.ExportedName}}HTTP())
+
+{{end}}	// Service
+	svc := standard.New(
 		&service.Options{
 			Name:    AppName,
 			Context: ctx,
 		},
 		config.Service,
 	)
-
-{{if .WithGRPC}}	svc.Servers(grpcSrv{{if .WithFiber}}, fiberSrv{{end}})
-{{else if .WithFiber}}	svc.Servers(fiberSrv)
+{{if or .WithGRPC .WithFiber .WithHTTP}}	svc.Servers(
+{{if .WithGRPC}}		grpcSrv,
+{{end}}{{if .WithFiber}}		fiberSrv,
+{{end}}{{if .WithHTTP}}		httpSrv,
+{{end}}	)
+{{else}}	// No servers selected: the service runs background jobs only.
+	_ = svc
 {{end}}
 	sicky.Run(config.Sicky)
 }

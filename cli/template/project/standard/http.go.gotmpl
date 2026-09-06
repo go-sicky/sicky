@@ -21,16 +21,39 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package main
+package handler
 
 import (
-	"github.com/go-sicky/sicky"
-	"github.com/go-sicky/sicky/service/interactive"
+	"net/http"
+
+	"github.com/uptrace/bunrouter"
 )
 
-type ConfigDef struct {
-	Service *interactive.Config `json:"service" yaml:"service" mapstructure:"service"`
-	Sicky   *sicky.Config       `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
+type {{.ExportedName}}HTTP struct{}
+
+func New{{.ExportedName}}HTTP() *{{.ExportedName}}HTTP {
+	h := &{{.ExportedName}}HTTP{}
+
+	return h
 }
 
-var config ConfigDef
+func (h *{{.ExportedName}}HTTP) Name() string {
+	return "{{.Name}}.http"
+}
+
+func (h *{{.ExportedName}}HTTP) Type() string {
+	return "http"
+}
+
+func (h *{{.ExportedName}}HTTP) Register(router *bunrouter.Router) {
+	router.GET("/ping", h.ping)
+}
+
+/* ===== [HTTP handlers] ===== */
+func (h *{{.ExportedName}}HTTP) ping(w http.ResponseWriter, _ bunrouter.Request) error {
+	return bunrouter.JSON(w, bunrouter.H{
+		"message": "pong",
+	})
+}
+
+/* ===== [/HTTP handlers] ===== */

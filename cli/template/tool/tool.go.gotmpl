@@ -1,3 +1,26 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2024 HereweTech Co.LTD
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 package tool
 
 import (
@@ -21,7 +44,7 @@ func (t *{{.ExportedName}}Tool) Tools() []mcp.Tool {
 			Name:        "{{.Name}}",
 			Description: "{{.Name}} tool description",
 			InputSchema: mcp.InputSchema{
-				Type: "object",
+				Type:       "object",
 				Properties: map[string]mcp.Property{},
 			},
 		},
@@ -36,12 +59,12 @@ func (t *{{.ExportedName}}Tool) CallTool(name string, args map[string]interface{
 	}, nil
 }
 
-func (t *{{.ExportedName}}Tool) Resources() []mcp.Resource          { return nil }
+func (t *{{.ExportedName}}Tool) Resources() []mcp.Resource { return nil }
 func (t *{{.ExportedName}}Tool) ReadResource(uri string) (*mcp.ResourcesReadResult, error) {
 	return nil, fmt.Errorf("{{.Name}}: ReadResource not implemented")
 }
 
-func (t *{{.ExportedName}}Tool) Prompts() []mcp.Prompt                { return nil }
+func (t *{{.ExportedName}}Tool) Prompts() []mcp.Prompt { return nil }
 func (t *{{.ExportedName}}Tool) GetPrompt(name string, args map[string]string) (*mcp.PromptsGetResult, error) {
 	return nil, fmt.Errorf("{{.Name}}: GetPrompt not implemented")
 }

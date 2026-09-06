@@ -32,8 +32,8 @@ package cli
 
 import (
 	"embed"
-	"errors"
 	"fmt"
+	"go/format"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,14 +42,14 @@ import (
 	"github.com/spf13/pflag"
 )
 
-//go:embed template/handler/*.gotmpl template/tool/*.gotmpl template/resource/*.gotmpl template/doc/*.gotmpl
+//go:embed template/handler/*.gotmpl template/tool/*.gotmpl template/resource/*.gotmpl template/prompt/*.gotmpl template/doc/*.gotmpl
 var generateTemplates embed.FS
 
 func generateRun(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate: missing schematic name")
 		fmt.Fprintln(os.Stderr, "Usage: sicky generate <schematic> [name] [flags]")
-		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
+		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, prompt, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
 
 		return 1
 	}
@@ -64,6 +64,8 @@ func generateRun(args []string) int {
 		return generateTool(schematicArgs)
 	case "resource":
 		return generateResource(schematicArgs)
+	case "prompt":
+		return generatePrompt(schematicArgs)
 	case "doc":
 		return generateDoc(schematicArgs)
 	case "server":
@@ -88,7 +90,7 @@ func generateRun(args []string) int {
 		return generateK8sFiles(schematicArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "sicky generate: unknown schematic %q\n", schematic)
-		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
+		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, prompt, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
 
 		return 1
 	}
@@ -102,6 +104,7 @@ type generateContext struct {
 
 func generateHandler(args []string) int {
 	fs := pflag.NewFlagSet("generate handler", pflag.ContinueOnError)
+	transport := fs.String("type", "fiber", "Handler transport: fiber, http")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate handler: %s\n", err.Error())
 
@@ -110,6 +113,19 @@ func generateHandler(args []string) int {
 
 	if fs.NArg() < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate handler: missing handler name")
+
+		return 1
+	}
+
+	kind := strings.ToLower(strings.TrimSpace(*transport))
+	var tmplName string
+	switch kind {
+	case "fiber":
+		tmplName = "template/handler/handler.fiber.go.gotmpl"
+	case "http":
+		tmplName = "template/handler/handler.http.go.gotmpl"
+	default:
+		fmt.Fprintf(os.Stderr, "sicky generate handler: unknown type %q (valid: fiber, http)\n", *transport)
 
 		return 1
 	}
@@ -129,13 +145,13 @@ func generateHandler(args []string) int {
 	}
 
 	outputPath := filepath.Join(dir, name+".go")
-	if err := renderGenerateTemplate("template/handler/handler.go.gotmpl", outputPath, gc); err != nil {
+	if err := renderGenerateTemplate(tmplName, outputPath, gc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate handler: %s\n", err.Error())
 
 		return 1
 	}
 
-	fmt.Printf("  \u2714 Created %s\n", outputPath)
+	fmt.Printf("  \u2714 Created %s (%s)\n", outputPath, kind)
 
 	return 0
 }
@@ -220,6 +236,46 @@ func generateResource(args []string) int {
 	return 0
 }
 
+func generatePrompt(args []string) int {
+	fs := pflag.NewFlagSet("generate prompt", pflag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate prompt: %s\n", err.Error())
+
+		return 1
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "sicky generate prompt: missing prompt name")
+
+		return 1
+	}
+
+	name := fs.Arg(0)
+	gc := &generateContext{
+		Name:         name,
+		ExportedName: exportName(name),
+		Module:       detectModule(),
+	}
+
+	dir := "prompt"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate prompt: %s\n", err.Error())
+
+		return 1
+	}
+
+	outputPath := filepath.Join(dir, name+".go")
+	if err := renderGenerateTemplate("template/prompt/prompt.go.gotmpl", outputPath, gc); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate prompt: %s\n", err.Error())
+
+		return 1
+	}
+
+	fmt.Printf("  \u2714 Created %s\n", outputPath)
+
+	return 0
+}
+
 func generateDoc(args []string) int {
 	fs := pflag.NewFlagSet("generate doc", pflag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
@@ -257,18 +313,23 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 		return fmt.Errorf("template %q parse: %w", tmplName, err)
 	}
 
-	f, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("render %s: %w", outputPath, err)
+	}
+
+	content := buf.String()
+	if strings.HasSuffix(outputPath, ".go") {
+		formatted, ferr := format.Source([]byte(content))
+		if ferr != nil {
+			return fmt.Errorf("render %s: format: %w", outputPath, ferr)
+		}
+
+		content = string(formatted)
+	}
+
+	if err := os.WriteFile(outputPath, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("create %s: %w", outputPath, err)
-	}
-
-	execErr := tmpl.Execute(f, data)
-	if closeErr := f.Close(); closeErr != nil {
-		return errors.Join(execErr, fmt.Errorf("close %s: %w", outputPath, closeErr))
-	}
-
-	if execErr != nil {
-		return fmt.Errorf("render %s: %w", outputPath, execErr)
 	}
 
 	return nil

@@ -21,16 +21,31 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-package main
+package handler
 
 import (
-	"github.com/go-sicky/sicky"
-	"github.com/go-sicky/sicky/service/interactive"
+{{if .WithProto}}	"{{.Module}}/proto"
+{{end}}	"google.golang.org/grpc"
 )
 
-type ConfigDef struct {
-	Service *interactive.Config `json:"service" yaml:"service" mapstructure:"service"`
-	Sicky   *sicky.Config       `json:"sicky" yaml:"sicky" mapstructure:"sicky"`
+type {{.ExportedName}}GRPC struct {
+{{if .WithProto}}	proto.Unimplemented{{.ExportedName}}Server
+{{end}}}
+
+func New{{.ExportedName}}GRPC() *{{.ExportedName}}GRPC {
+	h := &{{.ExportedName}}GRPC{}
+
+	return h
 }
 
-var config ConfigDef
+func (h *{{.ExportedName}}GRPC) Name() string {
+	return "{{.Name}}.grpc"
+}
+
+func (h *{{.ExportedName}}GRPC) Type() string {
+	return "grpc"
+}
+
+func (h *{{.ExportedName}}GRPC) Register(app *grpc.Server) {
+{{if .WithProto}}	proto.Register{{.ExportedName}}Server(app, h)
+{{end}}}

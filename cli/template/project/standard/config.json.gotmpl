@@ -1,13 +1,11 @@
 {
-{{if .WithGRPC}}    "server": {
-        "grpc": {
+{{if or .WithGRPC .WithFiber .WithHTTP}}    "server": {
+{{if .WithGRPC}}        "grpc": {
             "address": ":44945",
             "connection_timeout": "300s",
             "disable_reflection": false
-        }
-    },
-{{end}}{{if .WithFiber}}{{if not .WithGRPC}}    "server": {
-        "fiber": {
+        }{{if or .WithFiber .WithHTTP}},{{end}}
+{{end}}{{if .WithFiber}}        "fiber": {
             "address": ":3000",
             "body_limit": 4194304,
             "read_timeout": "10s",
@@ -18,22 +16,23 @@
                 "allow_credentials": false,
                 "max_age": 86400
             }
-        }
-    },
-{{else}}        "fiber": {
-            "address": ":3000",
+        }{{if .WithHTTP}},{{end}}
+{{end}}{{if .WithHTTP}}        "http": {
+            "address": ":9980",
             "body_limit": 4194304,
             "read_timeout": "10s",
+            "read_header_timeout": "10s",
             "write_timeout": "10s",
             "idle_timeout": "60s",
+            "max_header_bytes": 1048576,
             "cors": {
                 "allowed_origins": [],
                 "allow_credentials": false,
                 "max_age": 86400
             }
         }
-    },
-{{end}}{{end}}    "sicky": {
+{{end}}    },
+{{end}}    "sicky": {
         "log_level": "debug",
         "tracer": {
             "type": "none",
