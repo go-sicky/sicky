@@ -88,7 +88,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	addr, err = net.ResolveTCPAddr(cfg.Network, cfg.Address)
 	if err != nil {
 		opts.Logger.Fatal(
-			"Network address resolve failed",
+			"network address resolve failed",
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
@@ -100,7 +100,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		advertiseAddr, err = net.ResolveTCPAddr(cfg.Network, cfg.AdvertiseAddress)
 		if err != nil {
 			opts.Logger.Fatal(
-				"Network address resolve failed",
+				"network address resolve failed",
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
@@ -143,7 +143,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	if err := cfg.CORS.Ensure().Validate(); err != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Invalid CORS configuration, denying all origins",
+			"invalid CORS configuration, denying all origins",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -173,7 +173,7 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 	)
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server created",
+		"http server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -244,7 +244,7 @@ func (srv *HTTPServer) Start() error {
 	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"TLS configuration incomplete",
+			"tls configuration incomplete",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -261,7 +261,7 @@ func (srv *HTTPServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"TLS certification failed",
+				"tls certification failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -283,7 +283,7 @@ func (srv *HTTPServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen with TLS certificate failed",
+				"network listen with TLS certificate failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -301,7 +301,7 @@ func (srv *HTTPServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen failed",
+				"network listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -329,7 +329,7 @@ func (srv *HTTPServer) Start() error {
 		if err != nil && err != http.ErrServerClosed {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"HTTP server listen failed",
+				"http server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -338,7 +338,7 @@ func (srv *HTTPServer) Start() error {
 		} else {
 			srv.options.Logger.InfoContext(
 				srv.ctx,
-				"HTTP server closed",
+				"http server closed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -349,7 +349,7 @@ func (srv *HTTPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listening",
+		"http server listening",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -390,7 +390,7 @@ func (srv *HTTPServer) Stop() error {
 	if err := app.Shutdown(ctx); err != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"HTTP server shutdown failed",
+			"http server shutdown failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -406,7 +406,7 @@ func (srv *HTTPServer) Stop() error {
 		if err := ln.Close(); err != nil {
 			srv.options.Logger.DebugContext(
 				srv.ctx,
-				"HTTP listener close (already closed by shutdown)",
+				"http listener close (already closed by shutdown)",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -424,7 +424,7 @@ func (srv *HTTPServer) Stop() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server shutdown",
+		"http server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -514,7 +514,7 @@ func (srv *HTTPServer) Handle(hdls ...Handler) {
 		hdl.Register(srv.router)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"HTTP handler registered",
+			"http handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,

@@ -73,7 +73,7 @@ func New(opts *service.Options, cfg *Config) *Standard {
 
 	svc.options.Logger.InfoContext(
 		svc.ctx,
-		"Service created",
+		"service created",
 		"service", svc.String(),
 		"id", svc.options.ID,
 		"name", svc.options.Name,

@@ -61,7 +61,7 @@ func New(opts *registry.Options, cfg *Config) *Local {
 	if err := cfg.Validate(); err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Local registry config invalid",
+			"local registry config invalid",
 			"registry", "local",
 			"error", err.Error(),
 		)
@@ -85,7 +85,7 @@ func New(opts *registry.Options, cfg *Config) *Local {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Registry created",
+		"registry created",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -129,7 +129,7 @@ func (rg *Local) Register(ins *registry.Instance) (err error) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.ctx,
-				"Register instance to local file failed",
+				"register instance to local file failed",
 				"registry", rg.String(),
 				"instance_id", ins.ID.String(),
 				"error", err.Error(),
@@ -150,7 +150,7 @@ func (rg *Local) Register(ins *registry.Instance) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Register instance to local file failed",
+			"register instance to local file failed",
 			"registry", rg.String(),
 			"instance_id", ins.ID.String(),
 			"file", file,
@@ -162,7 +162,7 @@ func (rg *Local) Register(ins *registry.Instance) (err error) {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Instance registered to local file",
+		"instance registered to local file",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -185,7 +185,7 @@ func (rg *Local) Deregister(id uuid.UUID) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Deregister instance from local file failed",
+			"deregister instance from local file failed",
 			"registry", rg.String(),
 			"instance_id", id.String(),
 			"file", file,
@@ -197,7 +197,7 @@ func (rg *Local) Deregister(id uuid.UUID) (err error) {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Instance deregistered from local file",
+		"instance deregistered from local file",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -216,6 +216,7 @@ func (rg *Local) CheckInstance(id uuid.UUID) bool {
 	if !ok {
 		result = "missing"
 	}
+
 	metrics.RegistryOpsTotal.WithLabelValues("local", "check", result).Inc()
 
 	return ok
@@ -252,7 +253,7 @@ func (rg *Local) Load() (instances []*registry.Instance, err error) {
 		if err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.Context(),
-				"Read instance file failed",
+				"read instance file failed",
 				"file", path,
 				"error", err.Error(),
 			)
@@ -264,7 +265,7 @@ func (rg *Local) Load() (instances []*registry.Instance, err error) {
 		if err := json.Unmarshal(data, &ins); err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.Context(),
-				"Unmarshal instance failed",
+				"unmarshal instance failed",
 				"file", path,
 				"error", err.Error(),
 			)
@@ -285,7 +286,7 @@ func (rg *Local) Watch() error {
 		metrics.RegistryOpsTotal.WithLabelValues("local", "watch", "error").Inc()
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Create watcher failed",
+			"create watcher failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -301,7 +302,7 @@ func (rg *Local) Watch() error {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Local registry watcher started",
+		"local registry watcher started",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -317,7 +318,7 @@ func (rg *Local) Stop() error {
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,
-			"Local registry watcher stopped",
+			"local registry watcher stopped",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -341,7 +342,7 @@ func (rg *Local) cleanupStaleFiles() {
 	if err != nil {
 		rg.options.Logger.WarnContext(
 			rg.ctx,
-			"Cleanup stale registry files failed",
+			"cleanup stale registry files failed",
 			"registry", rg.String(),
 			"error", err.Error(),
 		)
@@ -367,7 +368,7 @@ func (rg *Local) cleanupStaleFiles() {
 		if err := os.Remove(path); err != nil {
 			rg.options.Logger.WarnContext(
 				rg.ctx,
-				"Remove stale registry file failed",
+				"remove stale registry file failed",
 				"registry", rg.String(),
 				"file", path,
 				"error", err.Error(),
@@ -380,7 +381,7 @@ func (rg *Local) cleanupStaleFiles() {
 	if count > 0 {
 		rg.options.Logger.InfoContext(
 			rg.ctx,
-			"Cleaned up stale registry files",
+			"cleaned up stale registry files",
 			"registry", rg.String(),
 			"count", count,
 		)

@@ -95,7 +95,7 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	addr, err = net.ResolveTCPAddr(cfg.Network, cfg.Address)
 	if err != nil {
 		opts.Logger.Fatal(
-			"Network address resolve failed",
+			"network address resolve failed",
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
@@ -107,7 +107,7 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 		advertiseAddr, err = net.ResolveTCPAddr(cfg.Network, cfg.AdvertiseAddress)
 		if err != nil {
 			opts.Logger.Fatal(
-				"Network address resolve failed",
+				"network address resolve failed",
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
@@ -176,7 +176,7 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	if err := corsCfg.Validate(); err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Invalid CORS configuration, denying all origins",
+			"invalid CORS configuration, denying all origins",
 			"server", srv.String(),
 			"id", opts.ID,
 			"name", opts.Name,
@@ -226,7 +226,7 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server created",
+		"http server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -297,7 +297,7 @@ func (srv *FiberServer) Start() error {
 	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"TLS configuration incomplete",
+			"tls configuration incomplete",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -315,7 +315,7 @@ func (srv *FiberServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"TLS certification failed",
+				"tls certification failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -337,7 +337,7 @@ func (srv *FiberServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen with TLS certificate failed",
+				"network listen with TLS certificate failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -355,7 +355,7 @@ func (srv *FiberServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen failed",
+				"network listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -383,7 +383,7 @@ func (srv *FiberServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"HTTP server listen failed",
+				"http server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -395,7 +395,7 @@ func (srv *FiberServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"HTTP server closed",
+			"http server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -405,7 +405,7 @@ func (srv *FiberServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server listened",
+		"http server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -449,7 +449,7 @@ func (srv *FiberServer) Stop() error {
 	if err := app.ShutdownWithTimeout(timeout); err != nil && !isClosedConnError(err) {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Fiber server shutdown failed",
+			"fiber server shutdown failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -468,7 +468,7 @@ func (srv *FiberServer) Stop() error {
 		if err := ln.Close(); err != nil {
 			srv.options.Logger.DebugContext(
 				srv.ctx,
-				"Fiber listener close (already closed by shutdown)",
+				"fiber listener close (already closed by shutdown)",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -486,7 +486,7 @@ func (srv *FiberServer) Stop() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"HTTP server shutdown",
+		"http server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -591,7 +591,7 @@ func (srv *FiberServer) Handle(hdls ...Handler) {
 		hdl.Register(srv.app)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"HTTP handler registered",
+			"http handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,

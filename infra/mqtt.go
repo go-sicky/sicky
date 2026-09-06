@@ -108,7 +108,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"MQTT config invalid",
+			"mqtt config invalid",
 			"error", err.Error(),
 		)
 
@@ -144,7 +144,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 			pem, err := os.ReadFile(c.CAFile)
 			if err != nil {
 				logger.Logger.Error(
-					"MQTT CA cert unreadable",
+					"mqtt CA cert unreadable",
 					"ca_file", c.CAFile,
 					"error", err.Error(),
 				)
@@ -155,7 +155,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 			pool := x509.NewCertPool()
 			if !pool.AppendCertsFromPEM(pem) {
 				logger.Logger.Error(
-					"MQTT CA cert has no valid certificates",
+					"mqtt CA cert has no valid certificates",
 					"ca_file", c.CAFile,
 				)
 
@@ -173,7 +173,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	token := client.Connect()
 	if !token.WaitTimeout(time.Duration(c.ConnectTimeoutSec) * time.Second) {
 		logger.Logger.Error(
-			"MQTT connect timed out",
+			"mqtt connect timed out",
 			"broker", redactDSN(c.Broker),
 		)
 		client.Disconnect(0)
@@ -183,7 +183,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 
 	if token.Error() != nil {
 		logger.Logger.Error(
-			"MQTT connect failed",
+			"mqtt connect failed",
 			"broker", redactDSN(c.Broker),
 			"error", token.Error().Error(),
 		)
@@ -199,7 +199,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 	if MQTT != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("MQTT already initialized, closing duplicate connection")
+		logger.Logger.Warn("mqtt already initialized, closing duplicate connection")
 		client.Disconnect(250)
 
 		return MQTT, nil
@@ -209,7 +209,7 @@ func initMQTT(cfg *MQTTConfig) (mqtt.Client, error) {
 
 	logger.Logger.InfoContext(
 		context.Background(),
-		"Init MQTT successful",
+		"init MQTT successful",
 		"broker", redactDSN(c.Broker),
 		"client_id", c.ClientID,
 		"tls", c.EnableTLS,

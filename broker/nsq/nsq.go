@@ -76,7 +76,7 @@ func New(opts *broker.Options, cfg *Config) *NSQ {
 	if err := cfg.Validate(); err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Nsq broker config invalid",
+			"nsq broker config invalid",
 			"error", err.Error(),
 		)
 
@@ -93,7 +93,7 @@ func New(opts *broker.Options, cfg *Config) *NSQ {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nsq broker created",
+		"nsq broker created",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -160,7 +160,7 @@ func (brk *NSQ) Connect() error {
 		metrics.BrokerConnected.WithLabelValues("nsq").Set(0)
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker create producer failed",
+			"nsq broker create producer failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -179,7 +179,7 @@ func (brk *NSQ) Connect() error {
 		p.Stop()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker producer ping failed",
+			"nsq broker producer ping failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -191,7 +191,7 @@ func (brk *NSQ) Connect() error {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nsq broker connected",
+		"nsq broker connected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -210,7 +210,7 @@ func (brk *NSQ) Connect() error {
 		if err != nil {
 			brk.options.Logger.ErrorContext(
 				brk.ctx,
-				"Nsq broker subscribe failed",
+				"nsq broker subscribe failed",
 				"broker", brk.String(),
 				"id", brk.options.ID,
 				"name", brk.options.Name,
@@ -243,11 +243,12 @@ func (brk *NSQ) Disconnect() error {
 	if p != nil {
 		p.Stop()
 	}
+
 	metrics.BrokerConnected.WithLabelValues("nsq").Set(0)
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nsq broker disconnected",
+		"nsq broker disconnected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -277,7 +278,7 @@ func (brk *NSQ) Publish(topic string, m *broker.Message) error {
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker publish failed",
+			"nsq broker publish failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -300,7 +301,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "dup").Inc()
 		brk.options.Logger.DebugContext(
 			brk.ctx,
-			"Nsq broker duplicated subscription",
+			"nsq broker duplicated subscription",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -316,7 +317,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker create consumer failed",
+			"nsq broker create consumer failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -349,7 +350,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		consumer.Stop()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nsq broker consumer connection failed",
+			"nsq broker consumer connection failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -367,7 +368,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "ok").Inc()
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Nsq broker subscribed",
+		"nsq broker subscribed",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -388,7 +389,7 @@ func (brk *NSQ) Unsubscribe(topic string) error {
 		delete(brk.subscriptions, topic)
 		brk.options.Logger.DebugContext(
 			brk.ctx,
-			"Nsq broker unsubscribed",
+			"nsq broker unsubscribed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -413,7 +414,7 @@ func (brk *NSQ) Handle(hdls ...Handler) {
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
 			brk.ctx,
-			"Nsq handler registered",
+			"nsq handler registered",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -440,7 +441,7 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 			result = "panic"
 			h.Broker.options.Logger.ErrorContext(
 				h.Broker.ctx,
-				"Nsq broker handler panicked",
+				"nsq broker handler panicked",
 				"broker", h.Broker.String(),
 				"id", h.Broker.options.ID,
 				"name", h.Broker.options.Name,
@@ -453,11 +454,12 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 		if err != nil && result == "ok" {
 			result = "requeued"
 		}
+
 		metrics.ObserveBrokerHandler("nsq", h.Topic, result, time.Since(start))
 	}()
 	h.Broker.options.Logger.DebugContext(
 		h.Broker.ctx,
-		"Nsq message received",
+		"nsq message received",
 		"broker", h.Broker.String(),
 		"id", h.Broker.options.ID,
 		"name", h.Broker.options.Name,
@@ -474,7 +476,7 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 		if err != nil {
 			h.Broker.options.Logger.ErrorContext(
 				h.Broker.ctx,
-				"Nsq broker handler failed",
+				"nsq broker handler failed",
 				"broker", h.Broker.String(),
 				"id", h.Broker.options.ID,
 				"name", h.Broker.options.Name,
@@ -488,7 +490,7 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 
 		h.Broker.options.Logger.DebugContext(
 			h.Broker.ctx,
-			"Nsq broker handler processed",
+			"nsq broker handler processed",
 			"broker", h.Broker.String(),
 			"id", h.Broker.options.ID,
 			"name", h.Broker.options.Name,

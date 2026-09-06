@@ -72,7 +72,7 @@ func initBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Badger config invalid",
+			"badger config invalid",
 			"error", err.Error(),
 		)
 
@@ -82,7 +82,7 @@ func initBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	kv, err := badger.Open(badger.DefaultOptions(cfg.Path))
 	if err != nil {
 		logger.Logger.Error(
-			"Badger storage initialize failed",
+			"badger storage initialize failed",
 			"error", err.Error(),
 		)
 
@@ -90,7 +90,7 @@ func initBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	}
 
 	logger.Logger.Info(
-		"Badger storage initialized",
+		"badger storage initialized",
 		"path", cfg.Path,
 	)
 
@@ -99,10 +99,10 @@ func initBadger(cfg *BadgerConfig) (*badger.DB, error) {
 	if Badger != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("Badger already initialized, closing duplicate connection")
+		logger.Logger.Warn("badger already initialized, closing duplicate connection")
 		if cerr := kv.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Badger duplicate close failed",
+				"badger duplicate close failed",
 				"error", cerr.Error(),
 			)
 		}

@@ -106,7 +106,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Elasticsearch config invalid",
+			"elasticsearch config invalid",
 			"error", err.Error(),
 		)
 
@@ -127,7 +127,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		pem, err := os.ReadFile(cfg.CACertFile)
 		if err != nil {
 			logger.Logger.Error(
-				"Elasticsearch CA cert unreadable",
+				"elasticsearch CA cert unreadable",
 				"ca_cert_file", cfg.CACertFile,
 				"error", err.Error(),
 			)
@@ -141,7 +141,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	client, err := elasticsearch.NewClient(esCfg)
 	if err != nil {
 		logger.Logger.Error(
-			"Elasticsearch initialize failed",
+			"elasticsearch initialize failed",
 			"endpoint", cfg.endpoint(),
 			"error", err.Error(),
 		)
@@ -156,7 +156,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 
 	if err := pingElastic(ictx, client); err != nil {
 		logger.Logger.Error(
-			"Elasticsearch cluster check failed",
+			"elasticsearch cluster check failed",
 			"endpoint", cfg.endpoint(),
 			"error", err.Error(),
 		)
@@ -165,7 +165,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		defer ccancel()
 		if cerr := client.Close(cctx); cerr != nil {
 			logger.Logger.Error(
-				"Elasticsearch close after failed check failed",
+				"elasticsearch close after failed check failed",
 				"error", cerr.Error(),
 			)
 		}
@@ -178,12 +178,12 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	if Elastic != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking its transport.
-		logger.Logger.Warn("Elasticsearch already initialized, closing duplicate client")
+		logger.Logger.Warn("elasticsearch already initialized, closing duplicate client")
 		cctx, ccancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
 		defer ccancel()
 		if cerr := client.Close(cctx); cerr != nil {
 			logger.Logger.Error(
-				"Elasticsearch duplicate close failed",
+				"elasticsearch duplicate close failed",
 				"error", cerr.Error(),
 			)
 		}
@@ -195,7 +195,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 
 	logger.Logger.InfoContext(
 		context.Background(),
-		"Init Elasticsearch successful",
+		"init Elasticsearch successful",
 		"endpoint", cfg.endpoint(),
 	)
 

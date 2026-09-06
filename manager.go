@@ -205,7 +205,7 @@ func (m *Manager) Start() error {
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.ErrorContext(
 			m.ctx,
-			"Manager configuration invalid",
+			"manager configuration invalid",
 			"error", err.Error(),
 		)
 
@@ -228,7 +228,7 @@ func (m *Manager) Start() error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				m.ctx,
-				"Manager TLS certification failed",
+				"manager TLS certification failed",
 				"error", err.Error(),
 			)
 
@@ -260,7 +260,7 @@ func (m *Manager) Start() error {
 	if err != nil {
 		logger.Logger.ErrorContext(
 			m.ctx,
-			"Manager listen failed",
+			"manager listen failed",
 			"address", cfg.Address,
 			"error", err.Error(),
 		)
@@ -289,7 +289,7 @@ func (m *Manager) Start() error {
 	if cfg.AuthToken == "" && isExternalListen(cfg.Address) {
 		logger.Logger.WarnContext(
 			m.ctx,
-			"Manager listens on external address without AuthToken; /config and /services are loopback-only",
+			"manager listens on external address without AuthToken; /config and /services are loopback-only",
 			"address", cfg.Address,
 		)
 	}
@@ -310,7 +310,7 @@ func (m *Manager) Start() error {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Logger.ErrorContext(
 				m.ctx,
-				"Manager server listen failed",
+				"manager server listen failed",
 				"error", err.Error(),
 			)
 			m.Lock()
@@ -322,13 +322,13 @@ func (m *Manager) Start() error {
 
 		logger.Logger.InfoContext(
 			m.ctx,
-			"Manager server closed",
+			"manager server closed",
 		)
 	}(srv, listener, !servePlaintext)
 
 	logger.Logger.InfoContext(
 		m.ctx,
-		"Manager server started",
+		"manager server started",
 		"address", m.Addr(),
 		"port", m.Port(),
 		"tls", !servePlaintext,
@@ -388,7 +388,7 @@ func (m *Manager) Stop() error {
 
 	logger.Logger.InfoContext(
 		m.ctx,
-		"Manager server shutdown",
+		"manager server shutdown",
 	)
 
 	m.Lock()
@@ -723,7 +723,7 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 					// The detail goes to the server log only.
 					logger.Logger.ErrorContext(
 						ctx,
-						"Health check failed",
+						"health check failed",
 						"component", d.name,
 						"error", err.Error(),
 					)
@@ -771,7 +771,7 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 			ch.Error = statusUnhealthy
 			logger.Logger.ErrorContext(
 				ctx,
-				"Health check failed",
+				"health check failed",
 				"component", name,
 				"error", err.Error(),
 			)
@@ -837,7 +837,7 @@ func (m *Manager) servicePool() http.Handler {
 			// not silently produce an empty body.
 			logger.Logger.ErrorContext(
 				m.ctx,
-				"Service pool marshal failed",
+				"service pool marshal failed",
 				"error", err.Error(),
 			)
 		}

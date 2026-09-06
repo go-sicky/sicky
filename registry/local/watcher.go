@@ -104,7 +104,7 @@ func (w *Watcher) Start() {
 				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
 					w.registry.options.Logger.DebugContext(
 						w.registry.ctx,
-						"Registry directory changed",
+						"registry directory changed",
 						"registry", w.registry.String(),
 						"event", event.String(),
 					)
@@ -113,7 +113,7 @@ func (w *Watcher) Start() {
 					if err != nil {
 						w.registry.options.Logger.ErrorContext(
 							w.registry.ctx,
-							"Reload services list failed",
+							"reload services list failed",
 							"registry", w.registry.String(),
 							"id", w.registry.options.ID,
 							"name", w.registry.options.Name,
@@ -125,7 +125,7 @@ func (w *Watcher) Start() {
 
 					w.registry.options.Logger.InfoContext(
 						w.registry.ctx,
-						"Watcher triggered",
+						"watcher triggered",
 						"registry", w.registry.String(),
 						"id", w.registry.options.ID,
 						"name", w.registry.options.Name,
@@ -140,7 +140,7 @@ func (w *Watcher) Start() {
 
 				w.registry.options.Logger.ErrorContext(
 					w.registry.ctx,
-					"Inotify watcher error",
+					"inotify watcher error",
 					"registry", w.registry.String(),
 					"error", err,
 				)

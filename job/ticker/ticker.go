@@ -75,7 +75,7 @@ func New(opts *job.Options, cfg *Config) *Ticker {
 
 	j.options.Logger.InfoContext(
 		j.ctx,
-		"Job created",
+		"job created",
 		"job", j.String(),
 		"id", j.options.ID,
 		"name", j.options.Name,
@@ -173,13 +173,14 @@ func (job *Ticker) Start() error {
 									result = "panic"
 									job.options.Logger.ErrorContext(
 										job.ctx,
-										"Ticker handler panicked",
+										"ticker handler panicked",
 										"job", job.String(),
 										"id", job.options.ID,
 										"name", job.options.Name,
 										"panic", rec,
 									)
 								}
+
 								metrics.ObserveJobRun("ticker", taskID, result, time.Since(start))
 							}()
 							err := job.runWithTimeout(hdl, t, count)
@@ -190,9 +191,10 @@ func (job *Ticker) Start() error {
 								} else if strings.Contains(err.Error(), "panicked") {
 									result = "panic"
 								}
+
 								job.options.Logger.ErrorContext(
 									job.ctx,
-									"Ticker handler failed",
+									"ticker handler failed",
 									"error", err.Error(),
 								)
 							}
@@ -215,7 +217,7 @@ func (job *Ticker) Start() error {
 
 	job.options.Logger.InfoContext(
 		job.ctx,
-		"Ticker job started",
+		"ticker job started",
 		"job", job.String(),
 		"id", job.options.ID,
 		"name", job.options.Name,
@@ -246,7 +248,7 @@ func (job *Ticker) Stop() error {
 
 	job.options.Logger.InfoContext(
 		job.ctx,
-		"Ticker job stopped",
+		"ticker job stopped",
 		"job", job.String(),
 		"id", job.options.ID,
 		"name", job.options.Name,
@@ -289,7 +291,7 @@ func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
 			if rec := recover(); rec != nil {
 				job.options.Logger.ErrorContext(
 					job.ctx,
-					"Ticker task panicked",
+					"ticker task panicked",
 					"job", job.String(),
 					"id", job.options.ID,
 					"name", job.options.Name,
@@ -308,7 +310,7 @@ func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
 	case <-timer.C:
 		job.options.Logger.ErrorContext(
 			job.ctx,
-			"Ticker task timed out; leaked run continues in background",
+			"ticker task timed out; leaked run continues in background",
 			"job", job.String(),
 			"id", job.options.ID,
 			"name", job.options.Name,

@@ -129,7 +129,7 @@ func initS3(cfg *S3Config) (*s3.Client, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Init S3 config invalid",
+			"init S3 config invalid",
 			"error", err.Error(),
 		)
 
@@ -160,7 +160,7 @@ func initS3(cfg *S3Config) (*s3.Client, error) {
 	c, err := config.LoadDefaultConfig(lctx, loadOpts...)
 	if err != nil {
 		logger.Logger.Error(
-			"Init S3 failed",
+			"init S3 failed",
 			"region", cfg.Region,
 			"endpoint", cfg.Endpoint,
 			"error", err.Error(),
@@ -185,7 +185,7 @@ func initS3(cfg *S3Config) (*s3.Client, error) {
 	if S3 != nil {
 		// First-wins: keep the existing singleton. The S3 client holds
 		// no closeable resources, so there is nothing to drop.
-		logger.Logger.Warn("S3 already initialized, keeping existing client")
+		logger.Logger.Warn("s3 already initialized, keeping existing client")
 
 		return S3, nil
 	}
@@ -195,7 +195,7 @@ func initS3(cfg *S3Config) (*s3.Client, error) {
 
 	logger.Logger.InfoContext(
 		context.Background(),
-		"Init S3 successful",
+		"init S3 successful",
 		"region", cfg.Region,
 		"endpoint", cfg.Endpoint,
 		"bucket", cfg.Bucket,

@@ -86,7 +86,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		// so a typo does not silently widen Slowloris exposure.
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Negative timeout clamped to 0 (deadlines disabled)",
+			"negative timeout clamped to 0 (deadlines disabled)",
 			"read_timeout", negRead,
 			"write_timeout", negWrite,
 		)
@@ -95,7 +95,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 	if negSessions < 0 {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Negative max_sessions clamped to 0 (unlimited)",
+			"negative max_sessions clamped to 0 (unlimited)",
 			"max_sessions", negSessions,
 		)
 	}
@@ -103,7 +103,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 	if negMsg < 0 {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Negative max_message_bytes clamped to 0 (unlimited)",
+			"negative max_message_bytes clamped to 0 (unlimited)",
 			"max_message_bytes", negMsg,
 		)
 	}
@@ -115,7 +115,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		// default.
 		opts.Logger.WarnContext(
 			opts.Context,
-			"TCP flood protections disabled: set read_timeout and max_sessions for production",
+			"tcp flood protections disabled: set read_timeout and max_sessions for production",
 			"read_timeout", cfg.ReadTimeout,
 			"max_sessions", cfg.MaxSessions,
 		)
@@ -130,7 +130,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 	addr, err = net.ResolveTCPAddr(cfg.Network, cfg.Address)
 	if err != nil {
 		opts.Logger.Fatal(
-			"Network address resolve failed",
+			"network address resolve failed",
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
@@ -142,7 +142,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 		advertiseAddr, err = net.ResolveTCPAddr(cfg.Network, cfg.AdvertiseAddress)
 		if err != nil {
 			opts.Logger.Fatal(
-				"Network address resolve failed",
+				"network address resolve failed",
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
@@ -169,7 +169,7 @@ func New(opts *server.Options, cfg *Config) *TCPServer {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"TCP server created",
+		"tcp server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -297,7 +297,7 @@ func (srv *TCPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"TCP handler registered",
+			"tcp handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -363,7 +363,7 @@ func (srv *TCPServer) safelyInvoke(op string, sess *Session, fn func() error) (e
 		if r := recover(); r != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"TCP handler panicked",
+				"tcp handler panicked",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -378,7 +378,7 @@ func (srv *TCPServer) safelyInvoke(op string, sess *Session, fn func() error) (e
 	if e := fn(); e != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"TCP data process error",
+			"tcp data process error",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -436,7 +436,7 @@ func (srv *TCPServer) Start() error {
 		srv.Unlock()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Network listen failed",
+			"network listen failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -462,7 +462,7 @@ func (srv *TCPServer) Start() error {
 					// Network closed
 					srv.options.Logger.InfoContext(
 						srv.ctx,
-						"TCP connection closed",
+						"tcp connection closed",
 						"server", srv.String(),
 						"id", srv.options.ID,
 						"name", srv.options.Name,
@@ -490,7 +490,7 @@ func (srv *TCPServer) Start() error {
 						args = append(args, "suppressed", suppressed)
 					}
 
-					srv.options.Logger.ErrorContext(srv.ctx, "TCP Accept failed", args...)
+					srv.options.Logger.ErrorContext(srv.ctx, "tcp Accept failed", args...)
 				}
 
 				time.Sleep(backoff.Next())
@@ -522,7 +522,7 @@ func (srv *TCPServer) Start() error {
 						args = append(args, "suppressed", suppressed)
 					}
 
-					srv.options.Logger.ErrorContext(srv.ctx, "TCP session cap reached, rejecting connection", args...)
+					srv.options.Logger.ErrorContext(srv.ctx, "tcp session cap reached, rejecting connection", args...)
 				}
 
 				_ = client.Close()
@@ -568,7 +568,7 @@ func (srv *TCPServer) Start() error {
 					if r := recover(); r != nil {
 						srv.options.Logger.ErrorContext(
 							srv.ctx,
-							"TCP connection panicked",
+							"tcp connection panicked",
 							"server", srv.String(),
 							"id", srv.options.ID,
 							"name", srv.options.Name,
@@ -602,7 +602,7 @@ func (srv *TCPServer) Start() error {
 
 						srv.options.Logger.ErrorContext(
 							srv.ctx,
-							"TCP Read error",
+							"tcp Read error",
 							"server", srv.String(),
 							"id", srv.options.ID,
 							"name", srv.options.Name,
@@ -626,7 +626,7 @@ func (srv *TCPServer) Start() error {
 							if srv.config.MaxMessageBytes > 0 && totalBytes > srv.config.MaxMessageBytes {
 								srv.options.Logger.ErrorContext(
 									srv.ctx,
-									"TCP connection exceeded message cap, closing",
+									"tcp connection exceeded message cap, closing",
 									"server", srv.String(),
 									"id", srv.options.ID,
 									"name", srv.options.Name,
@@ -648,6 +648,7 @@ func (srv *TCPServer) Start() error {
 									return h.OnData(sess, dst)
 								})
 							}
+
 							metrics.ObserveServerRequest("tcp", "data", "data", "ok", time.Since(start))
 							metrics.ServerIOBytesTotal.WithLabelValues("tcp", "in").Add(float64(n))
 						}
@@ -666,7 +667,7 @@ func (srv *TCPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"TCP server listened",
+		"tcp server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -704,7 +705,7 @@ func (srv *TCPServer) Stop() error {
 	if err := listener.Close(); err != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Network close failed",
+			"network close failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -751,7 +752,7 @@ func (srv *TCPServer) Stop() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"TCP server shutdown",
+		"tcp server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,

@@ -121,6 +121,28 @@ The framework provides hooks at two levels:
 - 6 handlers: `MetricsPath` (`/metrics`, public), `HealthPath` (`/health` with `collectComponentHealth` for 10 infra types + registered business checkers → `healthy/not_configured/unhealthy`; only `unhealthy` degrades overall status; checks run concurrently under a 2s ctx), `LivePath` (`/live`, static 200), `ReadyPath` (`/ready`, same aggregation as `/health`), `VersionPath`, `InfoPath`, `ConfigPath` (403 if `ExposeConfig==false`, secrets redacted when exposed), `ServicePoolPath` (`registry.GetPool()` snapshot). `/config` + `/services` require `Authorization: Bearer <auth_token>` when `ManagerConfig.AuthToken` is set, else loopback-only. `http.Server` carries `Read/Write/IdleTimeout` (defaults 10/10/60s); default bind stays `:8888` (external) by project decision.
 - `Start()` does `wg.Add(1)` + `go func() { defer wg.Done(); srv.ListenAndServe() }`; `Stop()` does `Shutdown` with `ShutdownTimeout` then `wg.Wait()`. All Manager and server goroutines use `defer wg.Done()` (fixed in `server/http`, `server/tcp`, `server/udp`); `go func()` signatures carry no `error` return — errors are logged internally.
 
+### 3.8 Code Format Details
+Project-specific formatting rules beyond `gofmt`/`gofumpt` (apply to all `*.go` except `registry/mdns/` + `cli/template/`):
+- **R1 block-then-code**: a compound block (`if`/`for`/`range`/`switch`/`select`) followed by more sibling code must be separated by a blank line. Consecutive compounds (`if` right after `}`) are exempt — only block-then-*code* needs it.
+  ```go
+  // good
+  if err != nil {
+      return err
+  }
+
+  metrics.ObserveInfraOp(...)
+  ```
+- **R2 return-blank**: a `return` preceded by sibling code needs a blank line above it, unless the line above ends with `}`/`{` or the `return` is the first statement of its block.
+  ```go
+  // good
+  metrics.CountInfraInit("redis", err)
+
+  return nil, err
+  ```
+- **Log lowercase**: structured logger messages (`*.Logger.(Info|Error|Warn|Debug|Trace|Fatal)(Context)?`) start lowercase; a leading all-caps acronym is lowercased whole (`"TCP server created"` → `"tcp server created"`, never `"tCP ..."`). Out of scope by decision: CLI user-facing `stderr` output, test assertions.
+- **Spelling**: US English (`misspell` gate). Intentional exceptions keep a deprecation note instead of being "fixed" (e.g. `TickerHander = TickerHandler` at `sicky.go:87-88`).
+- **Necessary comments**: exported symbols carry `// Name ...` docs ending with `.` (`revive` + `godot` gates); every non-trivial error branch / `Validate()` rejection / magic-number default states *why* in one line (e.g. `infra/redis.go:166-167`, `runner/static/static.go:118-120`).
+
 ## 4. Key Packages & Directories
 - `/broker`: Messaging abstraction (`broker/broker.go`) + NATS, JetStream, NSQ implementations.
 - `/client`: Client abstraction + gRPC, HTTP, TCP, UDP, WebSocket implementations (top-level `client.Config` empty with `Ensure()`, sub-clients have `Ensure()` + `Validate()` where applicable). gRPC client (`client/grpc/grpc.go`): `tls_cert_pem`+`tls_key_pem` load a real `X509KeyPair` (TLS 1.2+, half-config fail-fast via `ErrIncompleteTLSConfig`, never silent plaintext); `Addr` mode dials directly, `Service` mode resolves via the registry pool (`resolveGRPCAddrs` from `Instance.Servers[type==grpc]`) with a `NotifyChan`-driven watcher goroutine (+30s resync, stopped on `Disconnect`).
@@ -179,6 +201,7 @@ When working on this codebase:
 10. **Config Validation**: Extend `validateConfig()` (`sicky.go`) when adding timing/size fields — Viper env zeroing is silent for `int` fields.
 11. **CORS Deny-by-Default**: Both HTTP stacks whitelist origins (`server/http/cors.go`, `server/fiber` via `CORSConfig`); empty `AllowedOrigins` emits no ACAO headers. `*` + `AllowCredentials` is illegal — `Validate()` rejects it, both server constructors fail closed (error log + deny-all), and `NewCORSMiddleware` drops the wildcard. Never reflect an arbitrary `Origin` with credentials; the deprecated `server/http.CORSMiddleware` is now a deny-all alias — use `NewCORSMiddleware` with an explicit whitelist.
 12. **Hot-loop backoff/logging**: TCP accept and UDP read loops use `utils.NewBackoff` (capped exp + jitter) + `utils.NewLogSampler` (default 5/s, cap-rejects 1/s, `suppressed` count attached) — never fixed-sleep + per-error logs. UDP computes `addrKey` once per packet and shares it between limiter and session lookup.
+13. **Code Format Details**: apply §3.8 on every edit — blank line after block-then-code (R1) and above `return` (R2), lowercase log messages, US spelling, why-comments on error branches. `gofmt`/`gofumpt` do NOT enforce R1/R2 — self-check the diff before finishing.
 
 ## 7. Known Gaps and TODOs
 - [x] `infra/` Config types are missing `Ensure()` methods (10 types: `BadgerConfig`, `BunConfig`, `ClickhouseConfig`, `ElasticConfig`, `MongoConfig`, `MQTTConfig`, `NatsConfig`, `RedisConfig`, `RistrettoConfig`, `S3Config`).
@@ -289,7 +312,12 @@ When working on this codebase:
 - [x] **Tracer**: OTLP grpc/http exporter `Shutdown()` on provider-construction failure (connection/goroutine leak). MQTT: `Disconnect(0)` on the token-error path (auto-reconnect goroutine leak).
 - [x] Tests added: websocket origin/readlimit/panic-isolation/half-TLS/send-mutex, gRPC recovery no-stack-leak, manager PEM redaction/path validation/bind-failure/restart, registry clone no-cycle + marshal guards, runner restart, pool purge-force. Full `go test -race ./...` + `golangci-lint` green; `staticcheck` binary too old for Go 1.27 export data (toolchain, not code).
 
+### Fixed in 2026-09-06 code-format pass (R1/R2/log-case, API-compatible)
+- [x] **Blank lines**: AST full-repo scan — R1 (block-then-code) found 18 violations, all fixed (mostly `}` → `metrics...` in handler-observation wrappers: broker×4, client/http×1, infra×3, job/ticker×2, registry×3, runner×1, tcp/udp/websocket×4); R2 (return-blank) was already 0. Consecutive compounds (`}`→`if`) and block-first `return` are explicitly exempt.
+- [x] **Log lowercase**: 419 structured-logger messages lowercased across 44 files (`*.Logger.(Info|Error|Warn|Debug|Trace|Fatal)(Context)?`); leading all-caps acronyms lowercased whole (`TCP`→`tcp`, `GRPC`→`grpc`, never `tCP`); CLI user-facing `stderr` strings + test assertions out of scope by decision.
+- [x] **Spelling/comments baselines**: `misspell` 0 issues (only intentional `TickerHander` alias, kept + documented); `revive` 0 issues (exported docs complete). Rescan after fix: R1/R2 clean, zero capitalized log messages, `gofmt -l` clean.
+
 Planned next (not started): Phase 3.3+ — `middleware.Chain`, `resilience` (rate/breaker/retry), RED metrics, `Storage`/`Search` interfaces, `lock/`, job v2, auth + Selector + OpenAPI, Kafka/pprof/cli-ops; explicit by-design keeps (TLS 1.2-only, public version/info, `:8888`, opt-in `tls_skip_verify`, `0`=disabled/unlimited defaults, gRPC keepalive, NATS exhaustion, `grpc metadata` placeholder, deprecated fiber middlewares). Residual known risks: TCP/UDP slowloris drip with `read_timeout=0` (now Warn-ed, still opt-in), UDP single-goroutine packet loop, per-message alloc+copy, `tracestate` passthrough only, websocket/tcp/udp servers have no tracing carrier.
 
 ---
-*Last updated: 2026-09-06 — audit-fix pass applied (WebSocket hardening, gRPC recovery, Manager, orchestrator/registry, broker, runner/service, tcp/udp/http/fiber, client, tracer). All fixes API-compatible.*
+*Last updated: 2026-09-06 — audit-fix pass applied (WebSocket hardening, gRPC recovery, Manager, orchestrator/registry, broker, runner/service, tcp/udp/http/fiber, client, tracer). All fixes API-compatible. Code-format pass applied (R1/R2/log-case, §3.8 + §6-13).*

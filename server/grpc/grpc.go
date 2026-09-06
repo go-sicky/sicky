@@ -91,7 +91,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	addr, err = net.ResolveTCPAddr(cfg.Network, cfg.Address)
 	if err != nil {
 		opts.Logger.Fatal(
-			"Network address resolve failed",
+			"network address resolve failed",
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
@@ -103,7 +103,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 		advertiseAddr, err = net.ResolveTCPAddr(cfg.Network, cfg.AdvertiseAddress)
 		if err != nil {
 			opts.Logger.Fatal(
-				"Advertise network address resolve failed",
+				"advertise network address resolve failed",
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
@@ -225,7 +225,7 @@ func New(opts *server.Options, cfg *Config) *GRPCServer {
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"GRPC server created",
+		"grpc server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -296,7 +296,7 @@ func (srv *GRPCServer) Start() error {
 	if (srv.config.TLSCertPEM != "") != (srv.config.TLSKeyPEM != "") {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"TLS configuration incomplete",
+			"tls configuration incomplete",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -314,7 +314,7 @@ func (srv *GRPCServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"TLS certification failed",
+				"tls certification failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -337,7 +337,7 @@ func (srv *GRPCServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen with TLS certificate failed",
+				"network listen with TLS certificate failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -349,7 +349,7 @@ func (srv *GRPCServer) Start() error {
 	} else {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"GRPC serving without TLS (insecure mode)",
+			"grpc serving without TLS (insecure mode)",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -364,7 +364,7 @@ func (srv *GRPCServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen failed",
+				"network listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -391,7 +391,7 @@ func (srv *GRPCServer) Start() error {
 		if err != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"GRPC server listen failed",
+				"grpc server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -403,7 +403,7 @@ func (srv *GRPCServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"GRPC server closed",
+			"grpc server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -413,7 +413,7 @@ func (srv *GRPCServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"GRPC server listened",
+		"grpc server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -466,7 +466,7 @@ func (srv *GRPCServer) Stop() error {
 		err := ErrShutdownTimeout
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"GRPC graceful stop timed out, connections force-stopped",
+			"grpc graceful stop timed out, connections force-stopped",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -485,7 +485,7 @@ func (srv *GRPCServer) Stop() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"GRPC server shutdown",
+		"grpc server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -575,7 +575,7 @@ func (srv *GRPCServer) Handle(hdls ...Handler) {
 		hdl.Register(srv.app)
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"GRPC handler registered",
+			"grpc handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,

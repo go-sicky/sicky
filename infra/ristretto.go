@@ -79,7 +79,7 @@ func initRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 	cfg = cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Ristretto config invalid",
+			"ristretto config invalid",
 			"error", err.Error(),
 		)
 
@@ -95,7 +95,7 @@ func initRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 	)
 	if err != nil {
 		logger.Logger.Error(
-			"Ristretto cache initialize failed",
+			"ristretto cache initialize failed",
 			"error", err.Error(),
 		)
 
@@ -103,7 +103,7 @@ func initRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 	}
 
 	logger.Logger.Info(
-		"Ristretto cache initialized",
+		"ristretto cache initialized",
 		"num_counters", cfg.NumCounters,
 		"max_cost", cfg.MaxCost,
 		"buffer_items", cfg.BufferItems,
@@ -114,7 +114,7 @@ func initRistretto(cfg *RistrettoConfig) (*ristretto.Cache[string, any], error) 
 	if Ristretto != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("Ristretto already initialized, closing duplicate cache")
+		logger.Logger.Warn("ristretto already initialized, closing duplicate cache")
 		cache.Close()
 
 		return Ristretto, nil

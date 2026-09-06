@@ -75,7 +75,7 @@ func New(opts *broker.Options, cfg *Config) *JetStream {
 	if err := cfg.Validate(); err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Jetstream broker config invalid",
+			"jetstream broker config invalid",
 			"error", err.Error(),
 		)
 
@@ -92,7 +92,7 @@ func New(opts *broker.Options, cfg *Config) *JetStream {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Jetstream broker created",
+		"jetstream broker created",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -137,7 +137,7 @@ func (brk *JetStream) Connect() error {
 		metrics.BrokerConnected.WithLabelValues("jetstream").Set(0)
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Jetstream broker connect failed",
+			"jetstream broker connect failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -149,7 +149,7 @@ func (brk *JetStream) Connect() error {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Jetstream broker connected",
+		"jetstream broker connected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -163,7 +163,7 @@ func (brk *JetStream) Connect() error {
 		nc.Close()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Jetstream create stream context failed",
+			"jetstream create stream context failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -182,7 +182,7 @@ func (brk *JetStream) Connect() error {
 		nc.Close()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Jetstream create stream info failed",
+			"jetstream create stream info failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -206,7 +206,7 @@ func (brk *JetStream) Connect() error {
 		if err != nil {
 			brk.options.Logger.ErrorContext(
 				brk.ctx,
-				"Jetstream broker subscribe failed",
+				"jetstream broker subscribe failed",
 				"broker", brk.String(),
 				"id", brk.options.ID,
 				"name", brk.options.Name,
@@ -245,7 +245,7 @@ func (brk *JetStream) Disconnect() error {
 		metrics.BrokerConnected.WithLabelValues("jetstream").Set(0)
 		brk.options.Logger.InfoContext(
 			brk.ctx,
-			"Jetstream broker disconnected",
+			"jetstream broker disconnected",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -280,7 +280,7 @@ func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Jetstream broker publish failed",
+			"jetstream broker publish failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -293,7 +293,7 @@ func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Jetstream broker published",
+		"jetstream broker published",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -331,7 +331,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 				result = "panic"
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
-					"Jetstream broker handler panicked",
+					"jetstream broker handler panicked",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -342,6 +342,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 				// message: NAK so it stays in-flight until AckWait.
 				_ = msg.Nak()
 			}
+
 			metrics.ObserveBrokerHandler("jetstream", topic, result, time.Since(start))
 		}()
 		if h != nil {
@@ -350,7 +351,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 			if err != nil {
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
-					"Jetstream broker handler error",
+					"jetstream broker handler error",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -362,7 +363,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 			} else {
 				brk.options.Logger.DebugContext(
 					brk.ctx,
-					"Jetstream broker handler processed",
+					"jetstream broker handler processed",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -378,7 +379,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Jetstream broker subscribe failed",
+			"jetstream broker subscribe failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -391,7 +392,7 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Jetstream broker subscribed",
+		"jetstream broker subscribed",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -433,7 +434,7 @@ func (brk *JetStream) Handle(hdls ...Handler) {
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
 			brk.ctx,
-			"Nats handler registered",
+			"nats handler registered",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,

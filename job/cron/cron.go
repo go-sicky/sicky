@@ -72,7 +72,7 @@ func New(opts *job.Options, cfg *Config) *Cron {
 
 	j.options.Logger.InfoContext(
 		j.ctx,
-		"Job created",
+		"job created",
 		"job", j.String(),
 		"id", j.options.ID,
 		"name", j.options.Name,
@@ -171,7 +171,7 @@ func (job *Cron) Start() error {
 			metrics.JobRegisteredTotal.WithLabelValues("cron", "error").Inc()
 			job.options.Logger.ErrorContext(
 				job.ctx,
-				"Register cron task failed",
+				"register cron task failed",
 				"job", job.String(),
 				"id", job.options.ID,
 				"name", job.options.Name,
@@ -190,7 +190,7 @@ func (job *Cron) Start() error {
 
 	job.options.Logger.InfoContext(
 		job.ctx,
-		"Cron job started",
+		"cron job started",
 		"job", job.String(),
 		"id", job.options.ID,
 		"name", job.options.Name,
@@ -275,7 +275,7 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 				if rec := recover(); rec != nil {
 					job.options.Logger.ErrorContext(
 						job.ctx,
-						"Cron task panicked",
+						"cron task panicked",
 						"job", job.String(),
 						"id", job.options.ID,
 						"name", job.options.Name,
@@ -302,7 +302,7 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 		case <-timer.C:
 			job.options.Logger.ErrorContext(
 				job.ctx,
-				"Cron task timed out; leaked run continues in background",
+				"cron task timed out; leaked run continues in background",
 				"job", job.String(),
 				"id", job.options.ID,
 				"name", job.options.Name,

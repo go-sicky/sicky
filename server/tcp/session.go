@@ -306,7 +306,7 @@ func (p *Pool) Purge() {
 		}
 
 		logger.Logger.Debug(
-			"TCP connection idle for a long time",
+			"tcp connection idle for a long time",
 			"session", sess.ID,
 			"remote_address", remote,
 		)

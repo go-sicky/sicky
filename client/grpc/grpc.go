@@ -91,7 +91,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	if err := cfg.Validate(); err != nil {
 		clt.options.Logger.ErrorContext(
 			clt.ctx,
-			"GRPC client TLS configuration incomplete",
+			"grpc client TLS configuration incomplete",
 			"client", clt.String(),
 			"id", clt.options.ID,
 			"name", clt.options.Name,
@@ -107,7 +107,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 		if err != nil {
 			clt.options.Logger.ErrorContext(
 				clt.ctx,
-				"GRPC client TLS certification failed",
+				"grpc client TLS certification failed",
 				"client", clt.String(),
 				"id", clt.options.ID,
 				"name", clt.options.Name,
@@ -212,7 +212,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	if err != nil {
 		clt.options.Logger.ErrorContext(
 			clt.ctx,
-			"GRPC client dial failed",
+			"grpc client dial failed",
 			"client", clt.String(),
 			"id", clt.options.ID,
 			"name", clt.options.Name,
@@ -227,7 +227,7 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	clt.conn = conn
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"GRPC client created",
+		"grpc client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,
@@ -371,7 +371,7 @@ func (clt *GRPCClient) Invoke(ctx context.Context, method string, args, reply an
 	// never logged, not even at debug level.
 	clt.options.Logger.DebugContext(
 		ctx,
-		"Invoke GRPC call",
+		"invoke GRPC call",
 		"client", clt.options.ID,
 		"name", clt.options.Name,
 		"method", method,
@@ -384,7 +384,7 @@ func (clt *GRPCClient) Invoke(ctx context.Context, method string, args, reply an
 		metrics.ClientErrorsTotal.WithLabelValues("grpc", method, "invoke").Inc()
 		clt.options.Logger.ErrorContext(
 			ctx,
-			"Invoke GRPC call failed",
+			"invoke GRPC call failed",
 			"client", clt.options.ID,
 			"name", clt.options.Name,
 			"method", method,
@@ -402,7 +402,7 @@ func (clt *GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, met
 	// Stream call
 	clt.options.Logger.DebugContext(
 		ctx,
-		"Stream GRPC call",
+		"stream GRPC call",
 		"client", clt.options.ID,
 		"name", clt.options.Name,
 		"method", method,
@@ -411,7 +411,7 @@ func (clt *GRPCClient) NewStream(ctx context.Context, desc *grpc.StreamDesc, met
 	if err != nil {
 		clt.options.Logger.ErrorContext(
 			ctx,
-			"Stream GRPC call failed",
+			"stream GRPC call failed",
 			"client", clt.options.ID,
 			"name", clt.options.Name,
 			"method", method,

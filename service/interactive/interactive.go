@@ -77,7 +77,7 @@ func New(opts *service.Options, cfg *Config) *Interactive {
 
 	svc.options.Logger.InfoContext(
 		svc.ctx,
-		"Service created",
+		"service created",
 		"service", svc.String(),
 		"id", svc.options.ID,
 		"name", svc.options.Name,
@@ -192,7 +192,7 @@ func (s *Interactive) Handle(hdls ...Handler) {
 		s.handlers = append(s.handlers, hdl)
 		s.options.Logger.InfoContext(
 			s.ctx,
-			"Interaction handler registered",
+			"interaction handler registered",
 			"service", s.String(),
 			"id", s.options.ID,
 			"name", s.options.Name,

@@ -66,7 +66,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	if cfg.DSN == "" {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Uptrace DSN is required",
+			"uptrace DSN is required",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -84,7 +84,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	if cfg.SampleRate != 1.0 {
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Uptrace sample_rate is deprecated and ignored; sampling is server-side",
+			"uptrace sample_rate is deprecated and ignored; sampling is server-side",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -123,7 +123,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	if !ok {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Failed to get TracerProvider from Uptrace",
+			"failed to get TracerProvider from Uptrace",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -136,7 +136,7 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer created",
+		"tracer created",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -178,7 +178,7 @@ func (tc *UptraceTracer) Name() string {
 func (tc *UptraceTracer) Start() error {
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer started",
+		"tracer started",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -198,7 +198,7 @@ func (tc *UptraceTracer) Stop() error {
 		if err := tc.provider.Shutdown(ctx); err != nil {
 			tc.options.Logger.ErrorContext(
 				tc.ctx,
-				"Tracer provider shutdown failed",
+				"tracer provider shutdown failed",
 				"tracer", tc.String(),
 				"id", tc.options.ID,
 				"name", tc.options.Name,
@@ -214,7 +214,7 @@ func (tc *UptraceTracer) Stop() error {
 	if err := uptrace.Shutdown(ctx); err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Uptrace shutdown failed",
+			"uptrace shutdown failed",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -227,7 +227,7 @@ func (tc *UptraceTracer) Stop() error {
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer stopped",
+		"tracer stopped",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -247,7 +247,7 @@ func (tc *UptraceTracer) Tracer(name string) trace.Tracer {
 	if tc.provider == nil {
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Requested tracer from nil provider",
+			"requested tracer from nil provider",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -259,7 +259,7 @@ func (tc *UptraceTracer) Tracer(name string) trace.Tracer {
 
 	tc.options.Logger.DebugContext(
 		tc.ctx,
-		"Requested tracer",
+		"requested tracer",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,

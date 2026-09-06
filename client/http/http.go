@@ -82,7 +82,7 @@ func New(opts *client.Options, cfg *Config) *HTTPClient {
 
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"Client created",
+		"client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,
@@ -184,6 +184,7 @@ func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	} else if err != nil {
 		metrics.ClientErrorsTotal.WithLabelValues("http", req.Method, "do").Inc()
 	}
+
 	metrics.ObserveClientRequest("http", req.Method, req.URL.Host, code, time.Since(start))
 
 	return resp, err

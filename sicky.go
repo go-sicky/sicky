@@ -238,12 +238,12 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 			location = u.Redacted()
 		}
 
-		logger.Logger.Info("Config read", "location", location)
+		logger.Logger.Info("config read", "location", location)
 		if used := configIns.ConfigFileUsed(); used != "" {
 			if cwd, cerr := os.Getwd(); cerr == nil {
 				if sameDir, serr := filepath.Abs(filepath.Dir(used)); serr == nil {
 					if cwdAbs, cerr2 := filepath.Abs(cwd); cerr2 == nil && sameDir == cwdAbs {
-						logger.Logger.Warn("Config loaded from working directory; ensure the CWD is trusted", "file", used)
+						logger.Logger.Warn("config loaded from working directory; ensure the CWD is trusted", "file", used)
 					}
 				}
 			}
@@ -263,7 +263,7 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 			MustInfra[key] = true
 		default:
 			if key != "" {
-				logger.Logger.Warn("Unknown MustInfra entry ignored", "infra", infra)
+				logger.Logger.Warn("unknown MustInfra entry ignored", "infra", infra)
 			}
 		}
 	}
@@ -328,7 +328,7 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 		if addr == nil {
 			logger.Logger.WarnContext(
 				options.Context,
-				"Skip server with nil address in registry instance",
+				"skip server with nil address in registry instance",
 				"server", srv.Name(),
 			)
 
@@ -431,7 +431,7 @@ func Run(cfg *Config) error {
 			MustInfra[key] = true
 		default:
 			if key != "" {
-				logger.Logger.Warn("Unknown MustInfra entry ignored", "infra", infra)
+				logger.Logger.Warn("unknown MustInfra entry ignored", "infra", infra)
 			}
 		}
 	}
@@ -451,7 +451,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Before start wrapper failed",
+				"before start wrapper failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("before start wrapper: %w", err))
@@ -468,7 +468,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize badger failed",
+				"initialize badger failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize badger: %w", err))
@@ -485,7 +485,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize bun failed",
+				"initialize bun failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize bun: %w", err))
@@ -502,7 +502,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize clickhouse failed",
+				"initialize clickhouse failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize clickhouse: %w", err))
@@ -519,7 +519,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize elastic failed",
+				"initialize elastic failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize elastic: %w", err))
@@ -536,7 +536,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize mqtt failed",
+				"initialize mqtt failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize mqtt: %w", err))
@@ -553,7 +553,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize mongo failed",
+				"initialize mongo failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize mongo: %w", err))
@@ -570,7 +570,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize nats failed",
+				"initialize nats failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize nats: %w", err))
@@ -587,7 +587,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize redis failed",
+				"initialize redis failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize redis: %w", err))
@@ -604,7 +604,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize ristretto failed",
+				"initialize ristretto failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize ristretto: %w", err))
@@ -621,7 +621,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Initialize s3 failed",
+				"initialize s3 failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("initialize s3: %w", err))
@@ -638,7 +638,7 @@ func Run(cfg *Config) error {
 		if must {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Must infrastructure is not initialized",
+				"must infrastructure is not initialized",
 				"infra", name,
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("%w: %s", ErrMustInfraNotInitialized, name))
@@ -662,7 +662,7 @@ func Run(cfg *Config) error {
 		}
 
 		if err := cfg.Tracer.Validate(); err != nil {
-			logger.Logger.Warn("Invalid tracer config, continuing without tracing", "error", err.Error(), "type", cfg.Tracer.Type)
+			logger.Logger.Warn("invalid tracer config, continuing without tracing", "error", err.Error(), "type", cfg.Tracer.Type)
 		} else if cfg.Tracer.Type != DefaultTracerType {
 			var tcOk bool
 			switch cfg.Tracer.Type {
@@ -707,15 +707,15 @@ func Run(cfg *Config) error {
 				})
 				tcOk = tc != nil
 			default:
-				logger.Logger.Warn("Unknown tracer type", "type", cfg.Tracer.Type)
+				logger.Logger.Warn("unknown tracer type", "type", cfg.Tracer.Type)
 			}
 
 			if tcOk {
 				// sicky owns the global propagator: W3C + B3 dual emit.
 				tracer.InstallPropagator()
-				logger.Logger.Info("Tracer initialized", "type", cfg.Tracer.Type)
+				logger.Logger.Info("tracer initialized", "type", cfg.Tracer.Type)
 			} else if cfg.Tracer.Type == tracerTypeGRPC || cfg.Tracer.Type == tracerTypeHTTP || cfg.Tracer.Type == tracerTypeStdout || cfg.Tracer.Type == tracerTypeUptrace {
-				logger.Logger.Warn("Tracer initialization failed, continuing without tracing", "type", cfg.Tracer.Type)
+				logger.Logger.Warn("tracer initialization failed, continuing without tracing", "type", cfg.Tracer.Type)
 			}
 		}
 	}
@@ -725,12 +725,12 @@ func Run(cfg *Config) error {
 		rgConsulIns = rgConsul.New(nil, cfg.Registry.Consul)
 		if rgConsulIns != nil {
 			if werr := rgConsulIns.Watch(); werr != nil {
-				logger.Logger.WarnContext(options.Context, "Consul watch failed", "error", werr.Error())
+				logger.Logger.WarnContext(options.Context, "consul watch failed", "error", werr.Error())
 			}
 
 			MustRegistry = false
 		} else {
-			logger.Logger.WarnContext(options.Context, "Consul registry init returned nil")
+			logger.Logger.WarnContext(options.Context, "consul registry init returned nil")
 		}
 	}
 
@@ -739,7 +739,7 @@ func Run(cfg *Config) error {
 		if rgRedisIns != nil {
 			MustRegistry = false
 		} else {
-			logger.Logger.WarnContext(options.Context, "Redis registry init returned nil")
+			logger.Logger.WarnContext(options.Context, "redis registry init returned nil")
 		}
 	}
 
@@ -748,14 +748,14 @@ func Run(cfg *Config) error {
 		if rgLocalIns != nil {
 			MustRegistry = false
 		} else {
-			logger.Logger.WarnContext(options.Context, "Local registry init returned nil")
+			logger.Logger.WarnContext(options.Context, "local registry init returned nil")
 		}
 	}
 
 	if MustRegistry {
 		logger.Logger.ErrorContext(
 			options.Context,
-			"Registry is not initialized",
+			"registry is not initialized",
 		)
 		runErr = errors.Join(runErr, ErrRegistryNotInitialized)
 		goto shutdown
@@ -808,7 +808,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Nats broker connect failed",
+				"nats broker connect failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("nats broker connect: %w", err))
@@ -829,7 +829,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Nsq broker connect failed",
+				"nsq broker connect failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("nsq broker connect: %w", err))
@@ -850,7 +850,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Jetstream broker connect failed",
+				"jetstream broker connect failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("jetstream broker connect: %w", err))
@@ -863,7 +863,7 @@ func Run(cfg *Config) error {
 	if MustBroker {
 		logger.Logger.ErrorContext(
 			options.Context,
-			"Broker is not initialized",
+			"broker is not initialized",
 		)
 		runErr = errors.Join(runErr, ErrBrokerNotInitialized)
 		goto shutdown
@@ -876,7 +876,7 @@ func Run(cfg *Config) error {
 			if err != nil {
 				logger.Logger.ErrorContext(
 					options.Context,
-					"Call flag command failed",
+					"call flag command failed",
 					"flag", flag,
 					"error", err.Error(),
 				)
@@ -1000,7 +1000,7 @@ func Run(cfg *Config) error {
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"After start wrapper failed",
+				"after start wrapper failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("after start wrapper: %w", err))
@@ -1044,7 +1044,7 @@ shutdown:
 							metrics.ConfigReloadsTotal.WithLabelValues("error").Inc()
 							logger.Logger.ErrorContext(
 								options.Context,
-								"Reload wrapper failed",
+								"reload wrapper failed",
 								"error", rerr.Error(),
 							)
 						} else {
@@ -1079,10 +1079,10 @@ shutdown:
 		go func() {
 			select {
 			case <-ch:
-				logger.Logger.Error("Second signal received, canceling shutdown")
+				logger.Logger.Error("second signal received, canceling shutdown")
 				cancel()
 			case <-time.After(forceTimeout):
-				logger.Logger.Error("Shutdown timed out, canceling", "timeout", forceTimeout.String())
+				logger.Logger.Error("shutdown timed out, canceling", "timeout", forceTimeout.String())
 				cancel()
 			case <-forceDone:
 			}
@@ -1114,7 +1114,7 @@ shutdown:
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"Before stop wrapper failed",
+				"before stop wrapper failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("before stop wrapper: %w", err))
@@ -1192,28 +1192,28 @@ shutdown:
 	// Brokers
 	if brkNatsIns != nil {
 		if derr := brkNatsIns.Disconnect(); derr != nil {
-			logger.Logger.ErrorContext(options.Context, "Nats broker disconnect failed", "error", derr.Error())
+			logger.Logger.ErrorContext(options.Context, "nats broker disconnect failed", "error", derr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("nats broker disconnect: %w", derr))
 		}
 	}
 
 	if brkNsqIns != nil {
 		if derr := brkNsqIns.Disconnect(); derr != nil {
-			logger.Logger.ErrorContext(options.Context, "Nsq broker disconnect failed", "error", derr.Error())
+			logger.Logger.ErrorContext(options.Context, "nsq broker disconnect failed", "error", derr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("nsq broker disconnect: %w", derr))
 		}
 	}
 
 	if brkJetstreamIns != nil {
 		if derr := brkJetstreamIns.Disconnect(); derr != nil {
-			logger.Logger.ErrorContext(options.Context, "Jetstream broker disconnect failed", "error", derr.Error())
+			logger.Logger.ErrorContext(options.Context, "jetstream broker disconnect failed", "error", derr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("jetstream broker disconnect: %w", derr))
 		}
 	}
 
 	// Registries
 	if rerr := registry.Stop(); rerr != nil {
-		logger.Logger.ErrorContext(options.Context, "Registry stop failed", "error", rerr.Error())
+		logger.Logger.ErrorContext(options.Context, "registry stop failed", "error", rerr.Error())
 		runErr = errors.Join(runErr, fmt.Errorf("registry stop: %w", rerr))
 	}
 
@@ -1223,7 +1223,7 @@ shutdown:
 	// Tracer
 	if tracer.Default() != nil {
 		if err := tracer.Default().Stop(); err != nil {
-			logger.Logger.Error("Tracer stop failed", "error", err.Error())
+			logger.Logger.Error("tracer stop failed", "error", err.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("tracer stop: %w", err))
 		}
 	}
@@ -1231,7 +1231,7 @@ shutdown:
 	// Stop manager
 	if managerApp != nil {
 		if merr := managerApp.Stop(); merr != nil {
-			logger.Logger.ErrorContext(options.Context, "Manager stop failed", "error", merr.Error())
+			logger.Logger.ErrorContext(options.Context, "manager stop failed", "error", merr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("manager stop: %w", merr))
 		}
 	}
@@ -1246,7 +1246,7 @@ shutdown:
 
 	if b := infra.GetBadger(); b != nil {
 		if cerr := b.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "Badger close failed", "error", cerr.Error())
+			logger.Logger.ErrorContext(options.Context, "badger close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("badger close: %w", cerr))
 		}
 
@@ -1258,7 +1258,7 @@ shutdown:
 		cerr := e.Close(ecloseCtx)
 		ecloseCancel()
 		if cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "Elastic close failed", "error", cerr.Error())
+			logger.Logger.ErrorContext(options.Context, "elastic close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("elastic close: %w", cerr))
 		}
 
@@ -1272,7 +1272,7 @@ shutdown:
 
 	if rdb := infra.GetRedis(); rdb != nil {
 		if cerr := rdb.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "Redis close failed", "error", cerr.Error())
+			logger.Logger.ErrorContext(options.Context, "redis close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("redis close: %w", cerr))
 		}
 
@@ -1281,7 +1281,7 @@ shutdown:
 
 	if db := infra.GetBun(); db != nil {
 		if cerr := db.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "Bun close failed", "error", cerr.Error())
+			logger.Logger.ErrorContext(options.Context, "bun close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("bun close: %w", cerr))
 		}
 
@@ -1290,7 +1290,7 @@ shutdown:
 
 	if chdb := infra.GetClickHouse(); chdb != nil {
 		if cerr := chdb.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "Clickhouse close failed", "error", cerr.Error())
+			logger.Logger.ErrorContext(options.Context, "clickhouse close failed", "error", cerr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("clickhouse close: %w", cerr))
 		}
 
@@ -1300,7 +1300,7 @@ shutdown:
 	if s3c := infra.GetS3(); s3c != nil {
 		logger.Logger.InfoContext(
 			options.Context,
-			"S3 client shutdown (connection managed by AWS SDK)",
+			"s3 client shutdown (connection managed by AWS SDK)",
 		)
 		infra.ClearS3()
 	}
@@ -1308,7 +1308,7 @@ shutdown:
 	if m := infra.GetMongo(); m != nil {
 		mctx, mcancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if derr := m.Disconnect(mctx); derr != nil {
-			logger.Logger.ErrorContext(options.Context, "Mongo disconnect failed", "error", derr.Error())
+			logger.Logger.ErrorContext(options.Context, "mongo disconnect failed", "error", derr.Error())
 			runErr = errors.Join(runErr, fmt.Errorf("mongo disconnect: %w", derr))
 		}
 
@@ -1335,7 +1335,7 @@ shutdown:
 		if err != nil {
 			logger.Logger.ErrorContext(
 				options.Context,
-				"After stop wrapper failed",
+				"after stop wrapper failed",
 				"error", err.Error(),
 			)
 			runErr = errors.Join(runErr, fmt.Errorf("after stop wrapper: %w", err))
@@ -1354,13 +1354,13 @@ func validateConfig(cfg *Config) {
 	// int fields silently) and warn. Never aborts startup.
 	if cfg.Tracer != nil && cfg.Tracer.Type != DefaultTracerType {
 		if cfg.Tracer.Timeout < 0 {
-			logger.Logger.Warn("Tracer timeout is invalid (possibly zeroed by environment variable), clamped to 0 (exporter default)",
+			logger.Logger.Warn("tracer timeout is invalid (possibly zeroed by environment variable), clamped to 0 (exporter default)",
 				"old", cfg.Tracer.Timeout)
 			cfg.Tracer.Timeout = 0
 		}
 
 		if cfg.Tracer.SampleRate < 0 || cfg.Tracer.SampleRate > 1 {
-			logger.Logger.Warn("Tracer sample rate out of range [0,1], clamped to 1.0",
+			logger.Logger.Warn("tracer sample rate out of range [0,1], clamped to 1.0",
 				"old", cfg.Tracer.SampleRate)
 			cfg.Tracer.SampleRate = 1.0
 		}
@@ -1368,25 +1368,25 @@ func validateConfig(cfg *Config) {
 
 	if cfg.Manager != nil && cfg.Manager.Enable {
 		if cfg.Manager.ShutdownTimeout <= 0 {
-			logger.Logger.Warn("Manager shutdown timeout is invalid (possibly zeroed by environment variable), clamped to default",
+			logger.Logger.Warn("manager shutdown timeout is invalid (possibly zeroed by environment variable), clamped to default",
 				"old", cfg.Manager.ShutdownTimeout, "new", DefaultShutdownTimeout)
 			cfg.Manager.ShutdownTimeout = DefaultShutdownTimeout
 		}
 
 		if cfg.Manager.ReadTimeout <= 0 {
-			logger.Logger.Warn("Manager read timeout is invalid, clamped to default",
+			logger.Logger.Warn("manager read timeout is invalid, clamped to default",
 				"old", cfg.Manager.ReadTimeout, "new", DefaultManagerReadTimeout)
 			cfg.Manager.ReadTimeout = DefaultManagerReadTimeout
 		}
 
 		if cfg.Manager.WriteTimeout <= 0 {
-			logger.Logger.Warn("Manager write timeout is invalid, clamped to default",
+			logger.Logger.Warn("manager write timeout is invalid, clamped to default",
 				"old", cfg.Manager.WriteTimeout, "new", DefaultManagerWriteTimeout)
 			cfg.Manager.WriteTimeout = DefaultManagerWriteTimeout
 		}
 
 		if cfg.Manager.IdleTimeout <= 0 {
-			logger.Logger.Warn("Manager idle timeout is invalid, clamped to default",
+			logger.Logger.Warn("manager idle timeout is invalid, clamped to default",
 				"old", cfg.Manager.IdleTimeout, "new", DefaultManagerIdleTimeout)
 			cfg.Manager.IdleTimeout = DefaultManagerIdleTimeout
 		}
@@ -1429,7 +1429,7 @@ func validateConfig(cfg *Config) {
 			}
 
 			if err := check(); err != nil {
-				logger.Logger.Warn("Infra config invalid, startup will abort",
+				logger.Logger.Warn("infra config invalid, startup will abort",
 					"infra", name,
 					"error", err.Error(),
 				)
@@ -1442,7 +1442,7 @@ func validateConfig(cfg *Config) {
 		// Known levels ("silence" is honored via Options.Silence, and an
 		// empty level is defaulted to info by Ensure).
 	default:
-		logger.Logger.Warn("Unknown log level, it will behave as info",
+		logger.Logger.Warn("unknown log level, it will behave as info",
 			"log_level", cfg.LogLevel)
 	}
 }

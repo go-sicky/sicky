@@ -132,7 +132,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Init NATS config invalid",
+			"init NATS config invalid",
 			"error", err.Error(),
 		)
 
@@ -161,7 +161,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 		nkeyOpt, err := nats.NkeyOptionFromSeed(cfg.NkeyFile)
 		if err != nil {
 			logger.Logger.Error(
-				"Init NATS nkey failed",
+				"init NATS nkey failed",
 				"nkey_file", cfg.NkeyFile,
 				"error", err.Error(),
 			)
@@ -183,7 +183,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 	nc, err := nats.Connect(cfg.URL, opts...)
 	if err != nil {
 		logger.Logger.Error(
-			"Init NATS failed",
+			"init NATS failed",
 			"url", redactDSN(cfg.URL),
 			"error", err.Error(),
 		)
@@ -196,7 +196,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 	if NATS != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("NATS already initialized, closing duplicate connection")
+		logger.Logger.Warn("nats already initialized, closing duplicate connection")
 		nc.Close()
 
 		return NATS, nil
@@ -207,7 +207,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 
 	logger.Logger.InfoContext(
 		context.Background(),
-		"Init NATS successful",
+		"init NATS successful",
 		"url", redactDSN(cfg.URL),
 	)
 

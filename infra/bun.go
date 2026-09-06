@@ -102,6 +102,7 @@ func (bunMetricsHook) AfterQuery(_ context.Context, event *bun.QueryEvent) {
 	if op == "" {
 		op = "query"
 	}
+
 	metrics.ObserveInfraOp("bun", op, event.StartTime, event.Err)
 }
 
@@ -131,7 +132,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Database config invalid",
+			"database config invalid",
 			"driver", cfg.Driver,
 			"error", err.Error(),
 		)
@@ -145,7 +146,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		sqldb, err = sql.Open("mysql", cfg.DSN)
 		if err != nil {
 			logger.Logger.Error(
-				"Database open failed",
+				"database open failed",
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -159,7 +160,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		sqldb, err = sql.Open("sqlserver", cfg.DSN)
 		if err != nil {
 			logger.Logger.Error(
-				"Database open failed",
+				"database open failed",
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -173,7 +174,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		sqldb, err = sql.Open("sqlite3", cfg.DSN)
 		if err != nil {
 			logger.Logger.Error(
-				"Database open failed",
+				"database open failed",
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -187,7 +188,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		sqldb, err = sql.Open("dm", cfg.DSN)
 		if err != nil {
 			logger.Logger.Error(
-				"Database open failed",
+				"database open failed",
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -213,7 +214,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	err = db.PingContext(pctx)
 	if err != nil {
 		logger.Logger.Error(
-			"Database initialize failed",
+			"database initialize failed",
 			"driver", cfg.Driver,
 			"error", err.Error(),
 		)
@@ -221,7 +222,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		// Close the handle opened above instead of leaking it.
 		if cerr := db.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Database close after failed ping failed",
+				"database close after failed ping failed",
 				"driver", cfg.Driver,
 				"error", cerr.Error(),
 			)
@@ -236,7 +237,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	// max_open_conns explicitly in production.
 	if cfg.MaxOpenConns <= 0 {
 		logger.Logger.Warn(
-			"Database connection pool unbounded; set max_open_conns to cap it",
+			"database connection pool unbounded; set max_open_conns to cap it",
 			"driver", cfg.Driver,
 		)
 	} else {
@@ -259,7 +260,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	// secrets — keep Verbose false in production.
 	if cfg.Verbose {
 		logger.Logger.Warn(
-			"Database verbose query logging enabled; bound arguments may contain secrets",
+			"database verbose query logging enabled; bound arguments may contain secrets",
 			"driver", cfg.Driver,
 		)
 	}
@@ -277,7 +278,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	db.AddQueryHook(bunMetricsHook{})
 
 	logger.Logger.Info(
-		"Database initialized",
+		"database initialized",
 		"driver", cfg.Driver,
 		"debug", cfg.Debug,
 		"max_open_conns", cfg.MaxOpenConns,
@@ -288,10 +289,10 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	if Bun != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("Database already initialized, closing duplicate connection")
+		logger.Logger.Warn("database already initialized, closing duplicate connection")
 		if cerr := db.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Database duplicate close failed",
+				"database duplicate close failed",
 				"driver", cfg.Driver,
 				"error", cerr.Error(),
 			)

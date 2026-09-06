@@ -89,7 +89,7 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Clickhouse config invalid",
+			"clickhouse config invalid",
 			"error", err.Error(),
 		)
 
@@ -104,7 +104,7 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 
 	if err := db.Ping(ctx); err != nil {
 		logger.Logger.Error(
-			"Clickhouse ping failed",
+			"clickhouse ping failed",
 			"dsn", redactDSN(cfg.DSN),
 			"error", err.Error(),
 		)
@@ -112,7 +112,7 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 		// Close the handle opened above instead of leaking it.
 		if cerr := db.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Clickhouse close after failed ping failed",
+				"clickhouse close after failed ping failed",
 				"error", cerr.Error(),
 			)
 		}
@@ -121,7 +121,7 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 	}
 
 	logger.Logger.Info(
-		"Clickhouse initialized",
+		"clickhouse initialized",
 		"dsn", redactDSN(cfg.DSN),
 	)
 
@@ -130,10 +130,10 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 	if ClickHouse != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("Clickhouse already initialized, closing duplicate connection")
+		logger.Logger.Warn("clickhouse already initialized, closing duplicate connection")
 		if cerr := db.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Clickhouse duplicate close failed",
+				"clickhouse duplicate close failed",
 				"error", cerr.Error(),
 			)
 		}

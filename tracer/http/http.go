@@ -92,7 +92,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Trace exporter create failed",
+			"trace exporter create failed",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -112,7 +112,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 		cfg.SampleRate = clamped
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Invalid sample rate, reset to 1.0",
+			"invalid sample rate, reset to 1.0",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -130,7 +130,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Failed to merge tracing resources",
+			"failed to merge tracing resources",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -146,7 +146,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 		if scErr := e.Shutdown(tc.ctx); scErr != nil {
 			tc.options.Logger.ErrorContext(
 				tc.ctx,
-				"Trace exporter shutdown failed",
+				"trace exporter shutdown failed",
 				"tracer", tc.String(),
 				"error", scErr.Error(),
 			)
@@ -159,7 +159,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer created",
+		"tracer created",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -202,7 +202,7 @@ func (tc *HTTPTracer) Name() string {
 func (tc *HTTPTracer) Start() error {
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer started",
+		"tracer started",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -225,7 +225,7 @@ func (tc *HTTPTracer) Stop() error {
 				if shutdownErr := tc.exporter.Shutdown(ctx); shutdownErr != nil {
 					tc.options.Logger.WarnContext(
 						tc.ctx,
-						"Failed to shutdown tracer exporter",
+						"failed to shutdown tracer exporter",
 						"tracer", tc.String(),
 						"id", tc.options.ID,
 						"name", tc.options.Name,
@@ -240,7 +240,7 @@ func (tc *HTTPTracer) Stop() error {
 
 			tc.options.Logger.ErrorContext(
 				tc.ctx,
-				"Tracer provider shutdown failed",
+				"tracer provider shutdown failed",
 				"tracer", tc.String(),
 				"id", tc.options.ID,
 				"name", tc.options.Name,
@@ -257,7 +257,7 @@ func (tc *HTTPTracer) Stop() error {
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer stopped",
+		"tracer stopped",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -285,7 +285,7 @@ func (tc *HTTPTracer) Tracer(name string) trace.Tracer {
 	if tc.provider == nil {
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Requested tracer from nil provider",
+			"requested tracer from nil provider",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -300,7 +300,7 @@ func (tc *HTTPTracer) Tracer(name string) trace.Tracer {
 
 	tc.options.Logger.DebugContext(
 		tc.ctx,
-		"Requested tracer",
+		"requested tracer",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,

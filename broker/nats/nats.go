@@ -73,7 +73,7 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 	if err := cfg.Validate(); err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Nats broker config invalid",
+			"nats broker config invalid",
 			"error", err.Error(),
 		)
 
@@ -90,7 +90,7 @@ func New(opts *broker.Options, cfg *Config) *Nats {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nats broker created",
+		"nats broker created",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -135,7 +135,7 @@ func (brk *Nats) Connect() error {
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nats broker connect failed",
+			"nats broker connect failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -147,7 +147,7 @@ func (brk *Nats) Connect() error {
 
 	brk.options.Logger.InfoContext(
 		brk.ctx,
-		"Nats broker connected",
+		"nats broker connected",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -168,7 +168,7 @@ func (brk *Nats) Connect() error {
 		if err != nil {
 			brk.options.Logger.ErrorContext(
 				brk.ctx,
-				"Nats broker subscribe failed",
+				"nats broker subscribe failed",
 				"broker", brk.String(),
 				"id", brk.options.ID,
 				"name", brk.options.Name,
@@ -204,7 +204,7 @@ func (brk *Nats) Disconnect() error {
 		metrics.BrokerConnected.WithLabelValues("nats").Set(0)
 		brk.options.Logger.InfoContext(
 			brk.ctx,
-			"Nats broker disconnected",
+			"nats broker disconnected",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -239,7 +239,7 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 	if err != nil {
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nats broker publish failed",
+			"nats broker publish failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -252,7 +252,7 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Nats broker published",
+		"nats broker published",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -289,7 +289,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 				result = "panic"
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
-					"Nats broker handler panicked",
+					"nats broker handler panicked",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -297,6 +297,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 					"panic", r,
 				)
 			}
+
 			metrics.ObserveBrokerHandler("nats", topic, result, time.Since(start))
 		}()
 		if h != nil {
@@ -306,7 +307,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 				result = "error"
 				brk.options.Logger.ErrorContext(
 					brk.ctx,
-					"Nats broker handler error",
+					"nats broker handler error",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -316,7 +317,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 			} else {
 				brk.options.Logger.DebugContext(
 					brk.ctx,
-					"Nats broker handler processed",
+					"nats broker handler processed",
 					"broker", brk.String(),
 					"id", brk.options.ID,
 					"name", brk.options.Name,
@@ -329,7 +330,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 		metrics.BrokerSubscribeTotal.WithLabelValues("nats", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
-			"Nats broker subscribe failed",
+			"nats broker subscribe failed",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,
@@ -343,7 +344,7 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 	metrics.BrokerSubscribeTotal.WithLabelValues("nats", topic, "ok").Inc()
 	brk.options.Logger.DebugContext(
 		brk.ctx,
-		"Nats broker subscribed",
+		"nats broker subscribed",
 		"broker", brk.String(),
 		"id", brk.options.ID,
 		"name", brk.options.Name,
@@ -384,7 +385,7 @@ func (brk *Nats) Handle(hdls ...Handler) {
 		maps.Copy(brk.handlers, list)
 		brk.options.Logger.DebugContext(
 			brk.ctx,
-			"Nats handler registered",
+			"nats handler registered",
 			"broker", brk.String(),
 			"id", brk.options.ID,
 			"name", brk.options.Name,

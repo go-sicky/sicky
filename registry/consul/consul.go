@@ -78,7 +78,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Registry connection failed",
+			"registry connection failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -93,7 +93,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Create watcher failed",
+			"create watcher failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -105,7 +105,7 @@ func New(opts *registry.Options, cfg *Config) *Consul {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Registry created",
+		"registry created",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -194,7 +194,7 @@ func (rg *Consul) Register(ins *registry.Instance) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Service register failed",
+			"service register failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -210,7 +210,7 @@ func (rg *Consul) Register(ins *registry.Instance) (err error) {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Instance registered",
+		"instance registered",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -232,7 +232,7 @@ func (rg *Consul) Deregister(id uuid.UUID) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Deregister instance failed",
+			"deregister instance failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -245,7 +245,7 @@ func (rg *Consul) Deregister(id uuid.UUID) (err error) {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Service deregistered",
+		"service deregistered",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -262,7 +262,7 @@ func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 		metrics.RegistryOpsTotal.WithLabelValues("consul", "check", "error").Inc()
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Get consul services failed",
+			"get consul services failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -277,6 +277,7 @@ func (rg *Consul) CheckInstance(id uuid.UUID) bool {
 	if !ok {
 		result = "missing"
 	}
+
 	metrics.RegistryOpsTotal.WithLabelValues("consul", "check", result).Inc()
 
 	return ok
@@ -296,7 +297,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Get consul services failed",
+			"get consul services failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -311,7 +312,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 		if err != nil {
 			rg.options.Logger.WarnContext(
 				rg.ctx,
-				"Parse service ID failed",
+				"parse service ID failed",
 				"registry", rg.String(),
 				"id", rg.options.ID,
 				"name", rg.options.Name,
@@ -339,7 +340,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 			if err != nil {
 				rg.options.Logger.WarnContext(
 					rg.ctx,
-					"Parse service server failed",
+					"parse service server failed",
 					"registry", rg.String(),
 					"id", rg.options.ID,
 					"name", rg.options.Name,
@@ -366,7 +367,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 				if err != nil {
 					rg.options.Logger.WarnContext(
 						rg.ctx,
-						"Parse service topic failed",
+						"parse service topic failed",
 						"registry", rg.String(),
 						"id", rg.options.ID,
 						"name", rg.options.Name,
@@ -404,7 +405,7 @@ func (rg *Consul) Watch() error {
 
 			rg.options.Logger.InfoContext(
 				rg.ctx,
-				"Consul registry watcher start",
+				"consul registry watcher start",
 				"registry", rg.String(),
 				"id", rg.options.ID,
 				"name", rg.options.Name,
@@ -412,7 +413,7 @@ func (rg *Consul) Watch() error {
 		} else {
 			rg.options.Logger.WarnContext(
 				rg.ctx,
-				"Consul registry has no watcher",
+				"consul registry has no watcher",
 				"registry", rg.String(),
 				"id", rg.options.ID,
 				"name", rg.options.Name,
@@ -433,7 +434,7 @@ func (rg *Consul) Stop() error {
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,
-			"Consul registry watcher stop",
+			"consul registry watcher stop",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,

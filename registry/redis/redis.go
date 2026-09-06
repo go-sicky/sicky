@@ -79,7 +79,7 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Registry connection failed",
+			"registry connection failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -96,7 +96,7 @@ func New(opts *registry.Options, cfg *Config) *Redis {
 	rg.client = rdb
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Registry connected",
+		"registry connected",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -148,7 +148,7 @@ func (rg *Redis) Register(ins *registry.Instance) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Register instance failed",
+			"register instance failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -161,7 +161,7 @@ func (rg *Redis) Register(ins *registry.Instance) (err error) {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Instance registered",
+		"instance registered",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -175,7 +175,7 @@ func (rg *Redis) Register(ins *registry.Instance) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Publish register notification failed",
+			"publish register notification failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -198,7 +198,7 @@ func (rg *Redis) Deregister(id uuid.UUID) (err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Deregister instance failed",
+			"deregister instance failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -211,7 +211,7 @@ func (rg *Redis) Deregister(id uuid.UUID) (err error) {
 
 	rg.options.Logger.InfoContext(
 		rg.ctx,
-		"Instance deregistered",
+		"instance deregistered",
 		"registry", rg.String(),
 		"id", rg.options.ID,
 		"name", rg.options.Name,
@@ -230,7 +230,7 @@ func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 		metrics.RegistryOpsTotal.WithLabelValues("redis", "check", "error").Inc()
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Check instance failed",
+			"check instance failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -245,6 +245,7 @@ func (rg *Redis) CheckInstance(id uuid.UUID) bool {
 	if !exists {
 		result = "missing"
 	}
+
 	metrics.RegistryOpsTotal.WithLabelValues("redis", "check", result).Inc()
 
 	return exists
@@ -265,7 +266,7 @@ func (rg *Redis) Load() (instances []*registry.Instance, err error) {
 	if err != nil {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
-			"Load instances failed",
+			"load instances failed",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,
@@ -281,7 +282,7 @@ func (rg *Redis) Load() (instances []*registry.Instance, err error) {
 		if err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.ctx,
-				"Unmarshal instance failed",
+				"unmarshal instance failed",
 				"registry", rg.String(),
 				"id", rg.options.ID,
 				"name", rg.options.Name,
@@ -316,7 +317,7 @@ func (rg *Redis) Watch() error {
 					metrics.RegistryWatchEventsTotal.WithLabelValues("redis", "error").Inc()
 					rg.options.Logger.ErrorContext(
 						rg.ctx,
-						"Reload services list failed",
+						"reload services list failed",
 						"registry", rg.String(),
 						"id", rg.options.ID,
 						"name", rg.options.Name,
@@ -327,7 +328,7 @@ func (rg *Redis) Watch() error {
 
 				rg.options.Logger.InfoContext(
 					rg.ctx,
-					"Watcher triggered",
+					"watcher triggered",
 					"registry", rg.String(),
 				)
 
@@ -350,7 +351,7 @@ func (rg *Redis) Stop() error {
 		if err := rg.client.Close(); err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.ctx,
-				"Redis client close failed",
+				"redis client close failed",
 				"registry", rg.String(),
 				"id", rg.options.ID,
 				"name", rg.options.Name,
@@ -362,7 +363,7 @@ func (rg *Redis) Stop() error {
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,
-			"Redis registry stopped",
+			"redis registry stopped",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,

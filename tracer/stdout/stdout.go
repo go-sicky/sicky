@@ -77,7 +77,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Trace exporter create failed",
+			"trace exporter create failed",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -93,7 +93,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 		cfg.SampleRate = clamped
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Invalid sample rate, reset to 1.0",
+			"invalid sample rate, reset to 1.0",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -110,7 +110,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 	if err != nil {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
-			"Failed to merge tracing resources",
+			"failed to merge tracing resources",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -126,7 +126,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer initialized successfully",
+		"tracer initialized successfully",
 		"tracer", tc.String(),
 		"service", cfg.ServiceName,
 		"version", cfg.ServiceVersion,
@@ -167,7 +167,7 @@ func (tc *StdoutTracer) Name() string {
 func (tc *StdoutTracer) Start() error {
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer started",
+		"tracer started",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -190,7 +190,7 @@ func (tc *StdoutTracer) Stop() error {
 				if shutdownErr := tc.exporter.Shutdown(ctx); shutdownErr != nil {
 					tc.options.Logger.WarnContext(
 						tc.ctx,
-						"Failed to shutdown tracer exporter",
+						"failed to shutdown tracer exporter",
 						"tracer", tc.String(),
 						"id", tc.options.ID,
 						"name", tc.options.Name,
@@ -203,7 +203,7 @@ func (tc *StdoutTracer) Stop() error {
 
 			tc.options.Logger.ErrorContext(
 				tc.ctx,
-				"Tracer provider shutdown failed",
+				"tracer provider shutdown failed",
 				"tracer", tc.String(),
 				"id", tc.options.ID,
 				"name", tc.options.Name,
@@ -218,7 +218,7 @@ func (tc *StdoutTracer) Stop() error {
 
 	tc.options.Logger.InfoContext(
 		tc.ctx,
-		"Tracer stopped successfully",
+		"tracer stopped successfully",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,
@@ -244,7 +244,7 @@ func (tc *StdoutTracer) Tracer(name string) trace.Tracer {
 	if tc.provider == nil {
 		tc.options.Logger.WarnContext(
 			tc.ctx,
-			"Requested tracer from nil provider",
+			"requested tracer from nil provider",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
@@ -257,7 +257,7 @@ func (tc *StdoutTracer) Tracer(name string) trace.Tracer {
 
 	tc.options.Logger.DebugContext(
 		tc.ctx,
-		"Requested tracer",
+		"requested tracer",
 		"tracer", tc.String(),
 		"id", tc.options.ID,
 		"name", tc.options.Name,

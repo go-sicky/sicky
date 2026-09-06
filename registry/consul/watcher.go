@@ -136,7 +136,7 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 		if err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.ctx,
-				"Reload services list failed",
+				"reload services list failed",
 				"registry", rg.String(),
 				"id", rg.options.ID,
 				"name", rg.options.Name,
@@ -148,7 +148,7 @@ func newWatcher(rg *Consul) (*Watcher, error) {
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,
-			"Watcher triggered",
+			"watcher triggered",
 			"registry", rg.String(),
 			"id", rg.options.ID,
 			"name", rg.options.Name,

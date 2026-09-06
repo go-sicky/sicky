@@ -351,7 +351,7 @@ func (p *Pool) Purge() {
 		}
 
 		logger.Logger.Debug(
-			"UDP connection idle for a long time",
+			"udp connection idle for a long time",
 			"session", sess.ID,
 			"remote_address", remote,
 		)

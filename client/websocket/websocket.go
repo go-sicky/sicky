@@ -76,7 +76,7 @@ func New(opts *client.Options, cfg *Config) *WebsocketClient {
 
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"Client created",
+		"client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,

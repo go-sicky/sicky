@@ -89,7 +89,7 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Mongo config invalid",
+			"mongo config invalid",
 			"error", err.Error(),
 		)
 
@@ -121,7 +121,7 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	client, err := mongo.Connect(clientOpts)
 	if err != nil {
 		logger.Logger.Error(
-			"Mongo connect failed",
+			"mongo connect failed",
 			"uri", redactDSN(cfg.URI),
 			"error", err.Error(),
 		)
@@ -135,7 +135,7 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		logger.Logger.Error(
-			"Mongo ping failed",
+			"mongo ping failed",
 			"uri", redactDSN(cfg.URI),
 			"error", err.Error(),
 		)
@@ -145,7 +145,7 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		defer dcancel()
 		if derr := client.Disconnect(dctx); derr != nil {
 			logger.Logger.Error(
-				"Mongo disconnect after failed ping failed",
+				"mongo disconnect after failed ping failed",
 				"error", derr.Error(),
 			)
 		}
@@ -154,7 +154,7 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	}
 
 	logger.Logger.Info(
-		"Mongo initialized",
+		"mongo initialized",
 		"uri", redactDSN(cfg.URI),
 		"db", cfg.DB,
 	)
@@ -164,12 +164,12 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	if Mongo != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("Mongo already initialized, closing duplicate connection")
+		logger.Logger.Warn("mongo already initialized, closing duplicate connection")
 		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer dcancel()
 		if derr := client.Disconnect(dctx); derr != nil {
 			logger.Logger.Error(
-				"Mongo duplicate disconnect failed",
+				"mongo duplicate disconnect failed",
 				"error", derr.Error(),
 			)
 		}

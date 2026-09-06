@@ -117,7 +117,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	cfg.Ensure()
 	if err := cfg.Validate(); err != nil {
 		logger.Logger.Error(
-			"Redis config invalid",
+			"redis config invalid",
 			"error", err.Error(),
 		)
 		metrics.CountInfraInit("redis", err)
@@ -145,7 +145,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 		}
 
 		if cfg.TLSSkipVerify {
-			logger.Logger.Warn("Redis TLS certificate verification disabled; use only for testing")
+			logger.Logger.Warn("redis TLS certificate verification disabled; use only for testing")
 		}
 	}
 
@@ -157,7 +157,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	err := rdb.Ping(pctx).Err()
 	if err != nil {
 		logger.Logger.Error(
-			"Redis initialize failed",
+			"redis initialize failed",
 			"addr", cfg.Addr,
 			"db", cfg.DB,
 			"error", err.Error(),
@@ -167,17 +167,18 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 		// and background goroutines.
 		if cerr := rdb.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Redis close after failed ping failed",
+				"redis close after failed ping failed",
 				"error", cerr.Error(),
 			)
 		}
+
 		metrics.CountInfraInit("redis", err)
 
 		return nil, err
 	}
 
 	logger.Logger.Info(
-		"Redis initialized",
+		"redis initialized",
 		"addr", cfg.Addr,
 		"db", cfg.DB,
 		"tls", cfg.EnableTLS,
@@ -188,13 +189,14 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	if Redis != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
-		logger.Logger.Warn("Redis already initialized, closing duplicate connection")
+		logger.Logger.Warn("redis already initialized, closing duplicate connection")
 		if cerr := rdb.Close(); cerr != nil {
 			logger.Logger.Error(
-				"Redis duplicate close failed",
+				"redis duplicate close failed",
 				"error", cerr.Error(),
 			)
 		}
+
 		metrics.CountInfraInit("redis", nil)
 
 		return Redis, nil

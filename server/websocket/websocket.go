@@ -89,7 +89,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	addr, err = net.ResolveTCPAddr(cfg.Network, cfg.Address)
 	if err != nil {
 		opts.Logger.Fatal(
-			"Network address resolve failed",
+			"network address resolve failed",
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
@@ -101,7 +101,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 		advertiseAddr, err = net.ResolveTCPAddr(cfg.Network, cfg.AdvertiseAddress)
 		if err != nil {
 			opts.Logger.Fatal(
-				"Advertise address resolve failed",
+				"advertise address resolve failed",
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
@@ -137,7 +137,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	srv.app = app
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Websocket server created",
+		"websocket server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -150,7 +150,7 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 			if !srv.checkOrigin(c) {
 				srv.options.Logger.WarnContext(
 					srv.ctx,
-					"Websocket origin rejected",
+					"websocket origin rejected",
 					"server", srv.String(),
 					"id", srv.options.ID,
 					"name", srv.options.Name,
@@ -216,7 +216,7 @@ func (srv *WebsocketServer) recoverConn(conn *websocket.Conn) {
 		metrics.ServerPanicsTotal.WithLabelValues("websocket", "operator").Inc()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Websocket operator panicked",
+			"websocket operator panicked",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -261,7 +261,7 @@ func (srv *WebsocketServer) Start() error {
 	if (srv.config.TLSCertPEM == "") != (srv.config.TLSKeyPEM == "") {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"TLS certification incomplete",
+			"tls certification incomplete",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -302,7 +302,7 @@ func (srv *WebsocketServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"TLS certification failed",
+				"tls certification failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -324,7 +324,7 @@ func (srv *WebsocketServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen with TLS certificate failed",
+				"network listen with TLS certificate failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -342,7 +342,7 @@ func (srv *WebsocketServer) Start() error {
 			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Network listen failed",
+				"network listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -365,7 +365,7 @@ func (srv *WebsocketServer) Start() error {
 		err := srv.app.Listener(listener)
 		if err != nil {
 			srv.options.Logger.ErrorContext(
-				srv.ctx, "Websocket server listen failed",
+				srv.ctx, "websocket server listen failed",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -377,7 +377,7 @@ func (srv *WebsocketServer) Start() error {
 
 		srv.options.Logger.InfoContext(
 			srv.ctx,
-			"Websocket server closed",
+			"websocket server closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -388,7 +388,7 @@ func (srv *WebsocketServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Websocket server listened",
+		"websocket server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -484,7 +484,7 @@ func (srv *WebsocketServer) Stop() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"Websocket server shutdown",
+		"websocket server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -578,7 +578,7 @@ func (srv *WebsocketServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"Websocket handler registered",
+			"websocket handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -599,7 +599,7 @@ func (srv *WebsocketServer) safelyInvoke(op string, sess *Session, fn func() err
 		if r := recover(); r != nil {
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"Websocket handler panicked",
+				"websocket handler panicked",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -615,7 +615,7 @@ func (srv *WebsocketServer) safelyInvoke(op string, sess *Session, fn func() err
 	if e := fn(); e != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Websocket handler error",
+			"websocket handler error",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -643,7 +643,7 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 	// OnConnect
 	srv.options.Logger.DebugContext(
 		srv.ctx,
-		"Websocket client established",
+		"websocket client established",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -654,6 +654,7 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 	if SessionPool != nil {
 		SessionPool.Put(sess)
 	}
+
 	metrics.ServerConnections.WithLabelValues("websocket").Inc()
 	defer metrics.ServerConnections.WithLabelValues("websocket").Dec()
 
@@ -697,7 +698,7 @@ read:
 				sess.touch()
 				srv.options.Logger.DebugContext(
 					srv.ctx,
-					"Websocket data received",
+					"websocket data received",
 					"server", srv.String(),
 					"id", srv.options.ID,
 					"name", srv.options.Name,
@@ -736,7 +737,7 @@ read:
 	if err != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Websocket connection close failed",
+			"websocket connection close failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -747,7 +748,7 @@ read:
 	} else {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"Websocket connection closed",
+			"websocket connection closed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,

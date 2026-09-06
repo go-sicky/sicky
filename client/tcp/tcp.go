@@ -62,7 +62,7 @@ func New(opts *client.Options, cfg *Config) (*TCPClient, error) {
 	if err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"TCP client resolve address failed",
+			"tcp client resolve address failed",
 			"client", "tcp",
 			"id", opts.ID,
 			"name", opts.Name,
@@ -83,7 +83,7 @@ func New(opts *client.Options, cfg *Config) (*TCPClient, error) {
 
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"TCP client created",
+		"tcp client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,

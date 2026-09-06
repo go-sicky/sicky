@@ -71,7 +71,7 @@ func New(opts *runner.Options, cfg *Config) *Static {
 
 	r.options.Logger.InfoContext(
 		r.ctx,
-		"Runner created",
+		"runner created",
 		"runner", r.String(),
 		"id", r.options.ID,
 		"name", r.options.Name,
@@ -140,7 +140,7 @@ func (r *Static) Start() error {
 
 	r.options.Logger.InfoContext(
 		r.ctx,
-		"Runner started",
+		"runner started",
 		"runner", r.String(),
 		"id", r.options.ID,
 		"name", r.options.Name,
@@ -172,7 +172,7 @@ func (r *Static) Stop() error {
 
 	r.options.Logger.InfoContext(
 		r.ctx,
-		"Runner stopped",
+		"runner stopped",
 		"runner", r.String(),
 		"id", r.options.ID,
 		"name", r.options.Name,
@@ -345,7 +345,7 @@ func (r *Static) _worker() {
 					result = "panic"
 					r.options.Logger.ErrorContext(
 						r.ctx,
-						"Runner task panicked",
+						"runner task panicked",
 						"runner", r.String(),
 						"id", r.options.ID,
 						"name", r.options.Name,
@@ -354,12 +354,13 @@ func (r *Static) _worker() {
 						"panic", rec,
 					)
 				}
+
 				metrics.RunnerTaskRunsTotal.WithLabelValues("static", result).Inc()
 				metrics.RunnerTaskDuration.WithLabelValues("static").Observe(time.Since(start).Seconds())
 			}()
 			r.options.Logger.TraceContext(
 				r.ctx,
-				"Runner task created",
+				"runner task created",
 				"runner", r.String(),
 				"id", r.options.ID,
 				"name", r.options.Name,
@@ -374,7 +375,7 @@ func (r *Static) _worker() {
 					result = "error"
 					r.options.Logger.ErrorContext(
 						r.ctx,
-						"Runner worker run failed",
+						"runner worker run failed",
 						"runner", r.String(),
 						"id", r.options.ID,
 						"name", r.options.Name,
@@ -389,7 +390,7 @@ func (r *Static) _worker() {
 
 	r.options.Logger.DebugContext(
 		r.ctx,
-		"Runner worker created",
+		"runner worker created",
 		"runner", r.String(),
 		"id", r.options.ID,
 		"name", r.options.Name,

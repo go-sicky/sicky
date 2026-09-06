@@ -89,7 +89,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		// so a typo does not silently widen Slowloris exposure.
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Negative timeout clamped to 0 (deadlines disabled)",
+			"negative timeout clamped to 0 (deadlines disabled)",
 			"read_timeout", negRead,
 			"write_timeout", negWrite,
 		)
@@ -98,7 +98,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 	if negSessions < 0 || negRate < 0 {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"Negative limit clamped to 0 (unlimited)",
+			"negative limit clamped to 0 (unlimited)",
 			"max_sessions", negSessions,
 			"max_packets_per_second", negRate,
 		)
@@ -111,7 +111,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		// default.
 		opts.Logger.WarnContext(
 			opts.Context,
-			"UDP flood protections disabled: set max_packets_per_second and max_sessions for production",
+			"udp flood protections disabled: set max_packets_per_second and max_sessions for production",
 			"max_sessions", cfg.MaxSessions,
 			"max_packets_per_second", cfg.MaxPacketsPerSecond,
 		)
@@ -126,7 +126,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 	addr, err = net.ResolveUDPAddr(cfg.Network, cfg.Address)
 	if err != nil {
 		opts.Logger.Fatal(
-			"Network address resolve failed",
+			"network address resolve failed",
 			"string", cfg.Address,
 			"error", err.Error(),
 		)
@@ -138,7 +138,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		advertiseAddr, err = net.ResolveUDPAddr(cfg.Network, cfg.AdvertiseAddress)
 		if err != nil {
 			opts.Logger.Fatal(
-				"Advertise network address resolve failed",
+				"advertise network address resolve failed",
 				"string", cfg.AdvertiseAddress,
 				"error", err.Error(),
 			)
@@ -165,7 +165,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"UDP server created",
+		"udp server created",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -238,7 +238,7 @@ func (srv *UDPServer) Start() error {
 		srv.Unlock()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Obtain UDP address failed",
+			"obtain UDP address failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -257,7 +257,7 @@ func (srv *UDPServer) Start() error {
 		srv.Unlock()
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Network listen failed",
+			"network listen failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -287,7 +287,7 @@ func (srv *UDPServer) Start() error {
 					// Network closed
 					srv.options.Logger.InfoContext(
 						srv.ctx,
-						"UDP connection closed",
+						"udp connection closed",
 						"server", srv.String(),
 						"id", srv.options.ID,
 						"name", srv.options.Name,
@@ -322,7 +322,7 @@ func (srv *UDPServer) Start() error {
 						args = append(args, "suppressed", suppressed)
 					}
 
-					srv.options.Logger.ErrorContext(srv.ctx, "UDP ReadFromUDP failed", args...)
+					srv.options.Logger.ErrorContext(srv.ctx, "udp ReadFromUDP failed", args...)
 				}
 
 				// Persistent read failures (e.g. ENOBUFS under flood)
@@ -359,8 +359,9 @@ func (srv *UDPServer) Start() error {
 								args = append(args, "suppressed", suppressed)
 							}
 
-							srv.options.Logger.ErrorContext(srv.ctx, "UDP session cap reached, dropping datagram", args...)
+							srv.options.Logger.ErrorContext(srv.ctx, "udp session cap reached, dropping datagram", args...)
 						}
+
 						metrics.ServerRejectedTotal.WithLabelValues("udp", "session_cap").Inc()
 
 						continue
@@ -395,6 +396,7 @@ func (srv *UDPServer) Start() error {
 						return h.OnData(s, dst)
 					})
 				}
+
 				metrics.ObserveServerRequest("udp", "datagram", "datagram", "ok", time.Since(start))
 				metrics.ServerIOBytesTotal.WithLabelValues("udp", "in").Add(float64(n))
 			}
@@ -403,7 +405,7 @@ func (srv *UDPServer) Start() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"UDP server listened",
+		"udp server listened",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -442,7 +444,7 @@ func (srv *UDPServer) Stop() error {
 	if err := conn.Close(); err != nil {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"Network close failed",
+			"network close failed",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -481,7 +483,7 @@ func (srv *UDPServer) Stop() error {
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
-		"UDP server shutdown",
+		"udp server shutdown",
 		"server", srv.String(),
 		"id", srv.options.ID,
 		"name", srv.options.Name,
@@ -583,7 +585,7 @@ func (srv *UDPServer) Handle(hdls ...Handler) {
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
-			"UDP handler registered",
+			"udp handler registered",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,
@@ -679,7 +681,7 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
-				"UDP handler panicked",
+				"udp handler panicked",
 				"server", srv.String(),
 				"id", srv.options.ID,
 				"name", srv.options.Name,
@@ -699,7 +701,7 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
-			"UDP data process error",
+			"udp data process error",
 			"server", srv.String(),
 			"id", srv.options.ID,
 			"name", srv.options.Name,

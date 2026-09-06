@@ -62,7 +62,7 @@ func New(opts *client.Options, cfg *Config) (*UDPClient, error) {
 	if err != nil {
 		opts.Logger.ErrorContext(
 			opts.Context,
-			"UDP client resolve address failed",
+			"udp client resolve address failed",
 			"client", "udp",
 			"id", opts.ID,
 			"name", opts.Name,
@@ -83,7 +83,7 @@ func New(opts *client.Options, cfg *Config) (*UDPClient, error) {
 
 	clt.options.Logger.InfoContext(
 		clt.ctx,
-		"UDP client created",
+		"udp client created",
 		"client", clt.String(),
 		"id", clt.options.ID,
 		"name", clt.options.Name,
