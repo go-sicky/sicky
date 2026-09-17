@@ -31,8 +31,15 @@
 package utils
 
 import (
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/uptrace/bunrouter"
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -108,6 +115,59 @@ type Pagination struct {
 	Offset  int64 `json:"offset"  xml:"offset"  yaml:"offset"`
 	Current int64 `json:"current" xml:"current" yaml:"current"`
 	Pages   int64 `json:"pages"   xml:"pages"   yaml:"pages"`
+}
+
+func AutoFormatData(req *http.Request, data any) (string, []byte, error) {
+	// Determine the response format based on the request's Accept header
+	acceptHeader := req.Header.Get("Accept")
+
+	switch strings.ToLower(acceptHeader) {
+	case "application/xml", "text/xml":
+		// Marshal the data to XML
+		xmlData, err := xml.Marshal(data)
+		if err != nil {
+			return "", nil, err
+		}
+
+		return "application/xml", xmlData, nil
+	case "application/x-yaml", "text/yaml":
+		// Marshal the data to YAML
+		yamlData, err := yaml.Marshal(data)
+		if err != nil {
+			return "", nil, err
+		}
+
+		return "application/x-yaml", yamlData, nil
+	case "application/json", "text/json":
+		// Marshal the data to JSON
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			return "", nil, err
+		}
+
+		return "application/json", jsonData, nil
+	default:
+		// Default to Plan text if no specific format is requested
+		return "text/plain", []byte(fmt.Sprintf("%v", data)), nil
+	}
+}
+
+func AutoFormatBytes(req *http.Request, data any) []byte {
+	_, bytes, _ := AutoFormatData(req, data)
+
+	return bytes
+}
+
+func BunAutoFormat(w http.ResponseWriter, r bunrouter.Request, data any) error {
+	contentType, bytes, err := AutoFormatData(r.Request, data)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	_, err = w.Write(bytes)
+
+	return err
 }
 
 /*
