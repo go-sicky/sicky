@@ -241,6 +241,10 @@ func (brk *JetStream) Disconnect() error {
 		conn.Close()
 		brk.mu.Lock()
 		brk.conn = nil
+		// Drop the JetStream context too: it is bound to the closed
+		// connection and would otherwise linger as a live-looking handle.
+		brk.streamer = nil
+		brk.streamInfo = nil
 		brk.mu.Unlock()
 		metrics.BrokerConnected.WithLabelValues("jetstream").Set(0)
 		brk.options.Logger.InfoContext(
@@ -259,7 +263,16 @@ func (brk *JetStream) Disconnect() error {
 // Publish publishes a message.
 func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 	start := time.Now()
-	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+
+	// Snapshot both handles under the lock: Disconnect clears them while
+	// holding it, and reading them here without the lock raced with that
+	// write. A conn without its JetStream context is half-connected.
+	brk.mu.RLock()
+	conn := brk.conn
+	streamer := brk.streamer
+	brk.mu.RUnlock()
+
+	if conn == nil || !conn.IsConnected() || conn.IsClosed() || streamer == nil {
 		metrics.ObserveBrokerPublish("jetstream", topic, start, ErrBrokerNotConnected)
 
 		return ErrBrokerNotConnected
@@ -275,7 +288,7 @@ func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 		msg.Data = m.Raw()
 	}
 
-	ack, err := brk.streamer.PublishMsg(msg)
+	ack, err := streamer.PublishMsg(msg)
 	metrics.ObserveBrokerPublish("jetstream", topic, start, err)
 	if err != nil {
 		brk.options.Logger.ErrorContext(

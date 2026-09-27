@@ -44,6 +44,23 @@ import (
 // serverPID is cached: a syscall per request is pure overhead.
 var serverPID = os.Getpid()
 
+// routeLabel returns the bounded route label for c.
+//
+// fiber resolves the endpoint route only after the middleware chain has
+// walked the router: before that, and whenever nothing matched, Route()
+// reports the middleware route ("/") or a synthetic route built from the
+// raw request path (ctx.go routeFallback). The raw path is unbounded
+// client input and must never reach a metric label or a span name, so
+// only requests the router actually matched keep their template - and
+// that template is bounded by the application itself.
+func routeLabel(c fiber.Ctx) string {
+	if !c.Matched() {
+		return metrics.UnmatchedRoute
+	}
+
+	return c.Route().Path
+}
+
 // AccessLoggerMiddlewareConfig is a fiber component.
 type AccessLoggerMiddlewareConfig struct {
 	AccessLoggerConfig *AccessLoggerConfig
@@ -98,7 +115,16 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 
 		end := time.Now()
 		status := c.Response().Header.StatusCode()
-		metrics.ObserveServerRequest("fiber", string(c.Request().Header.Method()), c.Route().Path, strconv.Itoa(status), end.Sub(start))
+		if chainErr != nil {
+			// fiber applies the error handler after the whole chain has
+			// returned, so a failing handler (and the framework's own
+			// 404/405 answers) have not written a status yet - reading it
+			// here would record every failure as 200. Derive it with the
+			// same mapping the error handler uses.
+			status, _ = mapFiberError(chainErr)
+		}
+
+		metrics.ObserveServerRequest("fiber", metrics.NormalizeHTTPMethod(c.Method()), routeLabel(c), strconv.Itoa(status), end.Sub(start))
 		// Fixed-order slice: one alloc, stable field order for log
 		// indexing (a map here costs an extra alloc plus random order).
 		args := []any{
@@ -120,15 +146,17 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) fiber.Han
 		}
 
 		l := cfg.AccessLoggerConfig.AccessLevel
+		// The message stays constant: a caller-supplied error string as
+		// the slog message would be printed verbatim by a text handler.
 		msg := "fiber.request"
 		if chainErr != nil {
+			args = append(args, "error", chainErr.Error())
+
 			if status >= fiber.StatusInternalServerError {
 				l = cfg.AccessLoggerConfig.ServerErrorLevel
 			} else if status >= fiber.StatusBadRequest {
 				l = cfg.AccessLoggerConfig.ClientErrorLevel
 			}
-
-			msg = chainErr.Error()
 		}
 
 		cfg.Logger.LogContext(c.Context(), logger.LogLevel(l), msg, args...)

@@ -94,7 +94,7 @@ timing 类字段 0 填默认、负值 abort，NATS 的 `max_reconnects: -1` 例�
   其余显示 `unhealthy`，详情只打服务端日志）、`/live`（静态 200，只做存活）、`/version`、`/info`、
   `/config`（`expose_config=false` 时 403 优先；开了也会脱敏；需鉴权）、`/services`（注册池快照，需鉴权）。
   鉴权：设了 `manager.auth_token` 则 `/config`、`/services` 要求 `Authorization: Bearer <token>`（token 对不上回 401）；
-  没设 token 时这两个端点只接受 loopback。无 token 又监听在外网地址（默认 `:8888` 就是外网）时启动会打 Warn。
+  没设 token 时这两个端点只接受 loopback。无 token 又监听在外网地址（默认是 `127.0.0.1:8888`，监听外网需显式配置）时启动会打 Warn。
   可选 `tls_cert_pem`/`tls_key_pem` 切 HTTPS（TLS 1.2+，只配一半则 `Start` 直接失败，绝不静默回落明文）；
   为空保持明文（默认）。`ReadHeaderTimeout=5s`、`MaxHeaderBytes=1M` 为硬编码不可配。
 
@@ -143,7 +143,7 @@ go get github.com/go-sicky/sicky
   "log_level": "info",
   "manager": {
     "enable": true,
-    "address": ":8888"
+    "address": "127.0.0.1:8888"
   }
 }
 ```
@@ -322,7 +322,7 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
 
   "manager": {
     "enable": true,
-    "address": ":8888",
+    "address": "127.0.0.1:8888",
     "advertise_address": "",
     "expose_config": false,
     "auth_token": "",
@@ -616,24 +616,26 @@ _ = r.Len() // 排队深度，可做观测
 ```go
 import "github.com/go-sicky/sicky/infra"
 
-// Redis
-infra.Redis.Set(ctx, "key", "value", 0)
-val, _ := infra.Redis.Get(ctx, "key").Result()
+// 单例一律用 getter 读：未配置时返回 nil，而直接读导出的全局变量
+// 会和 Init*/Clear*（关机或第二次 Run()）构成 data race。
+rdb := infra.GetRedis()
+_ = rdb.Set(ctx, "key", "value", 0)
+val, _ := rdb.Get(ctx, "key").Result()
 
-// Bun (SQL)
-infra.Bun.NewSelect().Model(&users).Scan(ctx)
+// Bun（SQL）
+_ = infra.GetBun().NewSelect().Model(&users).Scan(ctx)
 
 // Ristretto（缓存）
-infra.Ristretto.Set("token:123", userData, 1)
-val, _ := infra.Ristretto.Get("token:123")
+cache := infra.GetRistretto()
+cache.Set("token:123", userData, 1)
+val, _ = cache.Get("token:123")
 
 // Badger（KV）
-infra.Badger.Update(func(txn *badger.Txn) error {
+_ = infra.GetBadger().Update(func(txn *badger.Txn) error {
     return txn.Set([]byte("key"), []byte("value"))
 })
 
-// handler 里推荐用 getter（无 race）：
-// infra.GetRedis()、infra.GetBun()、infra.GetMongoDB("mydb")
+// 其余同理：infra.GetMongoDB("mydb")、infra.GetS3()、infra.GetNats()……
 ```
 
 ### 生命周期 Hook
@@ -774,7 +776,7 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 - CLI 悬空命令与 generate stub（见 [CLI](#cli)），有定义、无注册。
 - `manager.enable_swagger` / `swagger_path`：保留未实现（见上）。
 - `config.ErrTracerNoEndpoint`：已定义、当前 `Validate()` 未使用（OTLP 缺 endpoint 走 exporter 默认）。
-- 默认值 by-design：Manager 默认 `:8888`（外网）；TLS 只做 1.2+；`0`=禁用/不限 cracking；gRPC keepalive、NATS 耗尽等保持现状；
+- 默认值 by-design：Manager 默认 `127.0.0.1:8888`（仅本机，外网需显式配置）；TLS 只做 1.2+；`0`=禁用/不限 cracking；gRPC keepalive、NATS 耗尽等保持现状；
   `BodyLimit` 非正填默认（本版无 opt-out）；TCP/UDP 负超时/会话数/限流钳制 + 大声记日志（不断言 abort）。
 
 ---

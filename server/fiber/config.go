@@ -32,8 +32,13 @@ package fiber
 
 import (
 	"errors"
+	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
 const (
@@ -153,10 +158,16 @@ type Config struct {
 	ShutdownTimeout time.Duration `json:"shutdown_timeout" mapstructure:"shutdown_timeout" yaml:"shutdown_timeout"`
 	// TrustProxy enables Fiber's trusted-proxy handling (X-Forwarded-*
 	// honored for IP/host/scheme). It is a pointer so the zero config
-	// keeps the secure default: nil means DefaultTrustProxy (true),
-	// covering loopback, link-local and private ranges. Set an explicit
-	// false only for direct-exposure deployments without a proxy.
+	// keeps the secure default: nil means DefaultTrustProxy (true), which
+	// trusts loopback only. Set an explicit false for direct-exposure
+	// deployments without any proxy.
 	TrustProxy *bool `json:"trust_proxy" mapstructure:"trust_proxy" yaml:"trust_proxy"`
+	// TrustProxies lists the proxy addresses (IP or CIDR) whose
+	// X-Forwarded-* headers are honored. Only loopback is trusted out of
+	// the box; a proxy behind NAT or on another host belongs here,
+	// because trusting the whole private range would let every
+	// same-segment client forge the client IP.
+	TrustProxies []string `json:"trust_proxy_proxies" mapstructure:"trust_proxy_proxies" yaml:"trust_proxy_proxies"`
 }
 
 // CORSConfig whitelists cross-origin access. An empty AllowedOrigins
@@ -188,15 +199,58 @@ func (c *CORSConfig) Validate() error {
 		return nil
 	}
 
+	// Checked first: fiber's cors.New panics on an origin it cannot
+	// parse, which would take the whole process down during construction
+	// instead of failing with a diagnosable configuration error.
+	for _, origin := range c.AllowedOrigins {
+		if !validOrigin(origin) {
+			return fmt.Errorf("fiber: invalid origin %q in allowed_origins (want scheme://host, scheme://*.host or \"*\")", origin)
+		}
+	}
+
 	if !c.AllowCredentials {
 		return nil
 	}
 
-	if slices.Contains(c.AllowedOrigins, "*") {
+	if slices.ContainsFunc(c.AllowedOrigins, func(o string) bool {
+		return strings.TrimSpace(o) == "*"
+	}) {
 		return errors.New("fiber: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
 	}
 
 	return nil
+}
+
+// validOrigin mirrors what fiber's cors middleware accepts: "*" or a
+// subdomain pattern like https://*.example.com on one side, and a
+// parseable scheme://host (no userinfo, path, query or fragment) on the
+// other. Anything else makes cors.New panic.
+func validOrigin(origin string) bool {
+	trimmed := strings.TrimSpace(origin)
+	if trimmed == "*" {
+		return true
+	}
+
+	// Subdomain wildcard: validate the pattern without the "*." part.
+	if before, after, found := strings.Cut(trimmed, "://*."); found {
+		return validOrigin(before + "://" + after)
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return false
+	}
+
+	if strings.Contains(u.Host, "*") {
+		// Wildcards are only valid as a whole host (handled above).
+		return false
+	}
+
+	return u.User == nil &&
+		u.Host != "" &&
+		(u.Path == "" || u.Path == "/") &&
+		u.RawQuery == "" &&
+		u.Fragment == ""
 }
 
 // DefaultConfig returns the default configuration.
@@ -216,6 +270,14 @@ func (c *Config) Ensure() *Config {
 	if c.Network == "" {
 		c.Network = DefaultNetwork
 	}
+
+	// A bare number in a duration field (`read_timeout: 10`) decodes as
+	// 10 nanoseconds and fails every request: read sub-millisecond
+	// values as a count of seconds.
+	c.ReadTimeout = utils.NormalizeDuration(c.ReadTimeout)
+	c.WriteTimeout = utils.NormalizeDuration(c.WriteTimeout)
+	c.IdleTimeout = utils.NormalizeDuration(c.IdleTimeout)
+	c.ShutdownTimeout = utils.NormalizeDuration(c.ShutdownTimeout)
 
 	if c.Address == "" {
 		c.Address = DefaultAddress

@@ -354,6 +354,12 @@ func (srv *WebsocketServer) Start() error {
 
 	srv.listener = listener
 	srv.addr = listener.Addr()
+	// New() composed the advertise address before the OS assigned an
+	// ephemeral port; without this a `:0` bind would advertise port 0.
+	// An explicit advertise_address is left untouched.
+	if srv.config.AdvertiseAddress == "" {
+		srv.advertiseAddr = listener.Addr()
+	}
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
@@ -566,16 +572,11 @@ func (srv *WebsocketServer) App() *fiber.App {
 // Handle registers handlers.
 func (srv *WebsocketServer) Handle(hdls ...Handler) {
 	// Lock-free append: publish a new slice so concurrent I/O
-	// goroutines keep iterating a stable snapshot.
-	for {
-		old := srv.snapshotHandlers()
-		next := make([]Handler, 0, len(old)+len(hdls))
-		next = append(next, old...)
-		next = append(next, hdls...)
-		if srv.handlers.CompareAndSwap(srv.handlers.Load(), &next) {
-			break
-		}
-	}
+	// goroutines keep iterating a stable snapshot. The CAS loop lives in
+	// server.AppendAtomicSlice and compares against the snapshot the new
+	// slice was built from - a second Load for the compare value would
+	// succeed on top of a concurrent registration and drop it.
+	server.AppendAtomicSlice(&srv.handlers, hdls...)
 
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(

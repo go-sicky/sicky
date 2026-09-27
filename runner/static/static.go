@@ -33,6 +33,7 @@ package static
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,11 @@ type Static struct {
 	done    chan struct{}
 	started bool
 	stopped bool
+	// draining is set when Stop gave up waiting for the workers. Start
+	// must refuse to add new ones meanwhile: wg.Add during a pending
+	// Wait panics as a WaitGroup misuse, and the old batch would still
+	// be draining tasks into the new pool.
+	draining atomic.Bool
 }
 
 // New static runner (pool).
@@ -115,6 +121,11 @@ func (r *Static) Start() error {
 		return nil
 	}
 
+	if r.draining.Load() {
+		// The previous Stop timed out: those workers are still running.
+		return utils.ErrStopTimeout
+	}
+
 	// Restart support: Stop tears the channel/done down, so rebuild them
 	// before re-spawning workers. Without this a restarted runner would
 	// silently drop every Task (nil channel) while Start reported success.
@@ -165,7 +176,22 @@ func (r *Static) Stop() error {
 
 	r.mu.Unlock()
 
-	r.wg.Wait()
+	// Bound the drain: a worker stuck in user code must not wedge the
+	// whole shutdown, and Start stays refused until they actually exit.
+	r.draining.Store(true)
+	if !utils.WaitGroupTimeout(&r.wg, utils.StopTimeout, func() { r.draining.Store(false) }) {
+		r.options.Logger.WarnContext(
+			r.ctx,
+			"runner stop timed out; workers are still running",
+			"runner", r.String(),
+			"id", r.options.ID,
+			"name", r.options.Name,
+			"timeout", utils.StopTimeout.String(),
+		)
+
+		return utils.ErrStopTimeout
+	}
+
 	metrics.RunnerWorkers.WithLabelValues("static").Set(0)
 	metrics.RunnerQueueDepth.WithLabelValues("static").Set(0)
 	metrics.RunnerInflight.WithLabelValues("static").Set(0)

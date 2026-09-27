@@ -94,6 +94,7 @@ func newRun(args []string) int {
 	noGrpcFlag := fs.Bool("no-grpc", false, "Skip gRPC server")
 	fiberFlag := fs.Bool("fiber", true, "Add Fiber server (use --fiber=false to skip)")
 	httpFlag := fs.Bool("http", false, "Add net/http (bunrouter) server")
+	forceFlag := fs.Bool("force", false, "Overwrite an existing non-empty project directory")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky new: %s\n", err.Error())
 
@@ -125,11 +126,20 @@ func newRun(args []string) int {
 
 	interactivePrompt(fs, nc)
 
+	// Everything below interpolates these values into a Makefile, a
+	// Dockerfile, go.mod and Go sources, and uses the name to build a
+	// path - all of which the validators keep from escaping.
+	if err := validateNewContext(nc); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky new: %s\n", err.Error())
+
+		return 1
+	}
+
 	nc.AppName = nc.Name + ".example.sicky"
 	nc.ExportedName = exportName(nc.Name)
 
 	projectDir := filepath.Join(nc.OutputDir, nc.Name)
-	if err := scaffoldProject(projectDir, nc); err != nil {
+	if err := scaffoldProject(projectDir, nc, *forceFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky new: failed to create project: %s\n", err.Error())
 
 		return 1
@@ -325,7 +335,13 @@ func resolveGoMetricsVersion() string {
 	return ""
 }
 
-func scaffoldProject(dir string, nc *newContext) error {
+func scaffoldProject(dir string, nc *newContext, force bool) error {
+	// Scaffolding overwrites by name (Makefile, go.mod, main.go, ...).
+	// Refuse to touch a populated directory unless --force says so.
+	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 && !force {
+		return fmt.Errorf("%s already exists and is not empty (use --force to overwrite)", dir)
+	}
+
 	// Pin the go-metrics workaround before rendering go.mod so `go mod tidy`
 	// works in the fresh project without manual replace/exclude edits.
 	nc.GoMetricsVersion = resolveGoMetricsVersion()

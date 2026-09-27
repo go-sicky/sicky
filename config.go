@@ -47,8 +47,11 @@ import (
 )
 
 const (
-	// DefaultManagerAddress is a sicky constant.
-	DefaultManagerAddress = ":8888"
+	// DefaultManagerAddress is a sicky constant. It stays on loopback:
+	// Run(nil) hands out this default, and a bare `:8888` would publish
+	// /metrics, /version and /info on every interface without anyone
+	// asking. An external bind is an explicit configuration choice.
+	DefaultManagerAddress = "127.0.0.1:8888"
 	// DefaultMetricsPath is a sicky constant.
 	DefaultMetricsPath = "/metrics"
 	// DefaultHealthPath is a sicky constant.
@@ -99,6 +102,12 @@ type ManagerConfig struct {
 	// which case /config and /services only accept loopback clients.
 	// /metrics stays public for Prometheus scraping.
 	AuthToken string `json:"auth_token" mapstructure:"auth_token" yaml:"auth_token"`
+	// AllowedHosts lists extra Host header values accepted without a
+	// token (host or host:port). Loopback names and the listen address
+	// are always accepted; a reverse proxy sitting in front of the
+	// manager on this host needs its public name listed here, because a
+	// rebound hostname is otherwise indistinguishable from it.
+	AllowedHosts []string `json:"allowed_hosts" mapstructure:"allowed_hosts" yaml:"allowed_hosts"`
 	// HTTP server timeouts in seconds (Slowloris mitigation).
 	ReadTimeout     int `json:"read_timeout"     mapstructure:"read_timeout"     yaml:"read_timeout"`
 	WriteTimeout    int `json:"write_timeout"    mapstructure:"write_timeout"    yaml:"write_timeout"`
@@ -276,6 +285,11 @@ type TracerConfig struct {
 	PrettyPrint    bool              `json:"pretty_print"    mapstructure:"pretty_print"    yaml:"pretty_print"`
 	Timestamps     bool              `json:"timestamps"      mapstructure:"timestamps"      yaml:"timestamps"`
 	SampleRate     float64           `json:"sample_rate"     mapstructure:"sample_rate"     yaml:"sample_rate"`
+
+	// TrustRemoteSampled lets an upstream sampled flag decide sampling
+	// here. Default false: a client-chosen traceparent would otherwise
+	// bypass sample_rate (and the export budget that goes with it).
+	TrustRemoteSampled bool `json:"trust_remote_sampled" mapstructure:"trust_remote_sampled" yaml:"trust_remote_sampled"`
 }
 
 // Tracer validation sentinels (presence-means-enabled aborts like infra).

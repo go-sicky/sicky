@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
 func TestPoolConcurrentAccess(t *testing.T) {
@@ -107,5 +109,94 @@ func TestCloneInstanceNoJSONCycle(t *testing.T) {
 
 	if len(raw) == 0 {
 		t.Fatal("empty marshal")
+	}
+}
+
+// TestInitPoolIdempotentKeepsNotifyChan: InitPool used to rebuild the
+// pool on every call, swapping the Notify channel out from under
+// watchers that captured it via NotifyChan() - a second Run() would then
+// leave them listening on a channel nobody writes to.
+func TestInitPoolIdempotentKeepsNotifyChan(t *testing.T) {
+	first := InitPool()
+	notify := NotifyChan()
+	if notify == nil {
+		t.Fatal("NotifyChan must exist after InitPool")
+	}
+
+	// Seed state that the next Run() must not inherit.
+	PurgePool([]*Instance{{ID: uuid.New(), ServiceName: "stale"}})
+	if len(GetPool().Services) == 0 {
+		t.Fatal("fixture: seeded service missing")
+	}
+
+	second := InitPool()
+	if second != first {
+		t.Fatal("InitPool must not replace the pool")
+	}
+
+	if NotifyChan() != notify {
+		t.Fatal("NotifyChan must stay stable across InitPool")
+	}
+
+	if len(second.Services) != 0 {
+		t.Fatalf("second Run inherited %d services, want a fresh pool", len(second.Services))
+	}
+}
+
+// TestPurgePoolCopiesInstances: the pool stored caller pointers, so a
+// caller reusing its Instance for the next registration raced every
+// reader of GetPool/GetInstances.
+func TestPurgePoolCopiesInstances(t *testing.T) {
+	InitPool()
+
+	ins := &Instance{ID: uuid.New(), ServiceName: "svc", Metadata: utils.NewMetadata()}
+	ins.Metadata.Set("role", "api")
+
+	PurgePool([]*Instance{ins})
+
+	// The caller mutates its own instance after publishing it.
+	ins.ServiceName = "renamed"
+	ins.Metadata.Set("role", "attacker")
+
+	got := GetInstance("svc", ins.ID)
+	if got == nil {
+		t.Fatal("instance missing from the pool")
+	}
+
+	if got.ServiceName != "svc" {
+		t.Fatalf("service name = %q, want the published value", got.ServiceName)
+	}
+
+	if role, _ := got.Metadata.Get("role"); role != "api" {
+		t.Fatalf("metadata = %v, want the published value", role)
+	}
+}
+
+// TestRegisterInstanceIsTemporary documents the chosen semantics: a
+// direct registration is replaced by the next discovery refresh.
+func TestRegisterInstanceIsTemporary(t *testing.T) {
+	InitPool()
+
+	// RegisterInstance only attaches to a service discovery already
+	// created, so seed the pool from a "backend" result first.
+	backend := &Instance{ID: uuid.New(), ServiceName: "svc"}
+	PurgePool([]*Instance{backend})
+
+	ins := &Instance{ID: uuid.New(), ServiceName: "svc"}
+	RegisterInstance(ins)
+
+	if GetInstance("svc", ins.ID) == nil {
+		t.Fatal("registered instance missing")
+	}
+
+	// The next refresh replaces the pool with the backend's result.
+	PurgePool([]*Instance{backend})
+
+	if GetInstance("svc", ins.ID) != nil {
+		t.Fatal("a direct registration survived the purge: semantics changed")
+	}
+
+	if GetInstance("svc", backend.ID) == nil {
+		t.Fatal("the backend instance must survive its own refresh")
 	}
 }

@@ -125,7 +125,7 @@ func New(opts *tracer.Options, cfg *Config) *HTTPTracer {
 
 	// Provider (shared standard-OTLP construction).
 	provider, err := internal.NewOTLPProvider(
-		cfg.ServiceName, cfg.ServiceVersion, opts.ID.String(), cfg.SampleRate, e,
+		cfg.ServiceName, cfg.ServiceVersion, opts.ID.String(), cfg.SampleRate, cfg.TrustRemoteSampled, e,
 	)
 	if err != nil {
 		tc.options.Logger.ErrorContext(

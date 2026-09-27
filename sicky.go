@@ -34,6 +34,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -49,9 +50,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/go-sicky/sicky/broker"
 	brkJetstream "github.com/go-sicky/sicky/broker/jetstream"
 	brkNats "github.com/go-sicky/sicky/broker/nats"
 	brkNsq "github.com/go-sicky/sicky/broker/nsq"
+	"github.com/go-sicky/sicky/client"
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
@@ -59,6 +62,7 @@ import (
 	rgConsul "github.com/go-sicky/sicky/registry/consul"
 	rgLocal "github.com/go-sicky/sicky/registry/local"
 	rgRedis "github.com/go-sicky/sicky/registry/redis"
+	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/service"
 	"github.com/go-sicky/sicky/tracer"
 	tracerGrpc "github.com/go-sicky/sicky/tracer/grpc"
@@ -255,6 +259,14 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 	configIns.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	configIns.AutomaticEnv()
 
+	// Unmarshal only walks keys viper already knows about (override,
+	// flags, bound env vars, the config file, defaults), so a SICKY_*
+	// variable for a key missing from the file is dropped without a
+	// trace - leaving the process on the file's values. Bind the
+	// security-critical keys explicitly and shout about the rest.
+	bindSensitiveEnv(configIns)
+	warnIgnoredEnv(configIns, strings.ToUpper(options.EnvPrefix))
+
 	// MustInfra
 	for _, infra := range options.MustInfra {
 		key := strings.ToLower(strings.TrimSpace(infra))
@@ -307,6 +319,69 @@ func registryName() string {
 	return rg.String()
 }
 
+// registryAdvertiseAddr returns the address other services should dial
+// for srv, or nil when none can be determined.
+//
+// The configured advertise address wins over the bind address. A
+// wildcard bind (`:3000` with no advertise_address) yields 0.0.0.0 or
+// [::], which must never reach the registry: a remote client dialing it
+// would connect to itself, silently breaking service discovery.
+func registryAdvertiseAddr(srv server.Server) net.Addr {
+	addr := srv.AdvertiseAddr()
+	if addr == nil {
+		addr = srv.Addr()
+	}
+	if addr == nil {
+		return nil
+	}
+
+	ip := utils.AddrToIP(addr)
+	switch addr.Network() {
+	case "tcp", "tcp4", "tcp6", "udp", "udp4", "udp6":
+		port := utils.AddrToPort(addr)
+		if port == 0 {
+			// New() composes the advertise address before the OS picks an
+			// ephemeral port: the bound address owns the real one.
+			if bound := srv.Addr(); bound != nil {
+				port = utils.AddrToPort(bound)
+			}
+		}
+		if port == 0 {
+			// Not started yet - a zero port is undialable, so register
+			// nothing rather than something peers cannot reach.
+			return nil
+		}
+
+		if ip == nil || ip.IsUnspecified() {
+			// Wildcard bind (`:3000`): publish a routable interface
+			// address, or every remote peer dialing 0.0.0.0 reaches
+			// itself.
+			ip = srv.AdvertiseIP()
+			if ip == nil || ip.IsUnspecified() {
+				return nil
+			}
+		}
+
+		if strings.HasPrefix(addr.Network(), "udp") {
+			return &net.UDPAddr{IP: ip, Port: port}
+		}
+
+		return &net.TCPAddr{IP: ip, Port: port}
+	case "ip", "ip4", "ip6":
+		if ip == nil || ip.IsUnspecified() {
+			ip = srv.AdvertiseIP()
+			if ip == nil || ip.IsUnspecified() {
+				return nil
+			}
+		}
+
+		return &net.IPAddr{IP: ip}
+	default:
+		// Not an IP address (unix socket and the like): keep as-is.
+		return addr
+	}
+}
+
 func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 	ins := &registry.Instance{
 		ID:          svc.Options().ID,
@@ -322,13 +397,13 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 		ins.ManagerPort = managerApp.Port()
 	}
 
-	// Servers (skip servers with unresolvable advertise address).
+	// Servers (skip servers whose advertise address is unresolvable).
 	for _, srv := range svc.Servers() {
-		addr := srv.Addr()
+		addr := registryAdvertiseAddr(srv)
 		if addr == nil {
 			logger.Logger.WarnContext(
 				options.Context,
-				"skip server with nil address in registry instance",
+				"skip server with unresolvable advertise address",
 				"server", srv.Name(),
 			)
 
@@ -341,7 +416,7 @@ func serviceToRegistryInstance(svc service.Service) *registry.Instance {
 			Type:             srv.String(),
 			Name:             srv.Name(),
 			AdvertiseAddress: addr.String(),
-			Port:             srv.Port(),
+			Port:             utils.AddrToPort(addr),
 		}
 	}
 
@@ -416,6 +491,13 @@ func Run(cfg *Config) error {
 		// Log level
 		logger.Logger.Level(logger.LogLevel(cfg.LogLevel))
 	}
+
+	// MustBroker/MustRegistry are re-derived on every Run(): Init() runs
+	// once, while a second Run() after shutdown finds the flags already
+	// cleared to false by the first run's startup checks - which would
+	// silently skip the "must have a broker/registry" requirement.
+	MustBroker = options.MustBroker
+	MustRegistry = options.MustRegistry
 
 	// Merge MustInfra from options without wiping entries set by Init().
 	// Init() already populates the global map; Run() may be called without
@@ -668,35 +750,38 @@ func Run(cfg *Config) error {
 			switch cfg.Tracer.Type {
 			case tracerTypeGRPC:
 				tc := tracerGrpc.New(nil, &tracerGrpc.Config{
-					ServiceName:    tracerSvc,
-					ServiceVersion: tracerVer,
-					Endpoint:       cfg.Tracer.Endpoint,
-					Compress:       cfg.Tracer.Compress,
-					Timeout:        cfg.Tracer.Timeout,
-					Insecure:       cfg.Tracer.Insecure,
-					Headers:        cfg.Tracer.Headers,
-					SampleRate:     cfg.Tracer.SampleRate,
+					ServiceName:        tracerSvc,
+					ServiceVersion:     tracerVer,
+					Endpoint:           cfg.Tracer.Endpoint,
+					Compress:           cfg.Tracer.Compress,
+					Timeout:            cfg.Tracer.Timeout,
+					Insecure:           cfg.Tracer.Insecure,
+					Headers:            cfg.Tracer.Headers,
+					SampleRate:         cfg.Tracer.SampleRate,
+					TrustRemoteSampled: cfg.Tracer.TrustRemoteSampled,
 				})
 				tcOk = tc != nil
 			case tracerTypeHTTP:
 				tc := tracerHTTP.New(nil, &tracerHTTP.Config{
-					ServiceName:    tracerSvc,
-					ServiceVersion: tracerVer,
-					Endpoint:       cfg.Tracer.Endpoint,
-					Compress:       cfg.Tracer.Compress,
-					Timeout:        cfg.Tracer.Timeout,
-					Insecure:       cfg.Tracer.Insecure,
-					Headers:        cfg.Tracer.Headers,
-					SampleRate:     cfg.Tracer.SampleRate,
+					ServiceName:        tracerSvc,
+					ServiceVersion:     tracerVer,
+					Endpoint:           cfg.Tracer.Endpoint,
+					Compress:           cfg.Tracer.Compress,
+					Timeout:            cfg.Tracer.Timeout,
+					Insecure:           cfg.Tracer.Insecure,
+					Headers:            cfg.Tracer.Headers,
+					SampleRate:         cfg.Tracer.SampleRate,
+					TrustRemoteSampled: cfg.Tracer.TrustRemoteSampled,
 				})
 				tcOk = tc != nil
 			case tracerTypeStdout:
 				tc := tracerStdout.New(nil, &tracerStdout.Config{
-					ServiceName:    tracerSvc,
-					ServiceVersion: tracerVer,
-					PrettyPrint:    cfg.Tracer.PrettyPrint,
-					Timestamps:     cfg.Tracer.Timestamps,
-					SampleRate:     cfg.Tracer.SampleRate,
+					ServiceName:        tracerSvc,
+					ServiceVersion:     tracerVer,
+					PrettyPrint:        cfg.Tracer.PrettyPrint,
+					Timestamps:         cfg.Tracer.Timestamps,
+					SampleRate:         cfg.Tracer.SampleRate,
+					TrustRemoteSampled: cfg.Tracer.TrustRemoteSampled,
 				})
 				tcOk = tc != nil
 			case tracerTypeUptrace:
@@ -950,7 +1035,7 @@ func Run(cfg *Config) error {
 			"version", svc.Options().Version,
 			"branch", svc.Options().Branch,
 		)
-		metrics.ServiceStartsTotal.WithLabelValues(svc.String(), "ok")
+		metrics.ServiceStartsTotal.WithLabelValues(svc.String(), "ok").Inc()
 
 		// Registry instance
 		ins := serviceToRegistryInstance(svc)
@@ -1211,6 +1296,17 @@ shutdown:
 		}
 	}
 
+	// Clients: outbound connections hold registry watchers and file
+	// descriptors; release them before the registry stops so a watcher
+	// cannot fire into a half-torn-down process, and so a second Run()
+	// starts from a clean slate.
+	for _, clt := range client.Clients() {
+		if derr := clt.Disconnect(); derr != nil {
+			logger.Logger.ErrorContext(options.Context, "client disconnect failed", "client", clt.String(), "error", derr.Error())
+			runErr = errors.Join(runErr, fmt.Errorf("client %s disconnect: %w", clt.String(), derr))
+		}
+	}
+
 	// Registries
 	if rerr := registry.Stop(); rerr != nil {
 		logger.Logger.ErrorContext(options.Context, "registry stop failed", "error", rerr.Error())
@@ -1219,6 +1315,13 @@ shutdown:
 
 	// Registry instances are stopped via registry.Stop() above;
 	// per-implementation handles need no extra teardown.
+
+	// Drop the process-wide broker/registry singletons: a second Run()
+	// builds fresh ones, and the package helpers (broker.Publish,
+	// registry.Register, ...) must never keep pointing at an
+	// already-disconnected instance.
+	broker.Clear()
+	registry.Clear()
 
 	// Tracer
 	if tracer.Default() != nil {

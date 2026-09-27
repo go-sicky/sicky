@@ -31,6 +31,7 @@
 package utils
 
 import (
+	"errors"
 	"net"
 	"testing"
 )
@@ -133,3 +134,61 @@ func TestErrNilConnection(t *testing.T) {
  * vim600: sw=4 ts=4 fdm=marker
  * vim<600: sw=4 ts=4
  */
+
+func TestNormalizeHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"localhost:8888": "localhost",
+		"LocalHost":      "localhost",
+		"127.0.0.1:8888": "127.0.0.1",
+		"[::1]:8888":     "::1",
+		"::1":            "::1",
+		"api.internal":   "api.internal",
+		":8888":          "", // wildcard bind has no host
+		"":               "",
+	} {
+		if got := NormalizeHost(in); got != want {
+			t.Errorf("NormalizeHost(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestIsLoopbackHost(t *testing.T) {
+	for host, want := range map[string]bool{
+		"localhost":      true,
+		"localhost:8888": true,
+		"127.0.0.1":      true,
+		"127.5.5.5:80":   true,
+		"[::1]:8888":     true,
+		"evil.example":   false,
+		"10.0.0.5":       false,
+		"":               false,
+	} {
+		if got := IsLoopbackHost(host); got != want {
+			t.Errorf("IsLoopbackHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+// TestNet2fdRejectsUnsupportedConn: the reflection chain used to
+// dereference whatever FieldByName returned, so a conn type without the
+// expected internals (a mock, a wrapper) panicked instead of failing.
+func TestNet2fdRejectsUnsupportedConn(t *testing.T) {
+	if _, err := Net2fd(nil); !errors.Is(err, ErrNilConnection) {
+		t.Fatalf("nil conn error = %v, want ErrNilConnection", err)
+	}
+
+	c1, c2 := net.Pipe()
+	defer func() {
+		_ = c1.Close()
+		_ = c2.Close()
+	}()
+
+	fd, err := Net2fd(c1)
+	if err == nil {
+		t.Fatalf("in-memory pipe returned fd %d, want an unsupported-type error", fd)
+	}
+
+	if fd != -1 {
+		t.Fatalf("fd = %d, want -1 on error", fd)
+	}
+}

@@ -283,16 +283,11 @@ func (srv *TCPServer) App() net.Listener {
 // Handle registers handlers.
 func (srv *TCPServer) Handle(hdls ...Handler) {
 	// Lock-free append: publish a new slice so concurrent I/O
-	// goroutines keep iterating a stable snapshot.
-	for {
-		old := srv.snapshotHandlers()
-		next := make([]Handler, 0, len(old)+len(hdls))
-		next = append(next, old...)
-		next = append(next, hdls...)
-		if srv.handlers.CompareAndSwap(srv.handlers.Load(), &next) {
-			break
-		}
-	}
+	// goroutines keep iterating a stable snapshot. The CAS loop lives in
+	// server.AppendAtomicSlice and compares against the snapshot the new
+	// slice was built from - a second Load for the compare value would
+	// succeed on top of a concurrent registration and drop it.
+	server.AppendAtomicSlice(&srv.handlers, hdls...)
 
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(
@@ -449,6 +444,13 @@ func (srv *TCPServer) Start() error {
 	}
 
 	srv.addr = srv.conn.Addr()
+	// New() composed the advertise address before the OS assigned an
+	// ephemeral port; without this a `:0` bind would advertise port 0.
+	// An explicit advertise_address is left untouched.
+	if srv.config.AdvertiseAddress == "" {
+		srv.advertiseAddr = srv.conn.Addr()
+	}
+
 	srv.startReaper()
 	srv.acceptWg.Go(func() {
 		backoff := utils.NewBackoff(50*time.Millisecond, time.Second)
@@ -718,8 +720,25 @@ func (srv *TCPServer) Stop() error {
 
 	// Phase 1: stop intake. Waiting for acceptWg first guarantees no
 	// further conn wg.Add can occur, keeping the phase-2 Wait race-free.
+	// The accept loop can be stuck inside a blocking OnConnect (it runs
+	// inline), so this wait is bounded like phase 2 - otherwise a single
+	// bad handler wedges the whole shutdown.
 	srv.stopReaper()
-	srv.acceptWg.Wait()
+
+	// tcp config stores seconds as int (see AGENTS duration-unit note).
+	stopTimeout := time.Duration(srv.config.ShutdownTimeout) * time.Second
+	if !utils.WaitGroupTimeout(&srv.acceptWg, stopTimeout, nil) {
+		srv.options.Logger.WarnContext(
+			srv.ctx,
+			"tcp accept loop did not stop within shutdown_timeout; continuing",
+			"server", srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"timeout", stopTimeout.String(),
+		)
+
+		errs = append(errs, utils.ErrStopTimeout)
+	}
 
 	// Phase 2: close tracked connections so handler goroutines observe
 	// EOF and exit, then wait for them.

@@ -40,6 +40,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
 )
@@ -123,10 +124,11 @@ func NewTracerMiddleware(config ...TracerConfig) bunrouter.MiddlewareFunc {
 			// W3C + B3 dual-extract via the shared propagator.
 			newCtx := tracer.Extract(savedCtx, propagation.HeaderCarrier(r.Header))
 
-			// Prefer the route template; fall back to a low-cardinality
-			// method label (never the raw path: /users/:id would explode
-			// the tracing backend index).
-			spanName := "HTTP " + r.Method
+			// Prefer the route template; fall back to a normalized
+			// method label. Never the raw path or the raw method: both
+			// are client input and would explode the tracing backend
+			// index.
+			spanName := "HTTP " + metrics.NormalizeHTTPMethod(r.Method)
 			if route := r.Route(); route != "" {
 				spanName = route
 			}

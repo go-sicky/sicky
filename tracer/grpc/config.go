@@ -43,14 +43,19 @@ const (
 
 // Config is a grpc component.
 type Config struct {
-	ServiceName    string            `json:"service_name"    mapstructure:"service_name"    yaml:"service_name"`
-	ServiceVersion string            `json:"service_version" mapstructure:"service_version" yaml:"service_version"`
-	Endpoint       string            `json:"endpoint"        mapstructure:"endpoint"        yaml:"endpoint"`
-	Compress       bool              `json:"compress"        mapstructure:"compress"        yaml:"compress"`
-	Timeout        int               `json:"timeout"         mapstructure:"timeout"         yaml:"timeout"`
-	SampleRate     float64           `json:"sample_rate"     mapstructure:"sample_rate"     yaml:"sample_rate"`
-	Insecure       bool              `json:"insecure"        mapstructure:"insecure"        yaml:"insecure"`
-	Headers        map[string]string `json:"headers"         mapstructure:"headers"         yaml:"headers"`
+	ServiceName    string  `json:"service_name"    mapstructure:"service_name"    yaml:"service_name"`
+	ServiceVersion string  `json:"service_version" mapstructure:"service_version" yaml:"service_version"`
+	Endpoint       string  `json:"endpoint"        mapstructure:"endpoint"        yaml:"endpoint"`
+	Compress       bool    `json:"compress"        mapstructure:"compress"        yaml:"compress"`
+	Timeout        int     `json:"timeout"         mapstructure:"timeout"         yaml:"timeout"`
+	SampleRate     float64 `json:"sample_rate"     mapstructure:"sample_rate"     yaml:"sample_rate"`
+
+	// TrustRemoteSampled lets an upstream sampled flag decide sampling
+	// here. Default false: a client-chosen traceparent would otherwise
+	// bypass sample_rate (and the export budget that goes with it).
+	TrustRemoteSampled bool              `json:"trust_remote_sampled" mapstructure:"trust_remote_sampled" yaml:"trust_remote_sampled"`
+	Insecure           bool              `json:"insecure"             mapstructure:"insecure"             yaml:"insecure"`
+	Headers            map[string]string `json:"headers"              mapstructure:"headers"              yaml:"headers"`
 }
 
 // DefaultConfig returns the default configuration.

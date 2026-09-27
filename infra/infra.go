@@ -242,8 +242,12 @@ func RedactDSN(raw string) string {
 
 	q := u.Query()
 	changed := false
-	for _, k := range []string{"password", "pass", "passwd", "pwd", "secret", "token", "api_key", "apikey", "access_key", "secret_key", "session_token", "auth"} {
-		if _, ok := q[k]; ok {
+	// Substring matching, not an exact-name list: credentials arrive as
+	// access_token, refresh_token, client_secret, aws_secret_access_key,
+	// x-api-key, signature, ... and an exact list keeps missing new
+	// spellings. Over-redacting a parameter is harmless; logging one is not.
+	for k := range q {
+		if isSecretQueryKey(k) {
 			q.Set(k, "REDACTED")
 			changed = true
 		}
@@ -259,6 +263,26 @@ func RedactDSN(raw string) string {
 	}
 
 	return s
+}
+
+// secretKeyFragments mark a query parameter as a credential. Keep them
+// short but distinct: they are matched as substrings of the lower-cased
+// parameter name.
+var secretKeyFragments = []string{
+	"token", "secret", "pass", "pwd", "key", "auth", "cred", "sig",
+}
+
+// isSecretQueryKey reports whether a DSN query parameter carries a
+// credential.
+func isSecretQueryKey(key string) bool {
+	lk := strings.ToLower(key)
+	for _, fragment := range secretKeyFragments {
+		if strings.Contains(lk, fragment) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // redactDSN is the package-internal alias kept for existing call sites.

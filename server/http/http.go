@@ -152,7 +152,18 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 		cfg.CORS = (&CORSConfig{}).Ensure()
 	}
 
+	// Order matters and is deliberate:
+	//   1. Status        - wraps the ResponseWriter first so every layer
+	//                      below writes through the recorder and the
+	//                      access logger reads back a real status.
+	//   2. Recovery      - safety net for panics in the middlewares below
+	//                      the recorder (handler panics are caught deeper).
+	//   3..n middlewares - CORS, body limit, propagation, metadata, tracer.
+	//   n-1 AccessLogger - sees the status the responder wrote below.
+	//   n. Error         - innermost: turns handler errors and panics into
+	//                      an actual response (bunrouter discards them).
 	srv.router = bunrouter.New(
+		bunrouter.Use(NewStatusMiddleware()),
 		bunrouter.Use(NewRecoveryMiddleware(opts.Logger)),
 		bunrouter.Use(NewCORSMiddleware(cfg.CORS)),
 		bunrouter.Use(NewBodyLimitMiddleware(cfg.BodyLimit)),
@@ -163,13 +174,13 @@ func New(opts *server.Options, cfg *Config) *HTTPServer {
 				Tracer: tr,
 			},
 		)),
-		bunrouter.Use(NewStatusMiddleware()),
 		bunrouter.Use(NewAccessLoggerMiddleware(
 			AccessLoggerMiddlewareConfig{
 				AccessLoggerConfig: cfg.AccessLogger,
 				Logger:             opts.Logger,
 			},
 		)),
+		bunrouter.Use(NewErrorMiddleware(opts.Logger)),
 	)
 	srv.options.Logger.InfoContext(
 		srv.ctx,
@@ -259,6 +270,10 @@ func (srv *HTTPServer) Start() error {
 	if srv.config.TLSCertPEM != "" && srv.config.TLSKeyPEM != "" {
 		cert, err = tls.X509KeyPair([]byte(srv.config.TLSCertPEM), []byte(srv.config.TLSKeyPEM))
 		if err != nil {
+			// Unlock before returning: the caller stops the server on a
+			// failed Start, and Stop takes this same lock - holding it
+			// here wedges shutdown until SIGKILL.
+			srv.Unlock()
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"tls certification failed",
@@ -313,6 +328,13 @@ func (srv *HTTPServer) Start() error {
 	}
 
 	srv.addr = listener.Addr()
+	// New() composed the advertise address before the OS assigned an
+	// ephemeral port; without this a `:0` bind would advertise port 0.
+	// An explicit advertise_address is left untouched.
+	if srv.config.AdvertiseAddress == "" {
+		srv.advertiseAddr = listener.Addr()
+	}
+
 	srv.listener = listener
 	srv.metadata.Set("server", srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
@@ -467,6 +489,11 @@ func (srv *HTTPServer) Port() int {
 }
 
 // AdvertiseAddr returns the advertise address.
+//
+// Before Start it is the configured address (with port 0 for an
+// ephemeral `:0` bind); Start refreshes it from the listener once the OS
+// has picked a port. Registry registration happens after Start, so it
+// always sees the bound port.
 func (srv *HTTPServer) AdvertiseAddr() net.Addr {
 	srv.RLock()
 	defer srv.RUnlock()
@@ -484,7 +511,8 @@ func (srv *HTTPServer) AdvertiseIP() net.IP {
 	return try
 }
 
-// AdvertisePort returns the advertise port.
+// AdvertisePort returns the advertise port: the configured one before
+// Start (0 for an ephemeral `:0` bind), the bound one after.
 func (srv *HTTPServer) AdvertisePort() int {
 	return utils.AddrToPort(srv.AdvertiseAddr())
 }

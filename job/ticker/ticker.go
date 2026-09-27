@@ -43,6 +43,7 @@ import (
 
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/utils"
 )
 
 // Ticker is a ticker component.
@@ -54,7 +55,10 @@ type Ticker struct {
 	done    chan struct{}
 	counter atomic.Uint64
 	running bool
-	wg      sync.WaitGroup
+	// draining is set when Stop gave up waiting for the loop: Start must
+	// refuse to spawn a second one over the still-running first.
+	draining atomic.Bool
+	wg       sync.WaitGroup
 
 	tasks []*Task
 	sync.RWMutex
@@ -141,6 +145,11 @@ func (job *Ticker) Start() error {
 
 	if job.running {
 		return nil
+	}
+
+	if job.draining.Load() {
+		// The previous Stop timed out: the loop is still running.
+		return utils.ErrStopTimeout
 	}
 
 	job.done = make(chan struct{})
@@ -244,7 +253,21 @@ func (job *Ticker) Stop() error {
 	job.Unlock()
 
 	// Wait for the loop goroutine so Start-Stop-Start cannot double-run.
-	job.wg.Wait()
+	// Bounded: a handler that never returns must not wedge shutdown, and
+	// Start stays refused until the loop actually exits.
+	job.draining.Store(true)
+	if !utils.WaitGroupTimeout(&job.wg, utils.StopTimeout, func() { job.draining.Store(false) }) {
+		job.options.Logger.WarnContext(
+			job.ctx,
+			"ticker stop timed out; the loop is still running",
+			"job", job.String(),
+			"id", job.options.ID,
+			"name", job.options.Name,
+			"timeout", utils.StopTimeout.String(),
+		)
+
+		return utils.ErrStopTimeout
+	}
 
 	job.options.Logger.InfoContext(
 		job.ctx,

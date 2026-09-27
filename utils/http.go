@@ -33,7 +33,6 @@ package utils
 import (
 	"encoding/json"
 	"encoding/xml"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -117,39 +116,82 @@ type Pagination struct {
 	Pages   int64 `json:"pages"   xml:"pages"   yaml:"pages"`
 }
 
-func AutoFormatData(req *http.Request, data any) (string, []byte, error) {
-	// Determine the response format based on the request's Accept header
-	acceptHeader := req.Header.Get("Accept")
+const (
+	// mediaTypeJSON is both the negotiated default and the fallback for
+	// an unknown Accept header.
+	mediaTypeJSON = "application/json"
+	mediaTypeXML  = "application/xml"
+	mediaTypeYAML = "application/x-yaml"
+	// mediaTypePlainText keeps scalar payloads verbatim.
+	mediaTypePlainText = "text/plain; charset=utf-8"
+)
 
-	switch strings.ToLower(acceptHeader) {
-	case "application/xml", "text/xml":
-		// Marshal the data to XML
+// AutoFormatData renders data for the request's Accept header.
+//
+// Negotiation runs on the media type: parameters (charset) and quality
+// values are stripped, so an ordinary header like
+// "application/json; charset=utf-8" finally matches instead of falling
+// through to the plain-text branch. JSON is the fallback for an empty,
+// wildcard or unknown Accept: the old default was fmt.Sprintf("%v"),
+// which prints unexported fields that json.Marshal would never expose -
+// private state holding credentials would have gone over the wire.
+func AutoFormatData(req *http.Request, data any) (contentType string, body []byte, err error) {
+	switch negotiateAccept(req.Header.Get("Accept")) {
+	case mediaTypeXML, "text/xml":
 		xmlData, err := xml.Marshal(data)
 		if err != nil {
 			return "", nil, err
 		}
 
-		return "application/xml", xmlData, nil
-	case "application/x-yaml", "text/yaml":
-		// Marshal the data to YAML
+		return mediaTypeXML, xmlData, nil
+	case mediaTypeYAML, "text/yaml":
 		yamlData, err := yaml.Marshal(data)
 		if err != nil {
 			return "", nil, err
 		}
 
-		return "application/x-yaml", yamlData, nil
-	case "application/json", "text/json":
-		// Marshal the data to JSON
+		return mediaTypeYAML, yamlData, nil
+	case "text/plain":
+		// Negotiation strips parameters, so the case is the bare media
+		// type while the answer carries the charset.
+		// Scalars stay verbatim; anything structured goes through JSON
+		// rather than %v so unexported fields never leak.
+		switch v := data.(type) {
+		case string:
+			return mediaTypePlainText, []byte(v), nil
+		case []byte:
+			return mediaTypePlainText, v, nil
+		}
+
+		fallthrough
+	default:
 		jsonData, err := json.Marshal(data)
 		if err != nil {
 			return "", nil, err
 		}
 
-		return "application/json", jsonData, nil
-	default:
-		// Default to Plan text if no specific format is requested
-		return "text/plain", []byte(fmt.Sprintf("%v", data)), nil
+		return mediaTypeJSON, jsonData, nil
 	}
+}
+
+// negotiateAccept returns the media type the client asked for: the first
+// usable entry of the Accept header, lower-cased and with its parameters
+// and q-value removed. An empty header or a wildcard resolves to JSON.
+func negotiateAccept(accept string) string {
+	for raw := range strings.SplitSeq(accept, ",") {
+		media := strings.ToLower(strings.TrimSpace(strings.SplitN(raw, ";", 2)[0]))
+		switch media {
+		case "":
+			// Empty entry (trailing comma): keep looking.
+		case "*/*", "text/*":
+			// A wildcard prefers the structured default.
+			return mediaTypeJSON
+		default:
+			return media
+		}
+	}
+
+	return mediaTypeJSON
 }
 
 func AutoFormatBytes(req *http.Request, data any) []byte {

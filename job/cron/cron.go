@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
@@ -43,14 +44,18 @@ import (
 
 	"github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/utils"
 )
 
 // Cron is a cron component.
 type Cron struct {
-	config    *Config
-	ctx       context.Context
-	options   *job.Options
-	running   bool
+	config  *Config
+	ctx     context.Context
+	options *job.Options
+	running bool
+	// draining is set when Stop gave up waiting for the scheduler: Start
+	// must not schedule a second copy of every job over the first.
+	draining  atomic.Bool
 	tasks     []*Task
 	scheduler gocron.Scheduler
 
@@ -148,6 +153,11 @@ func (job *Cron) Start() error {
 		return nil
 	}
 
+	if job.draining.Load() {
+		// The previous Stop timed out: the old scheduler is still firing.
+		return utils.ErrStopTimeout
+	}
+
 	sch, err := gocron.NewScheduler()
 	if err != nil {
 		return err
@@ -203,21 +213,44 @@ func (job *Cron) Start() error {
 // Stop stops the component and releases resources.
 func (job *Cron) Stop() error {
 	job.Lock()
-	defer job.Unlock()
-
 	if !job.running {
+		job.Unlock()
+
 		return nil
 	}
 
-	err := job.scheduler.Shutdown()
-	if err != nil {
-		return err
-	}
-
+	sch := job.scheduler
+	// Reset the flag even when Shutdown fails: leaving it set would make
+	// the next Start() return early against an already dead scheduler, so
+	// every task would stop firing while the metrics still said "running".
 	job.running = false
 	metrics.JobRunning.WithLabelValues("cron").Set(0)
+	job.Unlock()
 
-	return nil
+	// Shutdown waits for in-flight jobs: bound it, and never hold the
+	// lock while waiting - a concurrent Start would block on it, which is
+	// the same unbounded shutdown wait this bound exists to remove.
+	job.draining.Store(true)
+
+	shutdownErr := make(chan error, 1)
+	drained := utils.WaitTimeout(func() { shutdownErr <- sch.Shutdown() }, utils.StopTimeout, func() {
+		job.draining.Store(false)
+	})
+
+	if !drained {
+		job.options.Logger.WarnContext(
+			job.ctx,
+			"cron stop timed out; jobs are still running",
+			"job", job.String(),
+			"id", job.options.ID,
+			"name", job.options.Name,
+			"timeout", utils.StopTimeout.String(),
+		)
+
+		return utils.ErrStopTimeout
+	}
+
+	return <-shutdownErr
 }
 
 /* {{{ [Task]. */

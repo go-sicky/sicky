@@ -37,9 +37,11 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -115,6 +117,9 @@ type Manager struct {
 	cfgVar     *Config
 	appName    string
 	appVersion string
+
+	// auth throttles failed bearer attempts on the guarded endpoints.
+	auth authThrottle
 
 	metricsRegistry *prometheus.Registry
 
@@ -282,6 +287,12 @@ func (m *Manager) Start() error {
 		return nil
 	}
 
+	// Add to the wait group before publishing running: a Stop that lands
+	// between the two would see running=true, Shut down a server that is
+	// not serving yet, find the counter at zero and return - after which
+	// this Add would race with its already-returned Wait (WaitGroup
+	// misuse: Add called concurrently with Wait).
+	m.wg.Add(1)
 	m.srv = srv
 	m.running = true
 	m.Unlock()
@@ -294,7 +305,6 @@ func (m *Manager) Start() error {
 		)
 	}
 
-	m.wg.Add(1)
 	go func(s *http.Server, l net.Listener, useTLS bool) {
 		defer m.wg.Done()
 
@@ -403,6 +413,66 @@ func (m *Manager) Stop() error {
 }
 
 /* {{{ [Manager] */
+// authMaxFailures is how many wrong bearer tokens are accepted inside
+// one window before the endpoint answers 429 instead of 401.
+const authMaxFailures = 10
+
+// authWindow is the failure window; tests shorten it.
+var authWindow = time.Minute
+
+// authThrottle bounds failed bearer attempts on the debug endpoints.
+//
+// The comparison itself is constant-time, which keeps the cost per
+// attempt flat - so brute force is limited by attempt count, not by
+// timing. It never sleeps: a slow response would tie up a goroutine per
+// attempt, while refusing outright has the same effect on an attacker
+// and none on a legitimate client (which resets the counter on success).
+type authThrottle struct {
+	mu       sync.Mutex
+	failures int
+	window   time.Time
+}
+
+// blocked reports whether attempts are currently exhausted.
+func (t *authThrottle) blocked() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.failures < authMaxFailures {
+		return false
+	}
+
+	if time.Since(t.window) >= authWindow {
+		t.failures = 0
+		t.window = time.Time{}
+
+		return false
+	}
+
+	return true
+}
+
+// fail records a rejected attempt.
+func (t *authThrottle) fail() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.failures == 0 || time.Since(t.window) >= authWindow {
+		t.window = time.Now()
+	}
+
+	t.failures++
+}
+
+// reset clears the failure count after a successful authentication.
+func (t *authThrottle) reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.failures = 0
+	t.window = time.Time{}
+}
+
 // guardSensitive enforces Bearer auth on debug/topology endpoints
 // (/config, /services) when AuthToken is set. Without a token, only
 // loopback clients may reach them, so a default external bind (:8888)
@@ -411,12 +481,22 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.RLock()
 		token := ""
+		listenAddr := ""
+		var allowedHosts []string
 		if m.config != nil {
 			token = m.config.AuthToken
+			listenAddr = m.config.Address
+			allowedHosts = m.config.AllowedHosts
 		}
 
 		m.RUnlock()
 		if token != "" {
+			if m.auth.blocked() {
+				w.WriteHeader(http.StatusTooManyRequests)
+
+				return
+			}
+
 			got := r.Header.Get("Authorization")
 			want := "Bearer " + token
 			// Compare equal-length digests so a length mismatch does not
@@ -424,11 +504,13 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 			gotSum := sha256.Sum256([]byte(got))
 			wantSum := sha256.Sum256([]byte(want))
 			if subtle.ConstantTimeCompare(gotSum[:], wantSum[:]) != 1 {
+				m.auth.fail()
 				w.WriteHeader(http.StatusUnauthorized)
 
 				return
 			}
 
+			m.auth.reset()
 			next.ServeHTTP(w, r)
 
 			return
@@ -448,8 +530,47 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 			return
 		}
 
+		// A rebound hostname still connects to loopback, so the peer check
+		// above passes for a browser page that re-resolved to 127.0.0.1.
+		// The Host header is the last signal separating that from a local
+		// process or a reverse proxy on this machine.
+		if !hostAllowed(r.Host, listenAddr, allowedHosts) {
+			w.WriteHeader(http.StatusForbidden)
+
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hostAllowed reports whether a request's Host header identifies this
+// manager: a loopback name, the address it listens on, or an explicitly
+// allowed host.
+func hostAllowed(host, listenAddr string, allowedHosts []string) bool {
+	normalized := utils.NormalizeHost(host)
+	if normalized == "" {
+		// No Host at all: browsers always send one (HTTP/1.1 Host,
+		// HTTP/2 :authority), so a rebound attack cannot land here - only
+		// bare HTTP/1.0-style clients and tests omit it.
+		return true
+	}
+
+	if utils.IsLoopbackHost(normalized) {
+		return true
+	}
+
+	if bound := utils.NormalizeHost(listenAddr); bound != "" && bound == normalized {
+		return true
+	}
+
+	for _, allowed := range allowedHosts {
+		if utils.NormalizeHost(allowed) == normalized {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isExternalListen(addr string) bool {
@@ -473,40 +594,12 @@ func isExternalListen(addr string) bool {
 // Connection-string keys (uri/url/broker/addresses/...) are redacted because
 // they commonly embed userinfo; plain usernames/client IDs are left visible
 // for debugging (/config itself is already auth-or-loopback gated).
+//
+// The implementation lives in utils.SanitizeValue so `sicky config show`
+// redacts exactly the same tree - the CLI used to keep its own, shorter
+// list and leaked private keys, access keys and array entries.
 func sanitizeValue(key string, val any) any {
-	lk := strings.ToLower(key)
-	for _, sub := range []string{"dsn", "password", "passwd", "pwd", "secret", "token", "apikey", "api_key", "api-key", "auth", "private_key", "privatekey", "accesskey", "access_key", "secret_key", "session_token", "uri", "url", "broker", "addresses", "cloud_id", "cloud_url", "creds_file", "nkey_file", "ca_file", "ca_cert_file", "root_ca_file", "tls_key", "tls_cert", "key_pem", "cert_pem", "private_key_pem", "endpoint"} {
-		if strings.Contains(lk, sub) {
-			if s, ok := val.(string); ok && s != "" {
-				return "***redacted***"
-			}
-
-			if val != nil {
-				return "***redacted***"
-			}
-
-			return val
-		}
-	}
-
-	switch v := val.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, vv := range v {
-			out[k] = sanitizeValue(k, vv)
-		}
-
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, vv := range v {
-			out[i] = sanitizeValue(key, vv)
-		}
-
-		return out
-	default:
-		return val
-	}
+	return utils.SanitizeValue(key, val)
 }
 
 func (m *Manager) sanitizedConfig() any {
@@ -613,6 +706,48 @@ const (
 	componentMQTT       = "mqtt"
 )
 
+// healthCheckTimeout bounds one registered business checker.
+const healthCheckTimeout = 2 * time.Second
+
+// runCheck runs a health checker with its own deadline and reports a
+// timeout instead of waiting for it.
+//
+// A checker that ignores its context (a bare mutex, a blocking dial with
+// no timeout) would otherwise pin the endpoint for every caller: the
+// response returns on the deadline and the orphaned goroutine is bounded
+// by the caller's context, which the request cancels.
+func runCheck(ctx context.Context, timeout time.Duration, check func(context.Context) error) error {
+	checkCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		// Business checkers are user code: a panic on this goroutine
+		// would take the process down, since nothing above recovers it.
+		defer func() {
+			if rec := recover(); rec != nil {
+				logger.Logger.ErrorContext(checkCtx,
+					"health check panicked",
+					"check", "business",
+					"panic", fmt.Sprint(rec),
+					"stack", string(debug.Stack()),
+				)
+
+				done <- fmt.Errorf("health check panicked: %v", rec)
+			}
+		}()
+
+		done <- check(checkCtx)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-checkCtx.Done():
+		return fmt.Errorf("health check did not return within %s: %w", timeout, checkCtx.Err())
+	}
+}
+
 func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHealth {
 	ctx, cancel := context.WithTimeout(reqCtx, 2*time.Second)
 	defer cancel()
@@ -687,7 +822,25 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 	for i, d := range defs {
 		wg.Add(1)
 		go func(i int, d checkDef) {
-			defer wg.Done()
+			// /health is unauthenticated and reachable by anyone: a
+			// panicking probe must degrade that component, not the
+			// process (this runs on its own goroutine, where nothing
+			// recovers it).
+			defer func() {
+				if rec := recover(); rec != nil {
+					logger.Logger.ErrorContext(ctx,
+						"health check panicked",
+						"component", d.name,
+						"panic", fmt.Sprint(rec),
+						"stack", string(debug.Stack()),
+					)
+
+					cs[i] = componentHealth{Name: d.name, Status: statusUnhealthy, Error: statusUnhealthy}
+				}
+
+				wg.Done()
+			}()
+
 			ch := componentHealth{Name: d.name, Status: "not_configured"}
 			if d.ping != nil {
 				// Determine configured state first without blocking.
@@ -764,7 +917,7 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 	for name, check := range bizChecks {
 		ch := componentHealth{Name: name, Status: statusHealthy}
 		start := time.Now()
-		cerr := check(ctx)
+		cerr := runCheck(ctx, healthCheckTimeout, check)
 		metrics.ManagerHealthCheckDuration.WithLabelValues(name).Observe(time.Since(start).Seconds())
 		if err := cerr; err != nil {
 			ch.Status = statusUnhealthy
@@ -818,7 +971,13 @@ func (m *Manager) info() http.Handler {
 
 func (m *Manager) cfg() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.config.ExposeConfig {
+		// Start reassigns m.config under the write lock; reading it here
+		// unlocked raced with a restart.
+		m.RLock()
+		expose := m.config.ExposeConfig
+		m.RUnlock()
+
+		if !expose {
 			w.WriteHeader(http.StatusForbidden)
 
 			return

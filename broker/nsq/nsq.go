@@ -66,6 +66,10 @@ type NSQ struct {
 	mu            sync.RWMutex
 	subscriptions map[string]*nsq.Consumer
 	handlers      map[string]broker.Handler
+
+	// newConsumer builds the nsq consumer; tests replace it to count how
+	// many consumers a concurrent Subscribe actually creates.
+	newConsumer func(topic, channel string, cfg *nsq.Config) (*nsq.Consumer, error)
 }
 
 // New creates a new instance (nil on invalid config).
@@ -260,7 +264,14 @@ func (brk *NSQ) Disconnect() error {
 // Publish publishes a message.
 func (brk *NSQ) Publish(topic string, m *broker.Message) error {
 	start := time.Now()
-	if brk.producer == nil {
+
+	// Snapshot under the lock: Disconnect nils brk.producer while holding
+	// it, and reading it here without the lock raced with that write.
+	brk.mu.RLock()
+	producer := brk.producer
+	brk.mu.RUnlock()
+
+	if producer == nil {
 		metrics.ObserveBrokerPublish("nsq", topic, start, ErrBrokerNotConnected)
 
 		return ErrBrokerNotConnected
@@ -273,7 +284,7 @@ func (brk *NSQ) Publish(topic string, m *broker.Message) error {
 	}
 
 	m.Topic = topic
-	err := brk.producer.Publish(topic, m.Raw())
+	err := producer.Publish(topic, m.Raw())
 	metrics.ObserveBrokerPublish("nsq", topic, start, err)
 	if err != nil {
 		brk.options.Logger.ErrorContext(
@@ -294,10 +305,17 @@ func (brk *NSQ) Publish(topic string, m *broker.Message) error {
 
 // Subscribe subscribes a handler.
 func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
-	brk.mu.RLock()
+	// One critical section covering the dup check, the consumer build and
+	// the dial: two concurrent Subscribe calls for the same topic used to
+	// both pass the check, both connect, and overwrite each other in the
+	// map - leaking a consumer that neither Unsubscribe nor Disconnect can
+	// ever reach (nats/jetstream already insert under their lock).
+	brk.mu.Lock()
+
 	_, dup := brk.subscriptions[topic]
-	brk.mu.RUnlock()
 	if dup {
+		brk.mu.Unlock()
+
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "dup").Inc()
 		brk.options.Logger.DebugContext(
 			brk.ctx,
@@ -312,8 +330,15 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		return nil
 	}
 
-	consumer, err := nsq.NewConsumer(topic, brk.config.Channel, brk.nsqCfg)
+	newConsumer := brk.newConsumer
+	if newConsumer == nil {
+		newConsumer = nsq.NewConsumer
+	}
+
+	consumer, err := newConsumer(topic, brk.config.Channel, brk.nsqCfg)
 	if err != nil {
+		brk.mu.Unlock()
+
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
@@ -332,9 +357,7 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	consumer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
 	// Register handler before dialing so Connect() replay sees it.
 	if h != nil {
-		brk.mu.Lock()
 		brk.handlers[topic] = h
-		brk.mu.Unlock()
 	}
 
 	consumer.AddHandler(&nsqHandler{
@@ -348,6 +371,8 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		// The consumer already spawned connection goroutines: stop it so
 		// the half-open dial loop does not leak.
 		consumer.Stop()
+		brk.mu.Unlock()
+
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"nsq broker consumer connection failed",
@@ -362,9 +387,9 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		return fmt.Errorf("nsq broker consumer connect (topic %s channel %s endpoint %s): %w", topic, brk.config.Channel, safeEndpoint(brk.config.Endpoint), err)
 	}
 
-	brk.mu.Lock()
 	brk.subscriptions[topic] = consumer
 	brk.mu.Unlock()
+
 	metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "ok").Inc()
 	brk.options.Logger.DebugContext(
 		brk.ctx,

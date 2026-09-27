@@ -4,3 +4,6 @@ go.work.sum
 
 bin/
 
+# Local scan/issue notes — never committed.
+issue_*.md
+

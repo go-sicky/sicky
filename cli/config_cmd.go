@@ -17,6 +17,8 @@ import (
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
 func configRun(args []string) int {
@@ -111,6 +113,14 @@ func configInit(args []string) int {
 		return 1
 	}
 
+	// Reject parent-directory traversal before joining: an output root
+	// typed by hand (or by a script) must stay inside the tree.
+	if err := validateOutputRoot(*output); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky config init: %s\n", err.Error())
+
+		return 1
+	}
+
 	out := filepath.Join(*output, "config.json")
 	if _, err := os.Stat(out); err == nil && !*force {
 		fmt.Fprintf(os.Stderr, "sicky config init: %s exists (use --force)\n", out)
@@ -159,7 +169,11 @@ func configShow(args []string) int {
 
 	m := v.AllSettings()
 	if !*showSecrets {
-		redactMap(m)
+		// Same tree sanitizer as the Manager's /config endpoint: the CLI's
+		// own list was shorter and passed arrays, private keys and
+		// `tracer.headers.Authorization` straight through.
+		redacted, _ := utils.SanitizeValue("", m).(map[string]any)
+		m = redacted
 	}
 
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -227,44 +241,6 @@ func lintConfig(v *viper.Viper) []string {
 	}
 
 	return warns
-}
-
-var redactKeys = []string{
-	"dsn", "uri", "url", "password", "passwd", "token",
-	"api_key", "apikey", "secret_key", "secretkey", "secret",
-	"session_token", "cloud_id", "creds_file", "nkey_file",
-	"ca_file", "ca_cert_file", "root_ca_file", "tls_key_pem",
-	"auth_token", "addresses",
-}
-
-func redactMap(m map[string]any) {
-	for k, v := range m {
-		lk := strings.ToLower(k)
-		redact := false
-		for _, rk := range redactKeys {
-			if strings.Contains(lk, rk) {
-				redact = true
-				break
-			}
-		}
-
-		switch tv := v.(type) {
-		case map[string]any:
-			redactMap(tv)
-		case map[any]any:
-			for kk, vv := range tv {
-				if sub, ok := vv.(map[string]any); ok {
-					redactMap(sub)
-				} else if ks, ok := kk.(string); ok {
-					_ = ks
-				}
-			}
-		default:
-			if redact {
-				m[k] = "***redacted***"
-			}
-		}
-	}
 }
 
 /*

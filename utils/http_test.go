@@ -31,6 +31,10 @@
 package utils
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -196,6 +200,74 @@ func TestPagination(t *testing.T) {
 
 	if p.Pages != 10 {
 		t.Errorf("expected Pages=10, got %d", p.Pages)
+	}
+}
+
+// TestAutoFormatDataNegotiation: ordinary Accept headers (parameters,
+// quality values, wildcards) must match instead of falling through to
+// the plain-text branch - and no branch may print unexported fields,
+// which fmt.Sprintf("%v") used to do.
+func TestAutoFormatDataNegotiation(t *testing.T) {
+	type payload struct {
+		Name     string `json:"name"`
+		password string
+	}
+
+	data := &payload{Name: "app", password: "hunter2"}
+
+	newReq := func(accept string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		if accept != "" {
+			req.Header.Set("Accept", accept)
+		}
+
+		return req
+	}
+
+	for _, accept := range []string{
+		"application/json",
+		"application/json; charset=utf-8",
+		"application/json;q=0.9, application/xml;q=0.8",
+		"",
+		"*/*",
+		"text/html,application/xhtml+xml,*/*;q=0.8",
+	} {
+		ct, body, err := AutoFormatData(newReq(accept), data)
+		if err != nil {
+			t.Fatalf("Accept %q: %v", accept, err)
+		}
+
+		if ct != "application/json" {
+			t.Fatalf("Accept %q -> content type %q, want application/json", accept, ct)
+		}
+
+		if !json.Valid(body) {
+			t.Fatalf("Accept %q -> body is not JSON: %q", accept, body)
+		}
+
+		if strings.Contains(string(body), "hunter2") {
+			t.Fatalf("Accept %q leaked an unexported field: %s", accept, body)
+		}
+	}
+
+	if ct, _, err := AutoFormatData(newReq("application/xml"), data); err != nil || ct != "application/xml" {
+		t.Fatalf("xml: ct = %q err = %v", ct, err)
+	}
+
+	if ct, _, err := AutoFormatData(newReq("application/x-yaml"), data); err != nil || ct != "application/x-yaml" {
+		t.Fatalf("yaml: ct = %q err = %v", ct, err)
+	}
+
+	// Explicit plain text keeps scalars verbatim...
+	if ct, body, err := AutoFormatData(newReq("text/plain"), "hello"); err != nil || ct != "text/plain; charset=utf-8" || string(body) != "hello" {
+		t.Fatalf("plain string: ct = %q body = %q err = %v", ct, body, err)
+	}
+
+	// ...but structured payloads go through JSON, never %v.
+	if ct, body, err := AutoFormatData(newReq("text/plain"), data); err != nil || ct != "application/json" {
+		t.Fatalf("plain struct: ct = %q err = %v", ct, err)
+	} else if strings.Contains(string(body), "hunter2") {
+		t.Fatalf("text/plain leaked an unexported field: %s", body)
 	}
 }
 

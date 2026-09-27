@@ -34,8 +34,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,7 +53,13 @@ type Local struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	options *registry.Options
+
+	// watchMu guards watcher and makes Watch/Stop idempotent: a second
+	// Watch used to build another fsnotify watcher and orphan the first
+	// one with its goroutine.
+	watchMu sync.Mutex
 	watcher *Watcher
+	watched bool
 }
 
 // New creates a new instance (nil on invalid config).
@@ -139,7 +148,29 @@ func (rg *Local) Register(ins *registry.Instance) (err error) {
 		}
 	}
 
+	// Validate() ran at construction, but the directory can be swapped
+	// underneath us (the default lives under a shared temporary root):
+	// re-check it before writing so a poisoned directory is refused.
+	if cerr := checkRegistryDir(dir); cerr != nil {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"local registry directory rejected",
+			"registry", rg.String(),
+			"instance_id", ins.ID.String(),
+			"error", cerr.Error(),
+		)
+
+		return cerr
+	}
+
 	file := filepath.Join(dir, ins.ID.String()+".json")
+
+	// os.WriteFile follows symlinks: a planted link would push the
+	// registration into an attacker-chosen file.
+	if fi, lerr := os.Lstat(file); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("local registry write (file %s): %w", file, ErrLocalPathSymlink)
+	}
+
 	data, merr := json.Marshal(ins)
 	if merr != nil {
 		// Never write a 0-byte file that every later Load() cannot parse.
@@ -223,6 +254,32 @@ func (rg *Local) CheckInstance(id uuid.UUID) bool {
 }
 
 // Load loads persisted state.
+// readInstanceFile reads one registry file under a hard size cap: the
+// watcher loads every *.json in the directory, and an unbounded read
+// would let a single planted file exhaust memory.
+func readInstanceFile(path string) ([]byte, error) {
+	//nolint:gosec // G304: path comes from a ReadDir listing under the validated absolute registry dir, not user input
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = f.Close()
+	}()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxInstanceBytes+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) > maxInstanceBytes {
+		return nil, fmt.Errorf("%w: %s", ErrLocalInstanceTooLarge, path)
+	}
+
+	return data, nil
+}
+
 func (rg *Local) Load() (instances []*registry.Instance, err error) {
 	start := time.Now()
 	defer func() {
@@ -247,9 +304,20 @@ func (rg *Local) Load() (instances []*registry.Instance, err error) {
 			continue
 		}
 
+		// Only real files: a symlink planted in the directory could point
+		// at anything on the host.
+		if file.Type()&fs.ModeSymlink != 0 {
+			rg.options.Logger.WarnContext(
+				rg.Context(),
+				"skipping symlinked registry file",
+				"file", file.Name(),
+			)
+
+			continue
+		}
+
 		path := filepath.Join(dir, file.Name())
-		//nolint:gosec // G304: name comes from a ReadDir listing under the validated absolute registry dir, not user input
-		data, err := os.ReadFile(path)
+		data, err := readInstanceFile(path)
 		if err != nil {
 			rg.options.Logger.ErrorContext(
 				rg.Context(),
@@ -281,6 +349,15 @@ func (rg *Local) Load() (instances []*registry.Instance, err error) {
 
 // Watch watches for changes.
 func (rg *Local) Watch() error {
+	rg.watchMu.Lock()
+	defer rg.watchMu.Unlock()
+
+	if rg.watched {
+		// Already watching: a second fsnotify watcher on the same
+		// directory would only leak its goroutine.
+		return nil
+	}
+
 	w, err := newWatcher(rg)
 	if err != nil {
 		metrics.RegistryOpsTotal.WithLabelValues("local", "watch", "error").Inc()
@@ -297,6 +374,7 @@ func (rg *Local) Watch() error {
 	}
 
 	rg.watcher = w
+	rg.watched = true
 	w.Start()
 	metrics.RegistryOpsTotal.WithLabelValues("local", "watch", "ok").Inc()
 
@@ -313,8 +391,14 @@ func (rg *Local) Watch() error {
 
 // Stop stops the component and releases resources.
 func (rg *Local) Stop() error {
-	if rg.watcher != nil {
-		rg.watcher.Stop()
+	rg.watchMu.Lock()
+	w := rg.watcher
+	rg.watcher = nil
+	rg.watched = false
+	rg.watchMu.Unlock()
+
+	if w != nil {
+		w.Stop()
 
 		rg.options.Logger.InfoContext(
 			rg.ctx,

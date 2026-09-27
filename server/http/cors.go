@@ -93,6 +93,15 @@ func CORSMiddleware(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 	return NewCORSMiddleware(denyAll)(next)
 }
 
+// writePreflightHeaders answers a preflight: the browser rejects the
+// actual request unless Allow-Methods/Allow-Headers come back with the
+// origin grant.
+func writePreflightHeaders(h http.Header, cfg *CORSConfig) {
+	h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, X-B3-Traceid, X-B3-Spanid, X-B3-Parentspanid, X-B3-Sampled")
+	h.Set("Access-Control-Max-Age", strconv.Itoa(cfg.MaxAge))
+}
+
 // NewCORSMiddleware creates a new CORSMiddleware.
 func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 	cfg = cfg.Ensure()
@@ -123,18 +132,30 @@ func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 				return next(w, r)
 			}
 
+			h := w.Header()
+			// Every response that consulted Origin varies on it, and Add
+			// instead of Set so another middleware's Vary (e.g.
+			// Accept-Encoding) survives. A shared cache serving one
+			// origin's response to another is the failure mode here.
+			h.Add("Vary", "Origin")
+
 			_, ok := allowed[origin]
 			if !ok {
 				if wildcard && !cfg.AllowCredentials {
-					h := w.Header()
 					h.Set("Access-Control-Allow-Origin", "*")
-					h.Set("Vary", "Origin")
 				}
 
 				// Untrusted origin: passthrough without ACAO so the
 				// browser blocks the read. Never reflect + credential.
 				if r.Method == http.MethodOptions {
-					w.Header().Set("Vary", "Origin")
+					if wildcard && !cfg.AllowCredentials {
+						// A wildcard answer still needs the preflight
+						// heads, otherwise every preflighted request
+						// (anything but a simple one) fails while plain
+						// GETs work - a half-working configuration.
+						writePreflightHeaders(h, cfg)
+					}
+
 					w.WriteHeader(http.StatusNoContent)
 
 					return nil
@@ -143,17 +164,13 @@ func NewCORSMiddleware(cfg *CORSConfig) bunrouter.MiddlewareFunc {
 				return next(w, r)
 			}
 
-			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
-			h.Set("Vary", "Origin")
 			if cfg.AllowCredentials {
 				h.Set("Access-Control-Allow-Credentials", "true")
 			}
 
 			if r.Method == http.MethodOptions {
-				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, X-B3-Traceid, X-B3-Spanid, X-B3-Parentspanid, X-B3-Sampled")
-				h.Set("Access-Control-Max-Age", strconv.Itoa(cfg.MaxAge))
+				writePreflightHeaders(h, cfg)
 				w.WriteHeader(http.StatusNoContent)
 
 				return nil

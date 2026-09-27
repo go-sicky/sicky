@@ -32,6 +32,8 @@ package standard
 
 import (
 	"context"
+	"slices"
+	"sync"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/job"
@@ -46,6 +48,10 @@ type Standard struct {
 	config  *Config
 	ctx     context.Context
 	options *service.Options
+
+	// mu guards every slice below: the getters return copies so a
+	// registration from another goroutine never races a Start() walk.
+	mu sync.Mutex
 
 	servers    []server.Server
 	brokers    []broker.Broker
@@ -101,6 +107,15 @@ func (s *Standard) String() string {
 	return "standard"
 }
 
+// subordinateSnapshot is what Start/Stop walk: a copy taken under the
+// lock, so a concurrent registration cannot resize a slice mid-iteration.
+func (s *Standard) subordinateSnapshot() (servers []server.Server, brokers []broker.Broker, jobs []job.Job, registries []registry.Registry, tracers []tracer.Tracer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return slices.Clone(s.servers), slices.Clone(s.brokers), slices.Clone(s.jobs), slices.Clone(s.registries), slices.Clone(s.tracers)
+}
+
 // Start starts the component.
 func (s *Standard) Start() []error {
 	var (
@@ -108,36 +123,40 @@ func (s *Standard) Start() []error {
 		errs []error
 	)
 
+	// Walk a snapshot: registrations may run concurrently and resizing a
+	// slice while it is walked is a data race.
+	servers, brokers, jobs, registries, tracers := s.subordinateSnapshot()
+
 	// Start servers
-	for _, srv := range s.servers {
+	for _, srv := range servers {
 		if err = srv.Start(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Connect brokers
-	for _, brk := range s.brokers {
+	for _, brk := range brokers {
 		if err = brk.Connect(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Start jobs
-	for _, j := range s.jobs {
+	for _, j := range jobs {
 		if err = j.Start(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Start registries
-	for _, rg := range s.registries {
+	for _, rg := range registries {
 		if err = rg.Watch(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Start tracers
-	for _, tr := range s.tracers {
+	for _, tr := range tracers {
 		if err = tr.Start(); err != nil {
 			errs = append(errs, err)
 		}
@@ -153,36 +172,40 @@ func (s *Standard) Stop() []error {
 		errs []error
 	)
 
+	// Walk a snapshot: registrations may run concurrently and resizing a
+	// slice while it is walked is a data race.
+	servers, brokers, jobs, registries, tracers := s.subordinateSnapshot()
+
 	// Stop jobs
-	for _, j := range s.jobs {
+	for _, j := range jobs {
 		if err = j.Stop(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Stop registries
-	for _, rg := range s.registries {
+	for _, rg := range registries {
 		if err = rg.Stop(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Stop tracers
-	for _, tr := range s.tracers {
+	for _, tr := range tracers {
 		if err = tr.Stop(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Disconnect brokers
-	for _, brk := range s.brokers {
+	for _, brk := range brokers {
 		if err = brk.Disconnect(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
 	// Stop servers
-	for _, srv := range s.servers {
+	for _, srv := range servers {
 		if err = srv.Stop(); err != nil {
 			errs = append(errs, err)
 		}
@@ -193,47 +216,67 @@ func (s *Standard) Stop() []error {
 
 /* {{{ [Standard]. */
 func (s *Standard) Servers(srvs ...server.Server) []server.Server {
+	s.mu.Lock()
 	if len(srvs) > 0 {
 		s.servers = append(s.servers, srvs...)
 	}
 
-	return s.servers
+	out := slices.Clone(s.servers)
+	s.mu.Unlock()
+
+	return out
 }
 
 // Brokers returns a copy of the broker registry.
 func (s *Standard) Brokers(brks ...broker.Broker) []broker.Broker {
+	s.mu.Lock()
 	if len(brks) > 0 {
 		s.brokers = append(s.brokers, brks...)
 	}
 
-	return s.brokers
+	out := slices.Clone(s.brokers)
+	s.mu.Unlock()
+
+	return out
 }
 
 // Jobs returns a copy of the job registry.
 func (s *Standard) Jobs(jobs ...job.Job) []job.Job {
+	s.mu.Lock()
 	if !s.config.DisableJobs && len(jobs) > 0 {
 		s.jobs = append(s.jobs, jobs...)
 	}
 
-	return s.jobs
+	out := slices.Clone(s.jobs)
+	s.mu.Unlock()
+
+	return out
 }
 
 // Registries returns the managed registries.
 func (s *Standard) Registries(rgs ...registry.Registry) []registry.Registry {
+	s.mu.Lock()
 	if !s.config.DisableServerRegister && len(rgs) > 0 {
 		s.registries = append(s.registries, rgs...)
 	}
 
-	return s.registries
+	out := slices.Clone(s.registries)
+	s.mu.Unlock()
+
+	return out
 }
 
 // Tracers returns the managed tracers.
 func (s *Standard) Tracers(trs ...tracer.Tracer) []tracer.Tracer {
+	s.mu.Lock()
 	if !s.config.DisableTracing && len(trs) > 0 {
 		s.tracers = append(s.tracers, trs...)
 	}
 
-	return s.tracers
+	out := slices.Clone(s.tracers)
+	s.mu.Unlock()
+
+	return out
 }
 
 /* }}} */

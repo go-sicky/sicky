@@ -51,6 +51,11 @@ type Config struct {
 	Insecure       bool              `json:"insecure"        mapstructure:"insecure"        yaml:"insecure"`
 	Headers        map[string]string `json:"headers"         mapstructure:"headers"         yaml:"headers"`
 	SampleRate     float64           `json:"sample_rate"     mapstructure:"sample_rate"     yaml:"sample_rate"`
+
+	// TrustRemoteSampled lets an upstream sampled flag decide sampling
+	// here. Default false: a client-chosen traceparent would otherwise
+	// bypass sample_rate (and the export budget that goes with it).
+	TrustRemoteSampled bool `json:"trust_remote_sampled" mapstructure:"trust_remote_sampled" yaml:"trust_remote_sampled"`
 }
 
 // DefaultConfig returns the default configuration.

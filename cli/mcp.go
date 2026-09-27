@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/pflag"
 
@@ -27,12 +28,37 @@ func mcpRun(cmdName string, args []string) int {
 	return serveMCP(cmdName, args)
 }
 
+// newHTTPTransport builds the HTTP transport from the parsed flags.
+func newHTTPTransport(listen, token, allowedHosts string) *prtcl.HTTPTransport {
+	trans := prtcl.NewHTTPTransport(listen)
+	trans.AuthToken = token
+
+	for h := range strings.SplitSeq(allowedHosts, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			trans.AllowedHosts = append(trans.AllowedHosts, h)
+		}
+	}
+
+	return trans
+}
+
+// consumeSubcommandArgs rewrites os.Args to program name plus the
+// positional leftovers of a locally parsed flag set, so sicky.Init's
+// global parse (ExitOnError) never sees this subcommand's flags.
+func consumeSubcommandArgs(fs *pflag.FlagSet) {
+	os.Args = append(os.Args[:1], fs.Args()...)
+}
+
 // serveMCP holds the shared stdio/http MCP serving logic used by both
 // `sicky serve` and `sicky mcp` (kept as an alias for discoverability).
 func serveMCP(cmdName string, args []string) int {
 	fs := pflag.NewFlagSet(cmdName, pflag.ContinueOnError)
 	transport := fs.String("transport", "stdio", "Transport: stdio, http")
-	listen := fs.String("listen", ":3000", "HTTP listen address")
+	// Loopback by default: without a token the transport only accepts
+	// loopback peers, and a wildcard bind would still be closed to them.
+	listen := fs.String("listen", "127.0.0.1:3000", "HTTP listen address")
+	token := fs.String("token", os.Getenv("SICKY_MCP_TOKEN"), "Bearer token for the HTTP transport (default: SICKY_MCP_TOKEN)")
+	allowedHosts := fs.String("allowed-hosts", "", "Extra Host header values accepted without a token (comma separated)")
 	name := fs.String("name", "sicky-mcp-server", "MCP server name")
 	version := fs.String("version", Version, "MCP server version")
 	if err := fs.Parse(args); err != nil {
@@ -45,6 +71,13 @@ func serveMCP(cmdName string, args []string) int {
 		return 1
 	}
 
+	// sicky.Init re-parses os.Args with the global flag set, which is
+	// ExitOnError: leaving these subcommand flags in place made
+	// `sicky serve --transport http` die with "unknown flag" (exit 2)
+	// before anything was served. They are parsed above - hand Init only
+	// what is left.
+	consumeSubcommandArgs(fs)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -56,6 +89,9 @@ func serveMCP(cmdName string, args []string) int {
 			Commit:    Commit,
 			BuildTime: BuildTime,
 			Context:   ctx,
+			// The meta-server is configured by its own flags, not by a
+			// business config file: requiring one made `sicky serve`// fail with "Config File not Found" on a fresh checkout.
+			DisableConfig: true,
 		},
 	); err != nil {
 		if errors.Is(err, sicky.ErrVersionShown) {
@@ -90,7 +126,7 @@ func serveMCP(cmdName string, args []string) int {
 			trans = prtcl.NewStdioTransport()
 
 		case "http":
-			trans = prtcl.NewHTTPTransport(*listen)
+			trans = newHTTPTransport(*listen, *token, *allowedHosts)
 		default:
 			serveErr <- fmt.Errorf("unknown transport: %s", *transport)
 			cancel()

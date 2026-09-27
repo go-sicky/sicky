@@ -100,7 +100,7 @@ go get github.com/go-sicky/sicky
   "log_level": "info",
   "manager": {
     "enable": true,
-    "address": ":8888"
+    "address": "127.0.0.1:8888"
   }
 }
 ```
@@ -262,7 +262,7 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
 
   "manager": {
     "enable": true,
-    "address": ":8888",
+    "address": "127.0.0.1:8888",
     "advertise_address": "",
     "enable_swagger": false,
     "expose_config": false,
@@ -526,24 +526,27 @@ _ = r.Len() // queued depth for observability
 ```go
 import "github.com/go-sicky/sicky/infra"
 
-// Redis
-infra.Redis.Set(ctx, "key", "value", 0)
-val, _ := infra.Redis.Get(ctx, "key").Result()
+// Singletons are read through the getters: they return nil when the
+// component is not configured, and reading the exported globals
+// directly races with Init*/Clear* (a shutdown or a second Run()).
+rdb := infra.GetRedis()
+_ = rdb.Set(ctx, "key", "value", 0)
+val, _ := rdb.Get(ctx, "key").Result()
 
 // Bun (SQL)
-infra.Bun.NewSelect().Model(&users).Scan(ctx)
+_ = infra.GetBun().NewSelect().Model(&users).Scan(ctx)
 
 // Ristretto (cache)
-infra.Ristretto.Set("token:123", userData, 1)
-val, _ := infra.Ristretto.Get("token:123")
+cache := infra.GetRistretto()
+cache.Set("token:123", userData, 1)
+val, _ = cache.Get("token:123")
 
 // Badger (KV store)
-infra.Badger.Update(func(txn *badger.Txn) error {
+_ = infra.GetBadger().Update(func(txn *badger.Txn) error {
     return txn.Set([]byte("key"), []byte("value"))
 })
 
-// Race-free reads via getters (recommended in handlers):
-// infra.GetRedis(), infra.GetBun(), infra.GetMongoDB("mydb")
+// Others: infra.GetMongoDB("mydb"), infra.GetS3(), infra.GetNats(), ...
 ```
 
 ### Lifecycle Hooks

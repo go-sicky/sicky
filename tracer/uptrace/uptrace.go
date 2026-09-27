@@ -107,8 +107,10 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 	if prev, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok && prev != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = prev.Shutdown(shutdownCtx)
-		shutdownCancel()
+		// Both shutdowns share a live context: canceling first made the
+		// second one return immediately, leaking whatever it owned.
 		_ = uptrace.Shutdown(shutdownCtx)
+		shutdownCancel()
 	}
 
 	// Configure Uptrace (SDK-owned track, independent from standard OTLP).

@@ -105,7 +105,7 @@ func New(originalOpts *tracer.Options, originalCfg *Config) *StdoutTracer {
 
 	// Create TracerProvider with batching configuration (shared helper).
 	provider, err := internal.NewOTLPProvider(
-		cfg.ServiceName, cfg.ServiceVersion, opts.ID.String(), cfg.SampleRate, exporter,
+		cfg.ServiceName, cfg.ServiceVersion, opts.ID.String(), cfg.SampleRate, cfg.TrustRemoteSampled, exporter,
 	)
 	if err != nil {
 		tc.options.Logger.ErrorContext(

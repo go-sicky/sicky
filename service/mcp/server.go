@@ -33,7 +33,9 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 
 	"github.com/go-sicky/sicky/logger"
@@ -119,8 +121,24 @@ func (s *MCPServer) Serve(ctx context.Context, transport protocol.Transport) err
 			return err
 		}
 
-		s.handleMessage(ctx, data)
+		s.safelyHandleMessage(ctx, data)
 	}
+}
+
+// safelyHandleMessage keeps one bad message from taking the whole serve
+// loop down: a panicking tool would otherwise kill the transport.
+func (s *MCPServer) safelyHandleMessage(ctx context.Context, data []byte) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.log.ErrorContext(ctx,
+				"MCP message handler panicked",
+				"panic", fmt.Sprint(rec),
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+
+	s.handleMessage(ctx, data)
 }
 
 func (s *MCPServer) handleMessage(ctx context.Context, data []byte) {
@@ -170,7 +188,23 @@ func (s *MCPServer) writeResponse(resp *protocol.Response) {
 	}
 }
 
+// isInitialized reports whether the client completed the handshake.
+func (s *MCPServer) isInitialized() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.initialized
+}
+
 func (s *MCPServer) dispatchRequest(ctx context.Context, req *protocol.Request) *protocol.Response {
+	// The handshake comes first: without it every API method would be
+	// served to a stream that never introduced itself.
+	if req.Method != protocol.MethodInitialize &&
+		req.Method != protocol.MethodPing &&
+		!s.isInitialized() {
+		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidRequest, "server not initialized")
+	}
+
 	switch req.Method {
 	case protocol.MethodInitialize:
 		return s.handleInitialize(ctx, req)
@@ -248,7 +282,7 @@ func (s *MCPServer) handleToolsList(_ context.Context, req *protocol.Request) *p
 	return protocol.NewResponse(req.ID, protocol.ToolsListResult{Tools: tools})
 }
 
-func (s *MCPServer) handleToolsCall(_ context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handleToolsCall(ctx context.Context, req *protocol.Request) *protocol.Response {
 	var params protocol.ToolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
@@ -259,7 +293,10 @@ func (s *MCPServer) handleToolsCall(_ context.Context, req *protocol.Request) *p
 			if t.Name == params.Name {
 				result, err := h.CallTool(params.Name, params.Arguments)
 				if err != nil {
-					return protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodeInternalError, err.Error(), nil)
+					// The cause stays server-side: handler errors// carry backend detail (SQL, paths, credentials).
+					s.log.ErrorContext(ctx, "MCP handler failed", "method", req.Method, "error", err.Error())
+
+					return protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodeInternalError, "internal error", nil)
 				}
 
 				return protocol.NewResponse(req.ID, result)
@@ -279,7 +316,7 @@ func (s *MCPServer) handleResourcesList(_ context.Context, req *protocol.Request
 	return protocol.NewResponse(req.ID, protocol.ResourcesListResult{Resources: resources})
 }
 
-func (s *MCPServer) handleResourcesRead(_ context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handleResourcesRead(ctx context.Context, req *protocol.Request) *protocol.Response {
 	var params protocol.ResourcesReadParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
@@ -290,7 +327,10 @@ func (s *MCPServer) handleResourcesRead(_ context.Context, req *protocol.Request
 			if r.URI == params.URI {
 				result, err := h.ReadResource(params.URI)
 				if err != nil {
-					return protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodeInternalError, err.Error(), nil)
+					// The cause stays server-side: handler errors// carry backend detail (SQL, paths, credentials).
+					s.log.ErrorContext(ctx, "MCP handler failed", "method", req.Method, "error", err.Error())
+
+					return protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodeInternalError, "internal error", nil)
 				}
 
 				return protocol.NewResponse(req.ID, result)
@@ -310,7 +350,7 @@ func (s *MCPServer) handlePromptsList(_ context.Context, req *protocol.Request) 
 	return protocol.NewResponse(req.ID, protocol.PromptsListResult{Prompts: prompts})
 }
 
-func (s *MCPServer) handlePromptsGet(_ context.Context, req *protocol.Request) *protocol.Response {
+func (s *MCPServer) handlePromptsGet(ctx context.Context, req *protocol.Request) *protocol.Response {
 	var params protocol.PromptsGetParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return protocol.NewErrorResponse(req.ID, protocol.ErrCodeInvalidParams, protocol.ErrInvalidParams.Error())
@@ -321,7 +361,10 @@ func (s *MCPServer) handlePromptsGet(_ context.Context, req *protocol.Request) *
 			if p.Name == params.Name {
 				result, err := h.GetPrompt(params.Name, params.Arguments)
 				if err != nil {
-					return protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodeInternalError, err.Error(), nil)
+					// The cause stays server-side: handler errors// carry backend detail (SQL, paths, credentials).
+					s.log.ErrorContext(ctx, "MCP handler failed", "method", req.Method, "error", err.Error())
+
+					return protocol.NewErrorResponseWithData(req.ID, protocol.ErrCodeInternalError, "internal error", nil)
 				}
 
 				return protocol.NewResponse(req.ID, result)

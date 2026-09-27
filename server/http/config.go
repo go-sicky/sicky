@@ -30,7 +30,11 @@
 
 package http
 
-import "time"
+import (
+	"time"
+
+	"github.com/go-sicky/sicky/utils"
+)
 
 const (
 	// DefaultNetwork is a http constant.
@@ -147,6 +151,15 @@ func (c *Config) Ensure() *Config {
 	}
 
 	// Migrate deprecated misspelled TLSKeyPem.
+	// A bare number in a duration field (`read_timeout: 10`) decodes as
+	// 10 nanoseconds and fails every request: read sub-millisecond
+	// values as a count of seconds.
+	c.ReadTimeout = utils.NormalizeDuration(c.ReadTimeout)
+	c.ReadHeaderTimeout = utils.NormalizeDuration(c.ReadHeaderTimeout)
+	c.WriteTimeout = utils.NormalizeDuration(c.WriteTimeout)
+	c.IdleTimeout = utils.NormalizeDuration(c.IdleTimeout)
+	c.ShutdownTimeout = utils.NormalizeDuration(c.ShutdownTimeout)
+
 	if c.TLSKeyPEM == "" && c.TLSKeyPem != "" {
 		c.TLSKeyPEM = c.TLSKeyPem
 	}

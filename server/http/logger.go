@@ -121,7 +121,7 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 				status = http.StatusOK
 			}
 
-			metrics.ObserveServerRequest("http", r.Method, r.Route(), strconv.Itoa(status), end.Sub(start))
+			metrics.ObserveServerRequest("http", metrics.NormalizeHTTPMethod(r.Method), metrics.NormalizeRouteLabel(r.Route()), strconv.Itoa(status), end.Sub(start))
 
 			// Fixed-order slice: one alloc, stable field order for log
 			// indexing (a map here costs an extra alloc plus random order).
@@ -144,16 +144,20 @@ func NewAccessLoggerMiddleware(config ...AccessLoggerMiddlewareConfig) bunrouter
 			}
 
 			l := cfg.AccessLoggerConfig.AccessLevel
+			// The message stays constant: putting err.Error() in it made
+			// the log line itself attacker-influenced (a text handler
+			// would print injected newlines), and the error is still
+			// right there as a structured field.
 			msg := "http.request"
 			if err != nil {
+				args = append(args, "error", err.Error())
+
 				// Error
 				if status >= http.StatusInternalServerError {
 					l = cfg.AccessLoggerConfig.ServerErrorLevel
 				} else if status >= http.StatusBadRequest {
 					l = cfg.AccessLoggerConfig.ClientErrorLevel
 				}
-
-				msg = err.Error()
 			}
 
 			cfg.Logger.LogContext(r.Context(), logger.LogLevel(l), msg, args...)

@@ -153,7 +153,7 @@ func (s *Session) SetKey(key string) {
 	p.Lock()
 	defer p.Unlock()
 
-	if old != "" {
+	if old != "" && p.keys[old] == s {
 		delete(p.keys, old)
 	}
 
@@ -264,8 +264,15 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 
 	delete(p.sessions, id)
 	delete(p.conns, sess.conn)
-	if sess.Key != "" {
-		delete(p.keys, sess.Key)
+
+	// Key is written by SetKey under s.mu; read it under the same lock
+	// (pool lock -> session lock, the order SetKey releases).
+	sess.mu.RLock()
+	key := sess.Key
+	sess.mu.RUnlock()
+
+	if key != "" {
+		delete(p.keys, key)
 	}
 
 	return true

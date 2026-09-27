@@ -51,7 +51,8 @@ type statusKey struct{}
 // 4xx/5xx responses.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status   int
+	hijacked bool
 }
 
 // WriteHeader is part of the public API.
@@ -83,7 +84,14 @@ func (w *statusRecorder) Flush() {
 // Hijack is part of the public API.
 func (w *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
+		c, rw, err := h.Hijack()
+		if err == nil {
+			// The connection left net/http's control: the status is no
+			// longer ours to write, so the error responder must stay off.
+			w.hijacked = true
+		}
+
+		return c, rw, err
 	}
 
 	return nil, nil, fmt.Errorf("hijack not supported by wrapped ResponseWriter %T", w.ResponseWriter)
@@ -104,12 +112,21 @@ func (w *statusRecorder) ReadFrom(r io.Reader) (int64, error) {
 		return rf.ReadFrom(r)
 	}
 
-	return io.Copy(w, r)
+	// writerOnly hides our own ReaderFrom: copying into w would call this
+	// method again (the wrapped writer does not implement it) and recurse
+	// until the goroutine overflows its stack.
+	return io.Copy(writerOnly{w}, r)
+}
+
+// writerOnly is an io.Writer that deliberately exposes nothing else.
+type writerOnly struct {
+	io.Writer
 }
 
 // NewStatusMiddleware records the response status into the request
-// context. It must run before the access logger (which reads it) and
-// after nothing that terminates the chain early for logged requests.
+// context. It sits first in the chain so every layer below it - the
+// recovery and error responders included - writes through the recorder
+// and the access logger reads back the real status.
 func NewStatusMiddleware() bunrouter.MiddlewareFunc {
 	return func(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 		return func(w http.ResponseWriter, r bunrouter.Request) error {

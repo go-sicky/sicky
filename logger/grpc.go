@@ -190,8 +190,10 @@ func (gl *grpcLogger) Fatalf(format string, args ...any) {
 
 // V is part of the public API.
 func (gl *grpcLogger) V(l int) bool {
-	// Always verbose
-	return true
+	// Off by default: gRPC's verbose logs include connection internals,
+	// and they used to be unconditional. A deployment that wants them
+	// can wrap the logger.
+	return false
 }
 
 /*

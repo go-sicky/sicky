@@ -52,10 +52,34 @@ func ClampSampleRate(rate float64) float64 {
 	return rate
 }
 
+// NewSampler builds the sampling strategy for an OTLP tracer.
+//
+// With trustRemoteSampled false (the default) a client-supplied
+// traceparent must not decide how much this service exports: sampling by
+// request header is a cost DoS - the configured sample_rate would be
+// bypassed by sending `traceparent: ...-01`. The remote parent's sampled
+// flag is therefore replaced by this service's own ratio, while an
+// upstream drop is still respected so spans never appear without their
+// parents.
+//
+// trustRemoteSampled true keeps the classic ParentBased behavior for
+// trusted meshes that coordinate sampling through the header.
+func NewSampler(sampleRate float64, trustRemoteSampled bool) sdktrace.Sampler {
+	ratio := sdktrace.TraceIDRatioBased(ClampSampleRate(sampleRate))
+	if trustRemoteSampled {
+		return sdktrace.ParentBased(ratio)
+	}
+
+	return sdktrace.ParentBased(ratio,
+		sdktrace.WithRemoteParentSampled(ratio),
+		sdktrace.WithRemoteParentNotSampled(sdktrace.NeverSample()),
+	)
+}
+
 // NewOTLPProvider builds a batching TracerProvider with the standard
 // sicky resource attributes (service name/version/instance, container)
-// and a ParentBased(TraceIDRatio) sampler.
-func NewOTLPProvider(serviceName, serviceVersion, instanceID string, sampleRate float64, exporter sdktrace.SpanExporter) (*sdktrace.TracerProvider, error) {
+// and the sampler described by NewSampler.
+func NewOTLPProvider(serviceName, serviceVersion, instanceID string, sampleRate float64, trustRemoteSampled bool, exporter sdktrace.SpanExporter) (*sdktrace.TracerProvider, error) {
 	cn, _ := os.Hostname()
 
 	r, err := resource.Merge(
@@ -72,9 +96,7 @@ func NewOTLPProvider(serviceName, serviceVersion, instanceID string, sampleRate 
 		return nil, fmt.Errorf("merge tracing resources: %w", err)
 	}
 
-	sampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(ClampSampleRate(sampleRate)),
-	)
+	sampler := NewSampler(sampleRate, trustRemoteSampled)
 
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),

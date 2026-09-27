@@ -33,6 +33,7 @@ package grpc
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -63,10 +64,13 @@ const (
 
 // GRPCClient : Client definition.
 type GRPCClient struct {
-	config    *Config
-	options   *client.Options
-	ctx       context.Context
-	conn      *grpc.ClientConn
+	config  *Config
+	options *client.Options
+	ctx     context.Context
+	conn    *grpc.ClientConn
+
+	// mu guards the connection state written by Connect/Disconnect.
+	mu        sync.Mutex
 	connected bool
 
 	// Closed on Disconnect to stop the service-discovery goroutine.
@@ -102,26 +106,40 @@ func New(opts *client.Options, cfg *Config) *GRPCClient {
 	}
 
 	gopts := make([]grpc.DialOption, 0)
-	if cfg.TLSCertPEM != "" && cfg.TLSKeyPEM != "" {
-		cert, err := tls.X509KeyPair([]byte(cfg.TLSCertPEM), []byte(cfg.TLSKeyPEM))
-		if err != nil {
+
+	var tlsCfg *tls.Config
+	if cfg.TLSEnabled() {
+		built, tlsErr := clientTLSConfig(cfg)
+		if tlsErr != nil {
 			clt.options.Logger.ErrorContext(
 				clt.ctx,
-				"grpc client TLS certification failed",
+				"grpc client TLS configuration invalid",
 				"client", clt.String(),
 				"id", clt.options.ID,
 				"name", clt.options.Name,
-				"error", err.Error(),
+				"error", tlsErr.Error(),
 			)
 
 			return nil
 		}
 
-		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			MinVersion:   tls.VersionTLS12,
-			Certificates: []tls.Certificate{cert},
-		})))
+		tlsCfg = built
+	}
+
+	if tlsCfg != nil {
+		gopts = append(gopts, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
 	} else {
+		// Plaintext is a deliberate but unencrypted choice: say so at
+		// dial time instead of leaving it implicit in the logs.
+		clt.options.Logger.WarnContext(
+			clt.ctx,
+			"grpc client dialing in plaintext; set tls_ca_pem to enable TLS",
+			"client", clt.String(),
+			"id", clt.options.ID,
+			"name", clt.options.Name,
+			"address", cfg.Addr,
+		)
+
 		gopts = append(gopts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
@@ -327,17 +345,64 @@ func (clt *GRPCClient) Context() context.Context {
 	return clt.ctx
 }
 
+// clientTLSConfig builds the TLS configuration for a gRPC client that
+// asked for TLS (see Config.TLSEnabled); callers dial plaintext when no
+// TLS material is configured. The client certificate is optional:
+// tls_ca_pem/tls_server_name alone verify the server, while a
+// half-configured certificate pair stays fatal.
+func clientTLSConfig(cfg *Config) (*tls.Config, error) {
+	if (cfg.TLSCertPEM != "") != (cfg.TLSKeyPEM != "") {
+		return nil, ErrIncompleteTLSConfig
+	}
+
+	tlsCfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: cfg.TLSServerName,
+	}
+
+	if cfg.TLSCAPEM != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(cfg.TLSCAPEM)) {
+			return nil, ErrInvalidTLSCA
+		}
+
+		tlsCfg.RootCAs = pool
+	}
+
+	if cfg.TLSCertPEM != "" {
+		cert, err := tls.X509KeyPair([]byte(cfg.TLSCertPEM), []byte(cfg.TLSKeyPEM))
+		if err != nil {
+			return nil, fmt.Errorf("grpc client: load key pair: %w", err)
+		}
+
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsCfg, nil
+}
+
 // Connect connects to the backend.
 func (clt *GRPCClient) Connect() error {
+	clt.mu.Lock()
 	clt.connected = true
+	clt.mu.Unlock()
 
 	return nil
 }
 
 // Disconnect disconnects from the backend.
 func (clt *GRPCClient) Disconnect() error {
+	clt.mu.Lock()
 	clt.connected = false
+	clt.mu.Unlock()
+
 	clt.closeOnce.Do(func() { close(clt.done) })
+
+	if clt.conn == nil {
+		// Never connected (TLS rejected at construction): nothing to
+		// close, and dereferencing would panic.
+		return nil
+	}
 
 	return clt.conn.Close()
 }

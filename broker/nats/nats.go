@@ -218,7 +218,15 @@ func (brk *Nats) Disconnect() error {
 // Publish publishes a message.
 func (brk *Nats) Publish(topic string, m *broker.Message) error {
 	start := time.Now()
-	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+
+	// Snapshot the handle under the lock: Disconnect clears brk.conn
+	// while holding it, and reading it here without the lock raced with
+	// that write (undefined behavior under the Go memory model).
+	brk.mu.RLock()
+	conn := brk.conn
+	brk.mu.RUnlock()
+
+	if conn == nil || !conn.IsConnected() || conn.IsClosed() {
 		metrics.ObserveBrokerPublish("nats", topic, start, ErrBrokerNotConnected)
 
 		return ErrBrokerNotConnected
@@ -234,7 +242,7 @@ func (brk *Nats) Publish(topic string, m *broker.Message) error {
 		msg.Data = m.Raw()
 	}
 
-	err := brk.conn.PublishMsg(msg)
+	err := conn.PublishMsg(msg)
 	metrics.ObserveBrokerPublish("nats", topic, start, err)
 	if err != nil {
 		brk.options.Logger.ErrorContext(

@@ -106,23 +106,62 @@ func (s *Session) Send(mt int, data []byte) error {
 	return s.conn.WriteMessage(mt, data)
 }
 
-// Close closes the resource.
+// Close closes the resource. It is idempotent: the reaper and the
+// operator both call it, and a second call must not write another close
+// frame on a connection the first call already tore down.
 func (s *Session) Close() error {
-	if s.pool != nil {
-		s.pool.RemoveByID(s.ID)
+	s.mu.Lock()
+	if !s.Valid {
+		s.mu.Unlock()
+
+		return nil
 	}
 
-	// Send close frame
-	err := s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "timeout"))
-	if err != nil {
-		// Close force
-		nc := s.conn.NetConn()
-		if nc != nil {
-			_ = nc.Close()
-		}
+	s.Valid = false
+	pool := s.pool
+	conn := s.conn
+	id := s.ID
+	s.mu.Unlock()
+
+	// Detach outside the session lock: RemoveByID takes the pool lock,
+	// so holding mu here would invert the pool->session lock order.
+	if pool != nil {
+		pool.RemoveByID(id)
 	}
 
-	return s.conn.Close()
+	if conn == nil {
+		return nil
+	}
+
+	// The close frame is a write like any other: it must not interleave
+	// with a concurrent Send or with the reaper's ping.
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
+	if err := conn.SetWriteDeadline(time.Now().Add(ControlDeadline)); err == nil {
+		// A failed frame write falls through to the connection close
+		// below, which is what actually releases the socket.
+		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "closed"))
+	}
+
+	return conn.Close()
+}
+
+// ping writes a keepalive frame under the write lock so it can never
+// interleave with Send.
+func (s *Session) ping() {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
+	if s.conn == nil {
+		return
+	}
+
+	if err := s.conn.SetWriteDeadline(time.Now().Add(ControlDeadline)); err != nil {
+		return
+	}
+
+	_ = s.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
 // Conn returns the connection.
@@ -130,20 +169,37 @@ func (s *Session) Conn() *websocket.Conn {
 	return s.conn
 }
 
-// SetKey sets key.
+// SetKey assigns the affinity key and (re)indexes the session in the
+// pool, replacing any previous key. Unattached or closed sessions only
+// retain the value locally. Key is written under s.mu - RemoveByID reads
+// it there while holding the pool lock.
 func (s *Session) SetKey(key string) {
-	if s.pool != nil {
-		s.pool.Lock()
-		if s.Key != "" {
-			delete(s.pool.keys, s.Key)
-		}
+	s.mu.Lock()
+	old := s.Key
+	s.Key = key
+	pool := s.pool
+	id := s.ID
+	s.mu.Unlock()
 
-		// Last writer wins; migration path will replace keying entirely.
-		s.pool.keys[key] = s
-		s.pool.Unlock()
+	if pool == nil {
+		return
 	}
 
-	s.Key = key
+	pool.Lock()
+	defer pool.Unlock()
+
+	// Last writer wins; migration path will replace keying entirely.
+	// Only drop the old mapping when this session still owns it - a
+	// concurrent SetKey may have handed the key to somebody else.
+	if old != "" && pool.keys[old] == s {
+		delete(pool.keys, old)
+	}
+
+	// The insert is skipped when the session already left the pool, so a
+	// concurrent removal cannot be resurrected by a late SetKey.
+	if _, ok := pool.sessions[id]; ok && key != "" {
+		pool.keys[key] = s
+	}
 }
 
 /* }}} */
@@ -197,17 +253,25 @@ func (p *Pool) Put(sess *Session) {
 	p.Lock()
 	defer p.Unlock()
 
+	// Key and pool are written by SetKey/Close under s.mu: read and write
+	// them under the same lock (pool lock -> session lock, the order
+	// SetKey releases) or the two race on every re-attach.
+	sess.mu.Lock()
 	if sess.ID == uuid.Nil {
 		sess.ID = uuid.New()
 	}
 
-	p.sessions[sess.ID] = sess
-	p.conns[sess.conn] = sess
-	if sess.Key != "" {
-		p.keys[sess.Key] = sess
-	}
-
+	id := sess.ID
+	key := sess.Key
+	conn := sess.conn
 	sess.pool = p
+	sess.mu.Unlock()
+
+	p.sessions[id] = sess
+	p.conns[conn] = sess
+	if key != "" {
+		p.keys[key] = sess
+	}
 }
 
 // GetByID looks up by ID.
@@ -257,11 +321,16 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 
 	delete(p.sessions, id)
 	delete(p.conns, sess.conn)
-	if sess.Key != "" {
-		delete(p.keys, sess.Key)
-	}
 
-	sess.pool = nil
+	// Key is written by SetKey under s.mu; read it under the same lock
+	// (pool lock -> session lock, the order SetKey releases).
+	sess.mu.RLock()
+	key := sess.Key
+	sess.mu.RUnlock()
+
+	if key != "" {
+		delete(p.keys, key)
+	}
 
 	return true
 }
@@ -277,11 +346,14 @@ func (p *Pool) RemoveByConn(conn *websocket.Conn) bool {
 
 	delete(p.sessions, sess.ID)
 	delete(p.conns, conn)
-	if sess.Key != "" {
-		delete(p.keys, sess.Key)
-	}
 
-	sess.pool = nil
+	sess.mu.RLock()
+	key := sess.Key
+	sess.mu.RUnlock()
+
+	if key != "" {
+		delete(p.keys, key)
+	}
 
 	return true
 }
@@ -298,8 +370,6 @@ func (p *Pool) RemoveByKey(key string) bool {
 	delete(p.sessions, sess.ID)
 	delete(p.conns, sess.conn)
 	delete(p.keys, key)
-
-	sess.pool = nil
 
 	return true
 }
@@ -332,8 +402,9 @@ func (p *Pool) Purge() {
 	for _, sess := range snapshot {
 		last := sess.lastActive()
 		if now.Sub(last) > p.pingDuration {
-			// Write ping
-			_ = sess.conn.WriteMessage(websocket.PingMessage, nil)
+			// Write ping under the session write lock: the reaper runs
+			// concurrently with handlers calling Send.
+			sess.ping()
 		}
 
 		if now.Sub(last) > p.maxIdleDuration {

@@ -164,7 +164,7 @@ func (s *Session) SetKey(key string) {
 	p.Lock()
 	defer p.Unlock()
 
-	if old != "" {
+	if old != "" && p.keys[old] == s {
 		delete(p.keys, old)
 	}
 
@@ -259,6 +259,11 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 }
 
 // GetByConn looks up by connection.
+//
+// Deprecated: every UDP session shares the server's single *net.UDPConn,
+// so a conn index cannot distinguish them - the method can only ever
+// return nil. Use GetByKey (keyed by the remote address, which is what
+// UDP sessions are actually indexed by) instead.
 func (p *Pool) GetByConn(conn *net.UDPConn) *Session {
 	p.RLock()
 	defer p.RUnlock()
@@ -309,8 +314,15 @@ func (p *Pool) RemoveByID(id uuid.UUID) bool {
 
 	delete(p.sessions, id)
 	delete(p.addrs, addrKey(sess.addr))
-	if sess.Key != "" {
-		delete(p.keys, sess.Key)
+
+	// Key is written by SetKey under s.mu; read it under the same lock
+	// (pool lock -> session lock, the order SetKey releases).
+	sess.mu.RLock()
+	key := sess.Key
+	sess.mu.RUnlock()
+
+	if key != "" {
+		delete(p.keys, key)
 	}
 
 	return true

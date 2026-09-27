@@ -32,14 +32,31 @@ package local
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 )
 
 const (
-	// DefaultRegistryFilePath is a local constant.
+	// DefaultRegistryFilePath is the fallback registry location, used
+	// when XDG_RUNTIME_DIR is unset. Prefer defaultRegistryDir() in new
+	// code: a shared temporary root is writable by every local user.
 	DefaultRegistryFilePath = "/tmp/sicky/registry"
+	// registrySubdir is appended to XDG_RUNTIME_DIR.
+	registrySubdir = "sicky/registry"
 )
+
+// defaultRegistryDir prefers the per-user runtime directory: the shared
+// temporary fallback is world-writable, so the directory (and every
+// registration inside it) can be pre-created or swapped by another local
+// user. Validate() rejects such a directory when one is found.
+func defaultRegistryDir() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR")); dir != "" && filepath.IsAbs(dir) {
+		return filepath.Join(filepath.Clean(dir), registrySubdir)
+	}
+
+	return DefaultRegistryFilePath
+}
 
 // ErrLocalPathNotAbsolute is returned when RegistryFilePath is not absolute
 // after cleaning. Relative paths resolve against the process working
@@ -55,7 +72,7 @@ type Config struct {
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		RegistryFilePath: DefaultRegistryFilePath,
+		RegistryFilePath: defaultRegistryDir(),
 		CleanupOnStart:   false,
 	}
 }
@@ -67,7 +84,7 @@ func (c *Config) Ensure() *Config {
 	}
 
 	if strings.TrimSpace(c.RegistryFilePath) == "" {
-		c.RegistryFilePath = DefaultRegistryFilePath
+		c.RegistryFilePath = defaultRegistryDir()
 	} else {
 		c.RegistryFilePath = filepath.Clean(c.RegistryFilePath)
 	}
@@ -76,7 +93,9 @@ func (c *Config) Ensure() *Config {
 }
 
 // Validate rejects relative paths so the registry directory can never be
-// resolved against an untrusted working directory.
+// resolved against an untrusted working directory, and rejects a
+// directory another user controls: a poisoned registry directory lets
+// any local process redirect service discovery.
 func (c *Config) Validate() error {
 	if c == nil {
 		return nil
@@ -86,7 +105,7 @@ func (c *Config) Validate() error {
 		return ErrLocalPathNotAbsolute
 	}
 
-	return nil
+	return checkRegistryDir(c.RegistryFilePath)
 }
 
 /*

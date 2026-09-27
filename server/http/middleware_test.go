@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,6 +56,35 @@ func TestConfigEnsureClamps(t *testing.T) {
 
 	if c.BodyLimit != DefaultBodyLimit {
 		t.Fatalf("body_limit clamp = %d", c.BodyLimit)
+	}
+}
+
+// TestConfigEnsureNormalizesBareDurations: `read_timeout: 10` decodes as
+// 10 nanoseconds, which made every request fail its read deadline.
+func TestConfigEnsureNormalizesBareDurations(t *testing.T) {
+	c := (&Config{
+		ReadTimeout:       10,
+		ReadHeaderTimeout: 5,
+		WriteTimeout:      30,
+		IdleTimeout:       60,
+		ShutdownTimeout:   10,
+	}).Ensure()
+
+	if c.ReadTimeout != 10*time.Second {
+		t.Fatalf("read_timeout = %v, want 10s", c.ReadTimeout)
+	}
+
+	if c.ReadHeaderTimeout != 5*time.Second {
+		t.Fatalf("read_header_timeout = %v, want 5s", c.ReadHeaderTimeout)
+	}
+
+	if c.WriteTimeout != 30*time.Second || c.IdleTimeout != 60*time.Second || c.ShutdownTimeout != 10*time.Second {
+		t.Fatalf("timeouts = %v/%v/%v", c.WriteTimeout, c.IdleTimeout, c.ShutdownTimeout)
+	}
+
+	// An explicit duration must not be touched.
+	if got := (&Config{ReadTimeout: 2 * time.Second}).Ensure().ReadTimeout; got != 2*time.Second {
+		t.Fatalf("explicit duration = %v", got)
 	}
 }
 
@@ -189,5 +219,53 @@ func TestBodyLimitMiddleware(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("0123456789"))
 	if err := h(httptest.NewRecorder(), bunrouter.NewRequest(req)); err != nil {
 		t.Fatalf("middleware error: %v", err)
+	}
+}
+
+// plainWriter is a ResponseWriter that does not implement io.ReaderFrom -
+// which is what made statusRecorder.ReadFrom recurse into itself through
+// io.Copy until the goroutine overflowed its stack.
+type plainWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	code   int
+}
+
+func (w *plainWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+
+	return w.header
+}
+
+func (w *plainWriter) Write(b []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+
+	return w.body.Write(b)
+}
+
+func (w *plainWriter) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+}
+
+func TestStatusRecorderReadFromDoesNotRecurse(t *testing.T) {
+	rec := &statusRecorder{ResponseWriter: &plainWriter{}}
+
+	n, err := rec.ReadFrom(strings.NewReader("hello"))
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+
+	if n != 5 {
+		t.Fatalf("ReadFrom = %d bytes, want 5", n)
+	}
+
+	if rec.status != http.StatusOK {
+		t.Fatalf("implicit status = %d, want 200", rec.status)
 	}
 }

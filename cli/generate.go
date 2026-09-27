@@ -303,6 +303,21 @@ func generateDoc(args []string) int {
 }
 
 func renderGenerateTemplate(tmplName, outputPath string, data any) error {
+	// Both the destination and the name interpolated into the template
+	// come from the command line: a "../" name would write outside the
+	// working tree, and a name that is not an identifier can inject
+	// statements into the generated file (gofmt only rejects syntax that
+	// does not parse, not syntax that is valid but malicious).
+	if err := checkWritePath(outputPath); err != nil {
+		return err
+	}
+
+	if gc, ok := data.(*generateContext); ok {
+		if err := validateSchematicName(gc.Name); err != nil {
+			return fmt.Errorf("template %s: %w", tmplName, err)
+		}
+	}
+
 	tmplBytes, err := generateTemplates.ReadFile(tmplName)
 	if err != nil {
 		return fmt.Errorf("template %q: %w", tmplName, err)

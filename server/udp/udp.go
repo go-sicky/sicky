@@ -269,6 +269,17 @@ func (srv *UDPServer) Start() error {
 		return err
 	}
 
+	// The bound socket owns the real port (`:0` only exists after the
+	// bind); keep the address, the advertise address and the metadata in
+	// step with it. An explicit advertise_address is left untouched.
+	srv.addr = srv.conn.LocalAddr()
+	if srv.config.AdvertiseAddress == "" {
+		srv.advertiseAddr = srv.conn.LocalAddr()
+	}
+
+	srv.metadata.Set("network", srv.addr.Network())
+	srv.metadata.Set("address", srv.addr.String())
+
 	srv.startReaper()
 	srv.wg.Go(func() {
 		backoff := utils.NewBackoff(50*time.Millisecond, time.Second)
@@ -571,16 +582,11 @@ func (srv *UDPServer) App() *net.UDPConn {
 // Handle registers handlers.
 func (srv *UDPServer) Handle(hdls ...Handler) {
 	// Lock-free append: publish a new slice so the packet loop keeps
-	// iterating a stable snapshot.
-	for {
-		old := srv.snapshotHandlers()
-		next := make([]Handler, 0, len(old)+len(hdls))
-		next = append(next, old...)
-		next = append(next, hdls...)
-		if srv.handlers.CompareAndSwap(srv.handlers.Load(), &next) {
-			break
-		}
-	}
+	// iterating a stable snapshot. The CAS loop lives in
+	// server.AppendAtomicSlice and compares against the snapshot the new
+	// slice was built from - a second Load for the compare value would
+	// succeed on top of a concurrent registration and drop it.
+	server.AppendAtomicSlice(&srv.handlers, hdls...)
 
 	for _, hdl := range hdls {
 		srv.options.Logger.DebugContext(

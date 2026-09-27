@@ -40,10 +40,16 @@ import (
 	"github.com/go-sicky/sicky/logger"
 )
 
-// NewRecoveryMiddleware recovers panicking handlers and converts the
-// panic into an error. It must sit first in the middleware chain so a
-// single bad request cannot crash the whole process (net/http gives each
-// connection its own goroutine with no built-in recovery).
+// NewRecoveryMiddleware recovers panicking middleware and converts the
+// panic into an error. It sits directly after NewStatusMiddleware so it
+// catches failures from every layer below the recorder while the
+// innermost NewErrorMiddleware already handles route-handler panics
+// (which must be converted below the access logger, or the access log
+// and the RED metrics would never see the request).
+//
+// It must not sit after the route handler: net/http recovers per
+// connection, but a panic escaping the chain skips the access log and
+// the error response entirely.
 func NewRecoveryMiddleware(l logger.GeneralLogger) bunrouter.MiddlewareFunc {
 	return func(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
 		return func(w http.ResponseWriter, r bunrouter.Request) (err error) {
@@ -52,7 +58,7 @@ func NewRecoveryMiddleware(l logger.GeneralLogger) bunrouter.MiddlewareFunc {
 					stack := string(debug.Stack())
 					if l != nil {
 						l.ErrorContext(r.Context(),
-							"HTTP handler panicked",
+							"http middleware panicked",
 							"method", r.Method,
 							"path", r.URL.Path,
 							"panic", fmt.Sprint(rec),
@@ -60,7 +66,8 @@ func NewRecoveryMiddleware(l logger.GeneralLogger) bunrouter.MiddlewareFunc {
 						)
 					}
 
-					err = fmt.Errorf("http handler panicked: %v", rec)
+					err = fmt.Errorf("http middleware panicked: %v", rec)
+					WriteErrorResponse(w, r, err)
 				}
 			}()
 

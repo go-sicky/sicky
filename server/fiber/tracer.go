@@ -34,12 +34,13 @@ import (
 	"context"
 	"encoding/hex"
 	"net/http"
-	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/tracer"
 	"github.com/go-sicky/sicky/utils"
 )
@@ -127,13 +128,12 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		}
 
 		newCtx := tracer.Extract(savedCtx, propagation.HeaderCarrier(reqHeader))
-		// Prefer the route template; fall back to a low-cardinality
-		// method label (never the raw path: /users/123 would explode
-		// the tracing backend index).
-		spanName := "HTTP " + c.Method()
-		if route := c.Route().Path; route != "" {
-			spanName = strings.Clone(route)
-		}
+		// The endpoint route is not resolved yet at this point - fiber
+		// walks the router after the middleware chain - so the span name
+		// may only carry the normalized method (bounded to a fixed set).
+		// Never the raw path: it is client input and would explode the
+		// tracing backend index.
+		spanName := "HTTP " + metrics.NormalizeHTTPMethod(c.Method())
 
 		spanedCtx, span := cfg.Tracer.Start(newCtx, spanName)
 		defer func() {
@@ -151,6 +151,12 @@ func NewTracerMiddleware(config ...TracerConfig) fiber.Handler {
 		fiber.Locals[string](c, cfg.TraceIDContextKey, traceID)
 		c.SetContext(spanedCtx)
 		err := c.Next()
+		// Now that the router has resolved the endpoint, attach the
+		// route template before the span is exported.
+		if route := routeLabel(c); route != metrics.UnmatchedRoute {
+			span.SetAttributes(semconv.HTTPRouteKey.String(route))
+		}
+
 		if err != nil {
 			span.RecordError(err)
 			// The fiber core invokes ErrorHandler exactly once for a

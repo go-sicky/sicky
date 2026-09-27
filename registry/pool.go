@@ -110,6 +110,16 @@ func InitPool() *Pool {
 	poolLock.Lock()
 	defer poolLock.Unlock()
 
+	if currentPool != nil {
+		// Idempotent: a second Run() must not swap the Notify channel out
+		// from under watchers that captured it via NotifyChan() (the gRPC
+		// client resolver holds one for the process lifetime), while the
+		// previous run's services must not leak into the new one.
+		currentPool.Services = make(map[string]*Service)
+
+		return currentPool
+	}
+
 	currentPool = &Pool{
 		Services: make(map[string]*Service),
 		Notify:   make(chan PoolEvent, 1),
@@ -197,7 +207,17 @@ func (p *Pool) GetService(service string) *Service {
 }
 
 // RegisterInstance registers an instance.
+// RegisterInstance puts an instance into the pool directly.
+//
+// The registration is temporary: PurgePool replaces the whole pool from
+// the backend's Load() result, and an entry that is not part of that
+// result is dropped at the next discovery refresh. The instance is stored
+// as a deep copy.
 func (p *Pool) RegisterInstance(ins *Instance) {
+	if ins == nil {
+		return
+	}
+
 	p.Lock()
 	defer p.Unlock()
 
@@ -211,7 +231,7 @@ func (p *Pool) RegisterInstance(ins *Instance) {
 		}
 
 		// Register
-		p.Services[ins.ServiceName].Instances[ins.ID] = ins
+		p.Services[ins.ServiceName].Instances[ins.ID] = cloneInstance(ins)
 		logger.Debug("Instance registered", "service", ins.ServiceName, "instance", ins.ID.String())
 	}
 }
@@ -261,6 +281,9 @@ func (p *Pool) GetInstances(service string) map[uuid.UUID]*Instance {
 }
 
 /* {{{ [Helpers]. */
+// RegisterInstance registers an instance directly in the global pool.
+// The entry is temporary - the next PurgePool replaces the pool - and is
+// stored as a deep copy (see Pool.RegisterInstance).
 func RegisterInstance(ins *Instance) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -334,7 +357,13 @@ func GetService(service string) *Service {
 
 /* }}} */
 
-// PurgePool merges fresh discovery results in place.
+// PurgePool replaces the pool contents with the given instances.
+//
+// It is a replace, not a merge: entries registered through
+// RegisterInstance that are not part of ins disappear at the next purge,
+// and every instance is stored as a deep copy so callers may keep and
+// mutate their own without racing the readers (GetPool/GetInstances
+// return copies of these).
 func PurgePool(ins []*Instance) {
 	poolLock.Lock()
 	defer poolLock.Unlock()
@@ -365,7 +394,9 @@ func PurgePool(ins []*Instance) {
 			svc.Instances = make(map[uuid.UUID]*Instance)
 		}
 
-		svc.Instances[in.ID] = in
+		// Deep copy: the caller owns its Instance (it may reuse it for
+		// the next registration) and the pool hands out copies of ours.
+		svc.Instances[in.ID] = cloneInstance(in)
 	}
 
 	currentPool.Lock()

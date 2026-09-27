@@ -82,6 +82,29 @@ func ObtainIPs() ([]net.IP, error) {
 	return ret, nil
 }
 
+// ipBucket ranks an address for ObtainPreferIP, lowest preference first.
+// It returns -1 for addresses that must never be handed out as an
+// advertise target: unspecified (0.0.0.0 / [::]) and multicast are not
+// dialable destinations, and callers fall back on nil instead.
+func ipBucket(ip net.IP) int {
+	switch {
+	case ip == nil || ip.IsUnspecified() || ip.IsMulticast():
+		return -1
+	case ip.IsLoopback():
+		return 0
+	case ip.IsLinkLocalUnicast():
+		// 169.254.x / fe80:: is only valid on the local link: a service
+		// advertising it is unreachable from every other host, so it must
+		// not outrank a private or public address.
+		return 1
+	case ip.IsPrivate():
+		return 2
+	default:
+		// Public / global unicast.
+		return 3
+	}
+}
+
 // ObtainPreferIP is a utility helper.
 func ObtainPreferIP(ipv4Only bool) (net.IP, error) {
 	ifaces, err := net.Interfaces()
@@ -91,7 +114,6 @@ func ObtainPreferIP(ipv4Only bool) (net.IP, error) {
 
 	ips := make([][]net.IP, 4)
 
-	// Public
 	for _, i := range ifaces {
 		addrs, err := i.Addrs()
 		if err != nil {
@@ -115,21 +137,15 @@ func ObtainPreferIP(ipv4Only bool) (net.IP, error) {
 				continue
 			}
 
-			switch {
-			case ip.IsLoopback():
-				ips[0] = append(ips[0], ip)
-			case ip.IsPrivate():
-				ips[1] = append(ips[1], ip)
-			case ip.IsMulticast():
-				ips[2] = append(ips[2], ip)
-			case !ip.IsUnspecified():
-				ips[3] = append(ips[3], ip)
+			if b := ipBucket(ip); b >= 0 {
+				ips[b] = append(ips[b], ip)
 			}
 		}
 	}
 
-	// Buckets are ordered loopback < private < multicast < public: the
-	// first non-empty bucket from the top wins.
+	// Buckets are ordered loopback < link-local < private < public: the
+	// first non-empty bucket from the top wins, so a routable address is
+	// always preferred over a merely local one.
 	for i := range slices.Backward(ips) {
 		if len(ips[i]) > 0 {
 			return ips[i][0], nil
@@ -239,9 +255,21 @@ func Net2fd(conn net.Conn) (int, error) {
 	}
 
 	if _, ok := conn.(*tls.Conn); ok {
-		innerConn := reflect.Indirect(
-			reflect.ValueOf(conn).Elem().FieldByName("conn"),
-		)
+		inner := reflect.ValueOf(conn)
+		if inner.Kind() != reflect.Pointer || inner.IsNil() {
+			return -1, fmt.Errorf("utils: Net2fd: unexpected tls conn %T", conn)
+		}
+
+		connField := inner.Elem().FieldByName("conn")
+		if !connField.IsValid() {
+			return -1, fmt.Errorf("utils: Net2fd: %T has no conn field", conn)
+		}
+
+		innerConn := reflect.Indirect(connField)
+		if !innerConn.IsValid() || !innerConn.CanAddr() {
+			return -1, fmt.Errorf("utils: Net2fd: %T conn is not addressable", conn)
+		}
+
 		v := reflect.NewAt(
 			innerConn.Type(),
 			unsafe.Pointer(
@@ -256,12 +284,35 @@ func Net2fd(conn net.Conn) (int, error) {
 		c = nc
 	}
 
-	fdVal := reflect.Indirect(
-		reflect.ValueOf(c),
-	).FieldByName("conn").FieldByName("fd")
-	pfdVal := reflect.Indirect(fdVal).FieldByName("pfd")
+	// Every step below used to dereference whatever FieldByName returned:
+	// a conn type without the expected internals (a mock, a wrapper, a
+	// future stdlib layout) panicked instead of failing with an error.
+	base := reflect.ValueOf(c)
+	if base.Kind() != reflect.Pointer || base.IsNil() {
+		return -1, fmt.Errorf("utils: Net2fd: %T is not a pointer", c)
+	}
 
-	return int(pfdVal.FieldByName("Sysfd").Int()), nil
+	connField := reflect.Indirect(base).FieldByName("conn")
+	if !connField.IsValid() {
+		return -1, fmt.Errorf("utils: Net2fd: %T has no conn field", c)
+	}
+
+	fdField := reflect.Indirect(connField).FieldByName("fd")
+	if !fdField.IsValid() {
+		return -1, fmt.Errorf("utils: Net2fd: %T has no fd field", c)
+	}
+
+	pfdField := reflect.Indirect(fdField).FieldByName("pfd")
+	if !pfdField.IsValid() {
+		return -1, fmt.Errorf("utils: Net2fd: %T has no pfd field", c)
+	}
+
+	sysfd := pfdField.FieldByName("Sysfd")
+	if !sysfd.IsValid() || sysfd.Kind() != reflect.Int {
+		return -1, fmt.Errorf("utils: Net2fd: %T has no numeric Sysfd field", c)
+	}
+
+	return int(sysfd.Int()), nil
 }
 
 /*
@@ -272,3 +323,52 @@ func Net2fd(conn net.Conn) (int, error) {
  * vim600: sw=4 ts=4 fdm=marker
  * vim<600: sw=4 ts=4
  */
+
+// NormalizeHost strips the port and brackets from a host value and
+// lower-cases it, so "LocalHost:8888", "[::1]:8888" and "::1" compare
+// equal to what a Host header or a listen address carries. A wildcard
+// (":8888") normalizes to "".
+func NormalizeHost(host string) string {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" {
+		return ""
+	}
+
+	// Bracketed IPv6, with or without a port.
+	if strings.HasPrefix(h, "[") {
+		if end := strings.Index(h, "]"); end > 0 {
+			return h[1:end]
+		}
+
+		return ""
+	}
+
+	// A bare IPv6 has more than one colon and no port to strip.
+	if strings.Count(h, ":") > 1 {
+		return h
+	}
+
+	before, _, found := strings.Cut(h, ":")
+	if !found {
+		return h
+	}
+
+	return before
+}
+
+// IsLoopbackHost reports whether a host value names this machine:
+// "localhost", any 127.0.0.0/8 address or ::1.
+func IsLoopbackHost(host string) bool {
+	h := NormalizeHost(host)
+	if h == "" {
+		return false
+	}
+
+	if h == "localhost" {
+		return true
+	}
+
+	ip := net.ParseIP(h)
+
+	return ip != nil && ip.IsLoopback()
+}

@@ -163,6 +163,9 @@ func (gl *generalLogger) Log(level Level, msg string, args ...any) {
 }
 
 // Logf is part of the public API.
+// Logf formats a message. format must be a constant string: it is passed
+// straight to Sprintf, so a caller that hands over request data as the
+// format would let it consume arguments or print its own newlines.
 func (gl *generalLogger) Logf(level Level, format string, args ...any) {
 	gl.ins.Log(context.Background(), level2slog(level), fmt.Sprintf(format, args...))
 }
@@ -173,6 +176,8 @@ func (gl *generalLogger) LogContext(ctx context.Context, level Level, msg string
 }
 
 // LogfContext is part of the public API.
+// LogfContext formats a message within a context; see Logf for why
+// format must be a constant string.
 func (gl *generalLogger) LogfContext(ctx context.Context, level Level, format string, args ...any) {
 	gl.ins.Log(ctx, level2slog(level), fmt.Sprintf(format, args...))
 }

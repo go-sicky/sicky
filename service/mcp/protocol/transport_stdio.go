@@ -32,6 +32,8 @@ package protocol
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"io"
 	"os"
 )
@@ -47,7 +49,9 @@ type StdioTransport struct {
 // NewStdioTransport creates a new StdioTransport.
 func NewStdioTransport() *StdioTransport {
 	return &StdioTransport{
-		reader: bufio.NewReader(os.Stdin),
+		// Bounded buffer: ReadSlice fails on overflow instead of
+		// growing without limit on a hostile or garbled stream.
+		reader: bufio.NewReaderSize(os.Stdin, maxMessageBytes),
 		writer: os.Stdout,
 	}
 }
@@ -64,7 +68,11 @@ func (t *StdioTransport) Stop() error {
 
 // Read reads data.
 func (t *StdioTransport) Read() ([]byte, error) {
-	line, err := t.reader.ReadBytes('\n')
+	line, err := t.reader.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return nil, errors.New("mcp stdio: message exceeds the 1 MiB limit")
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +85,9 @@ func (t *StdioTransport) Read() ([]byte, error) {
 		line = line[:len(line)-1]
 	}
 
-	return line, nil
+	// ReadSlice hands back a view into the reader's buffer; the next
+	// call would overwrite it.
+	return bytes.Clone(line), nil
 }
 
 // Write writes data.

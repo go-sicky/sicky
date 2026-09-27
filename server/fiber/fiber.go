@@ -135,12 +135,14 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 		tr = tracer.Default().Tracer(srv.Name())
 	}
 
+	trustProxy, proxyConfig := proxySettings(cfg)
+
 	app := fiber.New(
 		fiber.Config{
 			ServerHeader:     opts.Name,
 			AppName:          opts.Name,
-			TrustProxy:       cfg.TrustProxy == nil || *cfg.TrustProxy,
-			TrustProxyConfig: fiber.TrustProxyConfig{Loopback: true, LinkLocal: true, Private: true},
+			TrustProxy:       trustProxy,
+			TrustProxyConfig: proxyConfig,
 			DisableKeepalive: cfg.DisableKeepAlive,
 			StrictRouting:    cfg.StrictRouting,
 			CaseSensitive:    cfg.CaseSensitive,
@@ -151,20 +153,27 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 			ReadTimeout:      cfg.ReadTimeout,
 			WriteTimeout:     cfg.WriteTimeout,
 			IdleTimeout:      cfg.IdleTimeout,
+			// fiber's DefaultErrorHandler echoes err.Error() back to the
+			// caller; ours only ever returns a generic body (errors.go).
+			ErrorHandler: NewErrorHandler(),
 		},
 	)
 
-	if cfg.EnableStackTrace {
-		app.Use(recover.New(
-			recover.Config{
-				EnableStackTrace: true,
-			},
-		))
-	} else {
-		app.Use(recover.New(
-			recover.ConfigDefault,
-		))
-	}
+	// Recovered panics answer with the same generic 500 as any other
+	// failure: the panic value and the stack go to the structured logger
+	// (NewPanicHandler), never to the client. EnableStackTrace keeps
+	// fiber's own stderr dump as the old behavior did.
+	//
+	// This copy is the outer safety net for panics raised by the
+	// middlewares below it; route handlers are caught by the innermost
+	// copy registered after the access logger - a panic unwinding past
+	// the access logger would skip its logging and metrics entirely.
+	app.Use(recover.New(
+		recover.Config{
+			EnableStackTrace: cfg.EnableStackTrace,
+			PanicHandler:     NewPanicHandler(opts.Logger),
+		},
+	))
 
 	// ETag was a built-in router flag in v2; v3 ships it as middleware.
 	// Mount it outermost so every response carries a validator when enabled.
@@ -219,6 +228,17 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 		),
 	)
 
+	// Innermost recovery: a route handler panic must be converted to an
+	// error *below* the access logger, otherwise it unwinds past the
+	// logger and the tracer and the request is never logged, counted or
+	// observed - while the client still gets a 500 from the outer net.
+	app.Use(recover.New(
+		recover.Config{
+			EnableStackTrace: cfg.EnableStackTrace,
+			PanicHandler:     NewPanicHandler(opts.Logger),
+		},
+	))
+
 	srv.app = app
 
 	// Register swagger
@@ -241,6 +261,27 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	server.Set(srv)
 
 	return srv
+}
+
+// proxySettings returns the switch and the ranges fiber applies to
+// forwarded headers.
+//
+// Only loopback is trusted by default. Trusting every private address
+// (the old default) meant that in Docker, Kubernetes or any LAN - where
+// every peer is private - any same-segment client could forge
+// X-Forwarded-For and rewrite the client IP the access log (and any
+// IP-based decision) reports. A proxy on another host is listed
+// explicitly in trust_proxy_proxies instead.
+func proxySettings(cfg *Config) (trust bool, trusted fiber.TrustProxyConfig) {
+	trust = cfg.TrustProxy == nil || *cfg.TrustProxy
+	trusted = fiber.TrustProxyConfig{
+		Loopback:  true,
+		LinkLocal: false,
+		Private:   false,
+		Proxies:   cfg.TrustProxies,
+	}
+
+	return trust, trusted
 }
 
 // Context returns the component context.

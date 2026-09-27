@@ -34,10 +34,19 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
-// ErrIncompleteTLSConfig is a shared grpc value.
+// ErrIncompleteTLSConfig is returned when only one half of the client
+// certificate is configured.
 var ErrIncompleteTLSConfig = errors.New("grpc client: tls_cert_pem and tls_key_pem must both be set or both empty")
+
+// ErrInvalidTLSCA is returned when tls_ca_pem contains no usable
+// certificate: trusting nothing would fail every connection anyway, and
+// falling back to the system pool would silently change the trust
+// decision.
+var ErrInvalidTLSCA = errors.New("grpc client: tls_ca_pem contains no certificate")
 
 const (
 	// DefaultService is a grpc constant.
@@ -75,11 +84,18 @@ type grpcServiceConfig struct {
 
 // Config is a grpc component.
 type Config struct {
-	Service           string        `json:"service"              mapstructure:"service"              yaml:"service"`
-	Network           string        `json:"network"              mapstructure:"network"              yaml:"network"`
-	Addr              string        `json:"addr"                 mapstructure:"addr"                 yaml:"addr"`
-	TLSCertPEM        string        `json:"tls_cert_pem"         mapstructure:"tls_cert_pem"         yaml:"tls_cert_pem"`
-	TLSKeyPEM         string        `json:"tls_key_pem"          mapstructure:"tls_key_pem"          yaml:"tls_key_pem"`
+	Service    string `json:"service"      mapstructure:"service"      yaml:"service"`
+	Network    string `json:"network"      mapstructure:"network"      yaml:"network"`
+	Addr       string `json:"addr"         mapstructure:"addr"         yaml:"addr"`
+	TLSCertPEM string `json:"tls_cert_pem" mapstructure:"tls_cert_pem" yaml:"tls_cert_pem"`
+	TLSKeyPEM  string `json:"tls_key_pem"  mapstructure:"tls_key_pem"  yaml:"tls_key_pem"`
+	// TLSCAPEM verifies the server certificate. Client certificates
+	// (tls_cert_pem/tls_key_pem) stay optional: TLS and mutual TLS are
+	// configured independently.
+	TLSCAPEM string `json:"tls_ca_pem" mapstructure:"tls_ca_pem" yaml:"tls_ca_pem"`
+	// TLSServerName overrides the SNI/verification name, for endpoints
+	// dialed by IP or through a proxy.
+	TLSServerName     string        `json:"tls_server_name"      mapstructure:"tls_server_name"      yaml:"tls_server_name"`
 	ConnectionTimeout time.Duration `json:"connection_timeout"   mapstructure:"connection_timeout"   yaml:"connection_timeout"`
 	MaxHeaderListSize uint32        `json:"max_header_list_size" mapstructure:"max_header_list_size" yaml:"max_header_list_size"`
 	MaxMsgSize        int           `json:"max_msg_size"         mapstructure:"max_msg_size"         yaml:"max_msg_size"`
@@ -108,6 +124,11 @@ func (c *Config) Ensure() *Config {
 		c.Service = DefaultService
 	}
 
+	// A bare number in a duration field (`read_timeout: 10`) decodes as
+	// 10 nanoseconds and fails every request: read sub-millisecond
+	// values as a count of seconds.
+	c.ConnectionTimeout = utils.NormalizeDuration(c.ConnectionTimeout)
+
 	if c.Network == "" {
 		c.Network = DefaultNetwork
 	}
@@ -126,6 +147,20 @@ func (c *Config) Ensure() *Config {
 	}
 
 	return c
+}
+
+// TLSEnabled reports whether the client will use TLS. Any TLS material
+// turns it on - a CA or a server name alone verifies the server without
+// presenting a client certificate, which is what most deployments need.
+func (c *Config) TLSEnabled() bool {
+	if c == nil {
+		return false
+	}
+
+	return strings.TrimSpace(c.TLSCertPEM) != "" ||
+		strings.TrimSpace(c.TLSKeyPEM) != "" ||
+		strings.TrimSpace(c.TLSCAPEM) != "" ||
+		strings.TrimSpace(c.TLSServerName) != ""
 }
 
 // Validate rejects half-TLS (BREAKING: previously silently downgraded to insecure).

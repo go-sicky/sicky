@@ -62,6 +62,10 @@ func generateServerStub(args []string) int {
 		name = fs.Arg(1)
 	}
 
+	if code := requireName("server", name); code != 0 {
+		return code
+	}
+
 	dir := gf.output
 	if dir == "" {
 		dir = "internal/server"
@@ -92,9 +96,26 @@ func generateClientStub(args []string) int {
 	}
 
 	kind := strings.ToLower(fs.Arg(0))
+	ok := false
+	for _, v := range extraClients {
+		if kind == v {
+			ok = true
+		}
+	}
+
+	if !ok {
+		fmt.Fprintf(os.Stderr, "sicky generate client: unknown client %q (valid: %s)\n", kind, strings.Join(extraClients, ","))
+
+		return 1
+	}
+
 	name := kind
 	if fs.NArg() >= 2 {
 		name = fs.Arg(1)
+	}
+
+	if code := requireName("client", name); code != 0 {
+		return code
 	}
 
 	dir := gf.output
@@ -217,6 +238,10 @@ func generateJobStub(args []string) int {
 		name = fs.Arg(1)
 	}
 
+	if code := requireName("job", name); code != 0 {
+		return code
+	}
+
 	dir := gf.output
 	if dir == "" {
 		dir = "internal/job"
@@ -246,6 +271,10 @@ func generateMiddlewareStub(args []string) int {
 	}
 
 	name := fs.Arg(0)
+	if code := requireName("middleware", name); code != 0 {
+		return code
+	}
+
 	dir := gf.output
 	if dir == "" {
 		dir = "internal/middleware"
@@ -275,6 +304,10 @@ func generateProtoFile(args []string) int {
 	}
 
 	name := strings.ToLower(fs.Arg(0))
+	if code := requireIdent("proto", name); code != 0 {
+		return code
+	}
+
 	dir := gf.output
 	if dir == "" {
 		dir = "proto"

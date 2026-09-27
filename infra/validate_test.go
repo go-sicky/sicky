@@ -395,3 +395,40 @@ func TestRedactDSN(t *testing.T) {
 		t.Errorf("redactDSN(garbage) = %q, want REDACTED", got)
 	}
 }
+
+// Credentials arrive under many parameter spellings; matching by exact
+// name kept missing most of them.
+func TestRedactDSNQueryVariants(t *testing.T) {
+	cases := []struct {
+		in     string
+		secret string
+	}{
+		{"postgres://localhost:5432/db?access_token=tok1", "tok1"},
+		{"postgres://localhost:5432/db?refresh_token=tok2", "tok2"},
+		{"s3://storage/bucket?aws_secret_access_key=AKIASECRET", "AKIASECRET"},
+		{"https://es.example.com:9200?x-api-key=essecret", "essecret"},
+		{"postgres://localhost:5432/db?client_secret=shh", "shh"},
+		{"mysql://localhost:3306/db?signature=sigval", "sigval"},
+		{"rediss://localhost:6379?password=pw1", "pw1"},
+		{"postgres://localhost:5432/db?user=bob&password=pw2", "pw2"},
+		{"clickhouse://localhost:9000/default?authToken=clicktok", "clicktok"},
+	}
+
+	for _, c := range cases {
+		got := RedactDSN(c.in)
+		if strings.Contains(got, c.secret) {
+			t.Errorf("RedactDSN(%q) = %q, leaks %q", c.in, got, c.secret)
+		}
+
+		if !strings.Contains(got, "REDACTED") {
+			t.Errorf("RedactDSN(%q) = %q, want a REDACTED parameter", c.in, got)
+		}
+	}
+
+	// Non-credential parameters must survive or the DSN stops being
+	// useful in logs.
+	got := RedactDSN("postgres://localhost:5432/db?sslmode=disable&connect_timeout=5")
+	if !strings.Contains(got, "sslmode=disable") || !strings.Contains(got, "connect_timeout=5") {
+		t.Errorf("benign parameters redacted: %q", got)
+	}
+}

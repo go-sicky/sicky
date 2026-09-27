@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/runner"
+	"github.com/go-sicky/sicky/utils"
 )
 
 func newTestRunner(buffer, threads int) *Static {
@@ -151,5 +152,79 @@ func TestStartStopRestart(t *testing.T) {
 		if err := r.Stop(); err != nil {
 			t.Fatalf("Stop %d: %v", i, err)
 		}
+	}
+}
+
+// shortenStopTimeout lowers the process-wide Stop bound for one test.
+func shortenStopTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+
+	old := utils.StopTimeout
+	utils.StopTimeout = d
+	t.Cleanup(func() { utils.StopTimeout = old })
+}
+
+// TestStopTimesOutOnStuckWorker: a worker stuck in user code must not
+// wedge the shutdown - and while it still runs, Start has to be refused
+// (wg.Add during a pending Wait panics as a WaitGroup misuse, and the old
+// batch would drain into the new pool).
+func TestStopTimesOutOnStuckWorker(t *testing.T) {
+	shortenStopTimeout(t, 150*time.Millisecond)
+
+	release := make(chan struct{})
+	entered := make(chan struct{}, 1)
+
+	r := newTestRunner(4, 1)
+	r.options.Handler = func(*runner.Task) error {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+
+		<-release
+
+		return nil
+	}
+
+	if err := r.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	r.TryTask(&runner.Task{}, time.Second)
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker never picked the task up")
+	}
+
+	start := time.Now()
+	err := r.Stop()
+	if !errors.Is(err, utils.ErrStopTimeout) {
+		t.Fatalf("Stop = %v, want ErrStopTimeout", err)
+	}
+
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("Stop took %s, want ~150ms", elapsed)
+	}
+
+	if err := r.Start(); !errors.Is(err, utils.ErrStopTimeout) {
+		t.Fatalf("Start while draining = %v, want ErrStopTimeout", err)
+	}
+
+	// Release the worker and wait for the runner to become startable.
+	close(release)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := r.Start(); err == nil {
+			break
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := r.Stop(); err != nil {
+		t.Fatalf("final stop: %v", err)
 	}
 }
