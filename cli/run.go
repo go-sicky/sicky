@@ -17,6 +17,49 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// buildForwardArgs assembles the `go run` argument list. The "--" that
+// separates go run's own flags from the business program's appears at most
+// once: it is tracked with hasSep rather than probed in the slice, because
+// the forwarded block reads ["run", ".", "--", "--config", "app.yaml"], so
+// the second-from-last element is "--config" and probing there appended a
+// second "--" that leaked into the child's positional args.
+//
+// configFlag and configTypeFlag are the raw flag values; empty and the
+// defaults ("config" / "json") are omitted so a bare `go run .` stays clean.
+// rest are the leftover positional args from the flag set.
+func buildForwardArgs(configFlag, configTypeFlag string, rest []string) []string {
+	forward := []string{"run", "."}
+
+	hasSep := false
+
+	if configFlag != "" && configFlag != "config" {
+		forward = append(forward, "--", "--config", configFlag)
+		hasSep = true
+		// NOTE: `go run . -- --config x` keeps sicky.Init pflag parsing intact.
+		// --config-type must also be forwarded when non-default, otherwise
+		// a custom --config with e.g. yaml would silently parse as json.
+		if configTypeFlag != "" && configTypeFlag != "json" {
+			forward = append(forward, "--config-type", configTypeFlag)
+		}
+	} else if configTypeFlag != "" && configTypeFlag != "json" {
+		forward = append(forward, "--", "--config-type", configTypeFlag)
+		hasSep = true
+	}
+
+	// Any leftover positional args are treated as extra business args.
+	// `sicky run -- --port 8080` -> `go run . -- --port 8080`.
+	// `sicky run --port 8080` (no -- separator) also forwards for convenience.
+	if len(rest) > 0 {
+		if !hasSep {
+			forward = append(forward, "--")
+		}
+
+		forward = append(forward, rest...)
+	}
+
+	return forward
+}
+
 // runRun executes the user business project in the current directory by
 // delegating to `go run .`. It only passes through framework-relevant flags
 // (--config/-C, --config-type); the target binary parses them via sicky.Init.
@@ -36,38 +79,13 @@ func runRun(args []string) int {
 	}
 
 	// go run . <forwarded flags> [-- extra args]
-	forward := []string{"run", "."}
-	if *configFlag != "" && *configFlag != "config" {
-		forward = append(forward, "--", "--config", *configFlag)
-		// NOTE: `go run . -- --config x` keeps sicky.Init pflag parsing intact.
-		// Default value is omitted so `go run .` stays clean.
-		// --config-type must also be forwarded when non-default, otherwise
-		// a custom --config with e.g. yaml would silently parse as json.
-		if *configTypeFlag != "" && *configTypeFlag != "json" {
-			forward = append(forward, "--config-type", *configTypeFlag)
-		}
-	} else if *configTypeFlag != "" && *configTypeFlag != "json" {
-		forward = append(forward, "--", "--config-type", *configTypeFlag)
-	}
-
-	// Any leftover positional args are treated as extra business args.
-	// `sicky run -- --port 8080` -> `go run . -- --port 8080`.
-	// `sicky run --port 8080` (no -- separator) also forwards for convenience.
-	rest := fs.Args()
-	if len(rest) > 0 {
-		if len(forward) >= 2 && forward[len(forward)-2] == "--" {
-			forward = append(forward, rest...)
-		} else {
-			forward = append(forward, "--")
-			forward = append(forward, rest...)
-		}
-	}
+	forward := buildForwardArgs(*configFlag, *configTypeFlag, fs.Args())
 
 	if *watchFlag {
 		return runWatch(forward)
 	}
 
-	cmd := exec.Command("go", forward...)
+	cmd := exec.Command("go", forward...) //nolint:gosec // G204: dev CLI; the binary is fixed (go) and forward is built by buildForwardArgs from explicit operator flags
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

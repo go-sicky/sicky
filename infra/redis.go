@@ -63,7 +63,11 @@ func (redisMetricsHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
 		start := time.Now()
 		err := next(ctx, cmd)
-		metrics.ObserveInfraOp("redis", cmd.Name(), start, err)
+		// Normalize because go-redis takes the command name from the
+		// first argument: the typed methods pass a compile-time constant,
+		// but Do and NewCmd carry caller-supplied args, so an unmapped
+		// name would mint a permanent series per distinct value.
+		metrics.ObserveInfraOp("redis", metrics.NormalizeRedisCommand(cmd.Name()), start, err)
 
 		return err
 	}

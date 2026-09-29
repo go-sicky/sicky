@@ -270,7 +270,14 @@ func Net2fd(conn net.Conn) (int, error) {
 			return -1, fmt.Errorf("utils: Net2fd: %T conn is not addressable", conn)
 		}
 
-		v := reflect.NewAt(
+		// Reaching an unexported field is the whole point of this
+		// helper, so it needs unsafe: a *tls.Conn only exposes the
+		// embedded net.Conn through a field reflection cannot read. The
+		// pointer is derived from a value already CanAddr above and is
+		// used to produce a *net.Conn interface, never to mutate memory
+		// or widen its own access, and every step between here and the
+		// return is checked. See the twin annotation in debug.go.
+		v := reflect.NewAt( //nolint:gosec // G103: see above; the read is of an already-addressable, type-checked field.
 			innerConn.Type(),
 			unsafe.Pointer(
 				innerConn.UnsafeAddr(),

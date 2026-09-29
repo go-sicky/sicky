@@ -40,6 +40,48 @@ const UnknownMethod = "OTHER"
 // UnmatchedRoute is the label value for requests that matched no route.
 const UnmatchedRoute = "unmatched"
 
+// UnknownCommand is the label value for a Redis command outside the
+// known set. It bounds the series count for sicky_infra_ops_total{infra=
+// "redis"} the same way UnknownMethod bounds the HTTP server series.
+const UnknownCommand = "OTHER"
+
+// knownRedisCommands is the closed set of commands that keep their own
+// label. Every typed go-redis method issues one of these with a
+// compile-time constant name, so they are already bounded; Do and
+// NewCmd take caller-supplied args whose first element becomes the
+// command name, and that is the unbounded path this set closes.
+var knownRedisCommands = map[string]struct{}{
+	"ACL": {}, "APPEND": {}, "AUTH": {}, "BGSAVE": {}, "BITCOUNT": {},
+	"BITFIELD": {}, "BLPOP": {}, "BRPOP": {}, "CLIENT": {}, "CLUSTER": {},
+	"COMMAND": {}, "CONFIG": {}, "DBSIZE": {}, "DECR": {}, "DEL": {},
+	"DISCARD": {}, "DUMP": {}, "ECHO": {}, "EVAL": {}, "EVALSHA": {},
+	"EXISTS": {}, "EXPIRE": {}, "FLUSHALL": {}, "FLUSHDB": {}, "GEOADD": {},
+	"GEODIST": {}, "GEOPOS": {}, "GET": {}, "GETRANGE": {}, "HDEL": {},
+	"HGET": {}, "HGETALL": {}, "HINCRBY": {}, "HKEYS": {}, "HLEN": {},
+	"HMGET": {}, "HMSET": {}, "HRANDFIELD": {}, "HSCAN": {}, "HSET": {},
+	"HSETNX": {}, "HSTRLEN": {}, "HVALS": {}, "INCR": {}, "INCRBY": {},
+	"INFO": {}, "KEYS": {}, "LASTSAVE": {}, "LPOP": {}, "LPUSH": {},
+	"LPUSHX": {}, "LRANGE": {}, "LLEN": {}, "LREM": {}, "LSET": {},
+	"LTRIM": {}, "MGET": {}, "MOVE": {}, "MSET": {}, "MSETNX": {},
+	"MULTI": {}, "PERSIST": {}, "PEXPIRE": {}, "PING": {}, "PSETEX": {},
+	"PTTL": {}, "PUBLISH": {}, "PUBSUB": {}, "RANDOMKEY": {}, "RENAME": {},
+	"RENAMENX": {}, "RPOP": {}, "RPOPLPUSH": {}, "RPUSH": {}, "RPUSHX": {},
+	"SADD": {}, "SAVE": {}, "SCAN": {}, "SCARD": {}, "SDIFF": {},
+	"SDIFFSTORE": {}, "SELECT": {}, "SET": {}, "SETEX": {}, "SETNX": {},
+	"SHUTDOWN": {}, "SINTER": {}, "SINTERSTORE": {}, "SISMEMBER": {},
+	"SLAVEOF": {}, "SMEMBERS": {}, "SMISMEMBER": {}, "SMOVE": {},
+	"SORT": {}, "SPOP": {}, "SRANDMEMBER": {}, "SREM": {}, "SSCAN": {},
+	"STRLEN": {}, "SUBSCRIBE": {}, "SUNION": {}, "SUNIONSTORE": {},
+	"SWAPDB": {}, "TIME": {}, "TTL": {}, "TYPE": {}, "UNLINK": {},
+	"UNSUBSCRIBE": {}, "UNWATCH": {}, "WATCH": {}, "ZADD": {}, "ZCARD": {},
+	"ZCOUNT": {}, "ZINCRBY": {}, "ZINTER": {}, "ZINTERSTORE": {},
+	"ZLEXCOUNT": {}, "ZPOPMAX": {}, "ZPOPMIN": {}, "ZRANDMEMBER": {},
+	"ZRANGE": {}, "ZRANGEBYLEX": {}, "ZRANGEBYSCORE": {}, "ZRANK": {},
+	"ZREM": {}, "ZREMRANGEBYLEX": {}, "ZREMRANGEBYRANK": {},
+	"ZREMRANGEBYSCORE": {}, "ZREVRANGE": {}, "ZREVRANGEBYSCORE": {},
+	"ZREVRANK": {}, "ZSCAN": {}, "ZSCORE": {},
+}
+
 // knownHTTPMethods is the closed set of methods that keep their own
 // label. Anything else (net/http accepts any token, including
 // `GET1 x`) collapses into UnknownMethod.
@@ -86,4 +128,26 @@ func NormalizeRouteLabel(route string) string {
 	}
 
 	return route
+}
+
+// NormalizeRedisCommand bounds a Redis command name before it reaches a
+// metric label. go-redis derives cmd.Name() from the FIRST ARGUMENT, so
+// the typed methods are safe (their command is a compile-time constant)
+// but Do and NewCmd take caller-supplied args: a sharded key or a
+// pseudo-command routed through them mints a permanent new series per
+// distinct value, which grows the Prometheus registry without bound and
+// eventually OOMs the process or times out every scrape.
+//
+// Only call this for Redis command labels.
+func NormalizeRedisCommand(cmd string) string {
+	if cmd == "" {
+		return UnknownCommand
+	}
+
+	c := strings.ToUpper(cmd)
+	if _, ok := knownRedisCommands[c]; ok {
+		return c
+	}
+
+	return UnknownCommand
 }

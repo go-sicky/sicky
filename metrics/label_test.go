@@ -47,3 +47,59 @@ func TestNormalizeMethodBoundsSeries(t *testing.T) {
 		t.Fatalf("unbounded method labels: %v", seen)
 	}
 }
+
+// TestNormalizeRedisCommandKeepsKnownVerbs verifies the typed go-redis
+// methods keep their byte-identical label. Their command name is a
+// compile-time constant, so normalization must be a no-op for them: a
+// dashboard or alert built on sicky_infra_ops_total{op="HGETALL"} keeps
+// working.
+func TestNormalizeRedisCommandKeepsKnownVerbs(t *testing.T) {
+	for _, cmd := range []string{"GET", "SET", "HGETALL", "EVAL", "PING", "ZADD", "SCAN", "PUBLISH"} {
+		if got := NormalizeRedisCommand(cmd); got != cmd {
+			t.Fatalf("NormalizeRedisCommand(%q) = %q, want %q: a typed method's label must not change", cmd, got, cmd)
+		}
+	}
+}
+
+// TestNormalizeRedisCommandBoundsCallerSuppliedNames is the regression.
+// go-redis takes cmd.Name() from the first argument, so a Do or NewCmd
+// caller supplying a variable command name minted one permanent series
+// per distinct value.
+func TestNormalizeRedisCommandBoundsCallerSuppliedNames(t *testing.T) {
+	for _, cmd := range []string{"tenant:42:shard-1", "shard-7", "CUSTOM.LOAD", "get ", "get\n", "GET2"} {
+		if got := NormalizeRedisCommand(cmd); got != UnknownCommand {
+			t.Fatalf("NormalizeRedisCommand(%q) = %q, want %q: a caller-supplied name must not become a label", cmd, got, UnknownCommand)
+		}
+	}
+
+	if got := NormalizeRedisCommand(""); got != UnknownCommand {
+		t.Fatalf("NormalizeRedisCommand(\"\") = %q, want %q", got, UnknownCommand)
+	}
+}
+
+// TestNormalizeRedisCommandIsCaseInsensitive matches go-redis, which
+// lower-cases the name it derives; an upper-cased known verb must not
+// fall through to OTHER.
+func TestNormalizeRedisCommandIsCaseInsensitive(t *testing.T) {
+	for _, cmd := range []string{"get", "Get", "hgetall", "HgetAll"} {
+		if got := NormalizeRedisCommand(cmd); got == UnknownCommand {
+			t.Fatalf("NormalizeRedisCommand(%q) collapsed a known verb to %q", cmd, UnknownCommand)
+		}
+	}
+}
+
+// TestNormalizeRedisCommandBoundsSeries is the property the fix exists
+// for: any input maps into a fixed set, whatever the caller passes.
+func TestNormalizeRedisCommandBoundsSeries(t *testing.T) {
+	seen := map[string]bool{}
+	for _, cmd := range []string{
+		"GET", "get", "GET1", "X", "", "SET", "whatever", "PING", "pInG",
+		"tenant:1", "tenant:2", "tenant:3", "shard-1", "shard-2",
+	} {
+		seen[NormalizeRedisCommand(cmd)] = true
+	}
+
+	if len(seen) > len(knownRedisCommands)+1 {
+		t.Fatalf("unbounded redis command labels: %v", seen)
+	}
+}

@@ -1364,6 +1364,12 @@ shutdown:
 		}
 	}
 
+	// Drop the stopped manager. A later Run with the manager disabled
+	// would otherwise publish this run's dead address into every
+	// service's registry instance, which is exactly what the comment
+	// above serviceToRegistryInstance says must never reach discovery.
+	managerApp = nil
+
 	// Stop infra (errors are collected, never abort the sequence).
 	// Singletons are cleared after Close so a later Run() builds fresh
 	// connections instead of reusing closed ones.

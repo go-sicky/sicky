@@ -78,13 +78,18 @@ type Interactive struct {
 	brokers    []broker.Broker
 	jobs       []job.Job
 	registries []registry.Registry
-	startOnce  sync.Once
-	stopOnce   sync.Once
 	done       chan struct{}
 	stdin      io.Reader
 	reader     *bufio.Reader
 	tracers    []tracer.Tracer
 	handlers   []Handler
+
+	// running guards the stdin loop so repeated Start calls cannot pile
+	// up concurrent os.Stdin readers, and so a stopped service can be
+	// started again. It is a flag rather than a sync.Once because a Once
+	// can never be reset, which left the service permanently unable to
+	// restart after Stop.
+	running bool
 }
 
 // New creates a new instance (nil on invalid config).
@@ -139,15 +144,29 @@ func (s *Interactive) Start() []error {
 	// err  error
 	var errs []error
 
+	// One stdin-reading goroutine per service: repeated Start calls must
+	// not pile up concurrent os.Stdin readers. done is rebuilt here so a
+	// service that was stopped can start again, and the channel is handed
+	// to the loop instead of being read from the struct: a loop that read
+	// s.done would pick up the replacement channel after a restart and
+	// then wait on a Stop that had already fired.
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+
+		return errs
+	}
+
+	done := make(chan struct{})
+	s.done = done
+	s.running = true
+	s.mu.Unlock()
+
 	if s.config.StartupInfo != "" {
 		fmt.Println(s.config.StartupInfo)
 	}
 
-	// One stdin-reading goroutine per service: repeated Start calls must
-	// not pile up concurrent os.Stdin readers.
-	s.startOnce.Do(func() {
-		go s.loop()
-	})
+	go s.loop(done)
 
 	return errs
 }
@@ -163,22 +182,41 @@ func (s *Interactive) Stop() []error {
 	// err  error
 	var errs []error
 
-	s.stopOnce.Do(func() {
-		if s.done != nil {
+	s.mu.Lock()
+
+	// Signal unconditionally, whether or not a run is in flight. A closed
+	// done is how "stopped" is represented: interact consults it to
+	// refuse to prompt again, and a Stop that arrived before the first
+	// Start has the same meaning as one that ended a run. Gating on
+	// running would leave a never-started service looking live.
+	//
+	// The running flag is what guards the close, so repeated Stop calls
+	// cannot panic on a channel that is already closed. Start replaces
+	// done under the same lock, so a stopped service still restarts.
+	if s.done != nil {
+		select {
+		case <-s.done:
+		default:
 			close(s.done)
 		}
-	})
+	}
+
+	s.running = false
+	s.mu.Unlock()
 
 	return errs
 }
 
 // loop drives interact until the stop command, a closed stdin or Stop.
+// It takes the done channel of the run it belongs to: the channel is
+// replaced by every Start, so reading the field would let an old loop
+// start waiting on a newer run's channel.
 // A reader already blocked inside os.Stdin cannot be canceled, but the
 // loop never starts another read once done is closed.
-func (s *Interactive) loop() {
+func (s *Interactive) loop(done chan struct{}) {
 	for {
 		select {
-		case <-s.done:
+		case <-done:
 			return
 		default:
 		}

@@ -10,6 +10,81 @@ import (
 	"github.com/go-sicky/sicky/service"
 )
 
+// TestRestartAfterStop is the regression guard for the sync.Once pair that
+// guarded Start and Stop: a Once can never be reset, so the first Stop
+// left the service permanently unable to start again, which broke the
+// Start-Stop-Start contract the rest of the framework supports.
+func TestRestartAfterStop(t *testing.T) {
+	svc := newTestService(t, strings.NewReader(""))
+
+	if errs := svc.Start(); len(errs) != 0 {
+		t.Fatalf("first start errors: %v", errs)
+	}
+
+	if errs := svc.Stop(); len(errs) != 0 {
+		t.Fatalf("stop errors: %v", errs)
+	}
+
+	// The second Start is the one that used to be swallowed by startOnce.
+	// Stop rebuilds nothing itself, so a service whose Stop is gated on an
+	// in-flight run would find its done channel already closed here and
+	// the loop would exit immediately.
+	if errs := svc.Start(); len(errs) != 0 {
+		t.Fatalf("restart errors: %v", errs)
+	}
+
+	svc.mu.Lock()
+	live := svc.running
+	done := svc.done
+	svc.mu.Unlock()
+
+	if !live {
+		t.Fatal("service is not running after a restart: Start was silently skipped")
+	}
+
+	select {
+	case <-done:
+		t.Fatal("done is already closed after a restart: Stop must rebuild it, or the new run exits at once")
+	default:
+	}
+
+	// Stop must still be idempotent after a restart, or the second
+	// shutdown panics on a channel the first one already closed.
+	if errs := svc.Stop(); len(errs) != 0 {
+		t.Fatalf("final stop errors: %v", errs)
+	}
+
+	if errs := svc.Stop(); len(errs) != 0 {
+		t.Fatalf("repeated stop errors: %v", errs)
+	}
+}
+
+// TestStartIsIdempotent guards the other half of the flag: without it a
+// second Start would spawn a second goroutine reading os.Stdin.
+func TestStartIsIdempotent(t *testing.T) {
+	svc := newTestService(t, strings.NewReader(""))
+
+	if errs := svc.Start(); len(errs) != 0 {
+		t.Fatalf("first start errors: %v", errs)
+	}
+
+	svc.mu.Lock()
+	first := svc.done
+	svc.mu.Unlock()
+
+	if errs := svc.Start(); len(errs) != 0 {
+		t.Fatalf("second start errors: %v", errs)
+	}
+
+	svc.mu.Lock()
+	second := svc.done
+	svc.mu.Unlock()
+
+	if first != second {
+		t.Fatal("Start replaced the done channel while already running: two stdin readers would compete")
+	}
+}
+
 // newTestService wires an in-memory stdin over the reader the loop uses.
 func newTestService(t *testing.T, stdin io.Reader) *Interactive {
 	t.Helper()
@@ -50,7 +125,7 @@ func TestLoopEndsOnEOF(t *testing.T) {
 
 	returned := make(chan struct{})
 	go func() {
-		svc.loop()
+		svc.loop(svc.done)
 		close(returned)
 	}()
 

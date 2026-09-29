@@ -95,7 +95,14 @@ type GeneralLogger interface {
 // DefaultGeneralLogger is a shared logger value.
 var DefaultGeneralLogger = NewGeneral(nil)
 
-// SetDefaultGeneral sets defaultgeneral.
+// SetDefaultGeneral replaces the package-level Logger and
+// DefaultGeneralLogger. It is meant for the process's own setup path,
+// before any goroutine is logging: Logger is a plain interface variable,
+// so a call that races with a log call is an unsynchronised interface
+// read/write and a torn value panics inside the method dispatch. Every
+// in-repo writer runs during init or from a test, so the contract is
+// upheld here; an application that swaps the global logger at runtime
+// must serialize that swap against its own logging.
 func SetDefaultGeneral(logger GeneralLogger) {
 	Logger = logger
 	DefaultGeneralLogger = logger
@@ -141,7 +148,11 @@ func NewGeneral(l ...*slog.Logger) GeneralLogger {
 		)
 	}
 
-	slog.SetDefault(ins)
+	// NOTE: this constructor deliberately does not call slog.SetDefault.
+	// Doing so would let any library user who constructs a logger silently
+	// replace the default logger for the entire process, which is a
+	// side effect a constructor has no business having. Callers that do
+	// want the process default moved must call slog.SetDefault themselves.
 	gl := &generalLogger{
 		ins:   ins,
 		level: level,

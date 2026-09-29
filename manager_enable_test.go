@@ -3,13 +3,41 @@ package sicky
 import (
 	"bytes"
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/go-sicky/sicky/service"
 )
 
-// TestManagerConfigEnabledTriState pins the tri-state contract: a nil
+// managerProbe records the manager address that Run advertises for it at
+// the moment a service starts. Run starts the manager before any service,
+// so a non-empty address here proves the manager was bound and live; an
+// empty one proves Enable turned it off. The capture happens on Run's own
+// goroutine and the test reads it only after Run returns, so no extra
+// synchronization is needed beyond the mutex the test already holds.
+type managerProbe struct {
+	*orderedService
+
+	mu         *sync.Mutex
+	advertised *string
+	seen       *bool
+}
+
+func (p *managerProbe) Start() []error {
+	errs := p.orderedService.Start()
+
+	p.mu.Lock()
+	*p.advertised = serviceToRegistryInstance(p).ManagerAddress
+	*p.seen = true
+	p.mu.Unlock()
+
+	return errs
+}
+
+// TestRunHonorsManagerEnableTriState pins the tri-state contract: a nil
 // receiver (no manager block) is off, a nil Enable (block present) is
 // on, and only an explicit false is off.
 func TestManagerConfigEnabledTriState(t *testing.T) {
@@ -136,17 +164,32 @@ func TestRunHonorsManagerEnableTriState(t *testing.T) {
 			restore := snapshotGlobals()
 			defer restore()
 
-			// managerApp is a package global that Run only assigns when
-			// the manager starts, so clearing it is what makes the
-			// "did it start" question answerable.
-			managerApp = nil
-
-			t.Cleanup(func() { managerApp = nil })
-
 			ctx, cancel := context.WithCancel(context.Background())
 
 			options = testOptions()
 			options.Context = ctx
+
+			// Observe whether the manager was actually up by capturing the
+			// address Run advertises for it, not by inspecting managerApp
+			// afterwards: Run drops that global when it shuts down, so a
+			// post-run read can no longer answer the question. A service
+			// started by Run is the right vantage point because Run starts
+			// the manager before it starts any service, so the address is
+			// already bound when the service records it. Start runs on
+			// Run's own goroutine and the test only reads after Run
+			// returns, so the capture needs no extra synchronization.
+			var (
+				mu         sync.Mutex
+				advertised string
+				recordSeen bool
+			)
+
+			service.Set(&managerProbe{
+				orderedService: probeService("manager-enable-probe"),
+				mu:             &mu,
+				advertised:     &advertised,
+				seen:           &recordSeen,
+			})
 
 			go func() {
 				time.Sleep(150 * time.Millisecond)
@@ -158,8 +201,16 @@ func TestRunHonorsManagerEnableTriState(t *testing.T) {
 				t.Fatalf("Run: %v", err)
 			}
 
-			if got := managerApp != nil; got != tc.wantStart {
-				t.Fatalf("manager started = %v, want %v (enable %v)", got, tc.wantStart, tc.enable)
+			mu.Lock()
+			got, seen := advertised, recordSeen
+			mu.Unlock()
+
+			if !seen {
+				t.Fatal("the probe service never ran, so the manager's state was not observed")
+			}
+
+			if gotStart := got != ""; gotStart != tc.wantStart {
+				t.Fatalf("manager started = %v (advertised %q), want %v (enable %v)", gotStart, got, tc.wantStart, tc.enable)
 			}
 		})
 	}
