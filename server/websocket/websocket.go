@@ -69,6 +69,10 @@ type WebsocketServer struct {
 	metadata      utils.Metadata
 	handlers      atomic.Pointer[[]Handler]
 	reaperDone    chan struct{}
+	// capLog throttles the session-cap rejection log. operator runs once
+	// per connection, so a cap-reject storm would otherwise turn the
+	// guard itself into a log flood.
+	capLog *utils.LogSampler
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -126,10 +130,14 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 
 	app := fiber.New(
 		fiber.Config{
-			ServerHeader:     opts.Name,
-			AppName:          opts.Name,
-			TrustProxy:       cfg.TrustProxy == nil || *cfg.TrustProxy,
-			TrustProxyConfig: fiber.TrustProxyConfig{Loopback: true, LinkLocal: true, Private: true},
+			ServerHeader: opts.Name,
+			AppName:      opts.Name,
+			TrustProxy:   cfg.TrustProxy == nil || *cfg.TrustProxy,
+			// Loopback only, plus the operator-named proxies. Trusting
+			// link-local and private ranges would let any same-segment
+			// client (pod network, VPC, LAN) forge X-Forwarded-For and
+			// rewrite the client IP every OnConnect handler sees.
+			TrustProxyConfig: fiber.TrustProxyConfig{Loopback: true, Proxies: cfg.TrustProxies},
 		},
 	)
 	app.Use(recovermiddleware.New(recovermiddleware.ConfigDefault))
@@ -179,6 +187,18 @@ func New(opts *server.Options, cfg *Config) *WebsocketServer {
 	}
 
 	poolMu.Unlock()
+
+	// One log per second is enough to see a cap storm without becoming one.
+	srv.capLog = utils.NewLogSampler(1, time.Second)
+
+	// Warn loudly when a DoS guard is left disabled, mirroring server/tcp
+	// and server/udp. Without a cap each upgrade holds a goroutine until
+	// MaxIdleDuration expires, so a client can pin the process with
+	// simultaneous idle connections.
+	if cfg.MaxSessions <= 0 {
+		srv.options.Logger.WarnContext(srv.ctx, "websocket max_sessions is 0, concurrent connection cap is disabled",
+			"server", srv.String(), "id", srv.options.ID, "name", srv.options.Name)
+	}
 
 	return srv
 }
@@ -641,6 +661,31 @@ func (srv *WebsocketServer) operator(c *websocket.Conn) {
 
 	if srv.config.MaxMessageBytes > 0 {
 		c.SetReadLimit(int64(srv.config.MaxMessageBytes))
+	}
+
+	// Enforce the connection cap before allocating a session for the
+	// peer (mirrors the TCP accept loop): every upgrade already costs a
+	// goroutine, so rejecting here keeps a flood of simultaneous idle
+	// upgrades from pinning the process.
+	if srv.config.MaxSessions > 0 && SessionPool != nil && SessionPool.Length() >= srv.config.MaxSessions {
+		// Sampled: a cap-reject storm under flood must not log-DoS.
+		if allow, suppressed := srv.capLog.Allow(); allow {
+			args := []any{
+				"server", srv.String(), "id", srv.options.ID, "name", srv.options.Name,
+				"client", c.RemoteAddr().String(), "max_sessions", srv.config.MaxSessions,
+			}
+
+			if suppressed > 0 {
+				args = append(args, "suppressed", suppressed)
+			}
+
+			srv.options.Logger.ErrorContext(srv.ctx, "websocket session cap reached, rejecting connection", args...)
+		}
+
+		metrics.ServerRejectedTotal.WithLabelValues("websocket", "session_cap").Inc()
+		_ = c.Close()
+
+		return
 	}
 
 	// OnConnect

@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/broker/jetstream"
@@ -92,7 +93,17 @@ var ErrManagerInvalidPath = errors.New("manager: invalid endpoint path")
 
 // ManagerConfig is a sicky component.
 type ManagerConfig struct {
-	Enable           bool   `json:"enable"            mapstructure:"enable"            yaml:"enable"`
+	// Enable is tri-state on purpose. A nil Enable means the config
+	// block is present, so the manager runs (the same
+	// presence-means-enabled rule the infra and registry configs use);
+	// only an explicit false turns it off, spelled new(false) in Go. A
+	// plain bool cannot express both halves: presence-means-enabled
+	// alone would ignore {"manager": {"enable": false, "address":
+	// "0.0.0.0:8888"}} and start a publicly bound manager that exposes
+	// /metrics and /health, while "Enable must be set to true" would
+	// silently skip the manager for any Go-built config that sets only
+	// Address.
+	Enable           *bool  `json:"enable"            mapstructure:"enable"            yaml:"enable"`
 	Address          string `json:"address"           mapstructure:"address"           yaml:"address"`
 	AdvertiseAddress string `json:"advertise_address" mapstructure:"advertise_address" yaml:"advertise_address"`
 	EnableSwagger    bool   `json:"enable_swagger"    mapstructure:"enable_swagger"    yaml:"enable_swagger"`
@@ -132,7 +143,10 @@ type ManagerConfig struct {
 // DefaultManagerConfig is part of the public API.
 func DefaultManagerConfig() *ManagerConfig {
 	return &ManagerConfig{
-		Enable:          true,
+		// Enable stays nil, which Enabled reads as "the block is
+		// present, run the manager". This function only ever builds a
+		// present block, so pinning true here would add a pointer
+		// field for no decision.
 		Address:         DefaultManagerAddress,
 		MetricsPath:     DefaultMetricsPath,
 		HealthPath:      DefaultHealthPath,
@@ -149,6 +163,18 @@ func DefaultManagerConfig() *ManagerConfig {
 		IdleTimeout:     DefaultManagerIdleTimeout,
 		ShutdownTimeout: DefaultShutdownTimeout,
 	}
+}
+
+// Enabled reports whether the manager should run. It is total, so both
+// Run call sites can use it directly on a possibly-nil config: a nil
+// receiver means no manager block, which is off; a nil Enable means the
+// block is present, which is on; only an explicit false turns it off.
+func (c *ManagerConfig) Enabled() bool {
+	if c == nil {
+		return false
+	}
+
+	return c.Enable == nil || *c.Enable
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
@@ -300,7 +326,9 @@ var (
 )
 
 // Validate checks the tracer selection. Uptrace requires DSN (abort);
-// OTLP grpc/http fall back to defaults with endpoint required after Ensure.
+// OTLP grpc/http require an endpoint (abort) — a typed OTLP tracer with no
+// endpoint would otherwise construct a nil tracer that Run() can only
+// downgrade to a Warn, leaving the process silently untraced.
 func (c *TracerConfig) Validate() error {
 	if c == nil {
 		return nil
@@ -316,12 +344,27 @@ func (c *TracerConfig) Validate() error {
 		return ErrTracerNoDSN
 	}
 
+	// "none" and "stdout" are local and need no endpoint.
+	switch c.Type {
+	case tracerTypeGRPC, tracerTypeHTTP:
+		if strings.TrimSpace(c.Endpoint) == "" {
+			return ErrTracerNoEndpoint
+		}
+	}
+
 	return nil
 }
 
-// Ensure fills tracer defaults: empty type -> "none", out-of-range
-// sample rate -> 1.0. ServiceName/Version stay empty here so the
-// orchestrator can fall back to AppName/Version at runtime.
+// Ensure fills tracer defaults: empty type -> "none", unset or
+// out-of-range sample rate -> 1.0. ServiceName/Version stay empty here so
+// the orchestrator can fall back to AppName/Version at runtime.
+//
+// A zero SampleRate is the value viper produces for an absent float64 key,
+// so it means "unset" — not "sample nothing". Leaving it at 0 reached
+// sdktrace.TraceIDRatioBased(0), which exports nothing while Run() still
+// logs "tracer initialized". Deliberate 0% sampling is therefore not
+// expressible here; set it on the concrete tracer package Config, which
+// keeps 0 verbatim (see tracer/grpc.Config.Ensure).
 func (c *TracerConfig) Ensure() *TracerConfig {
 	if c == nil {
 		c = &TracerConfig{Type: DefaultTracerType}
@@ -331,8 +374,8 @@ func (c *TracerConfig) Ensure() *TracerConfig {
 		c.Type = DefaultTracerType
 	}
 
-	if c.SampleRate < 0.0 || c.SampleRate > 1.0 {
-		c.SampleRate = 1.0
+	if c.SampleRate <= 0.0 || c.SampleRate > 1.0 {
+		c.SampleRate = DefaultTracerSampleRate
 	}
 
 	return c
@@ -343,6 +386,10 @@ const (
 	DefaultLogLevel = "info"
 	// DefaultTracerType is a sicky constant.
 	DefaultTracerType = "none"
+	// DefaultTracerSampleRate is a sicky constant. TracerConfig.SampleRate
+	// is a float64 with no viper-level zero sentinel, so 0 is read as
+	// "unset" and refilled with this.
+	DefaultTracerSampleRate = 1.0
 
 	// Tracer backend selectors (unexported: config surface stays stringly
 	// typed for viper/mapstructure compat).

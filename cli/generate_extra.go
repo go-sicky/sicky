@@ -419,6 +419,16 @@ func generateK8sFiles(args []string) int {
 		name = fs.Arg(0)
 	}
 
+	// The name is interpolated into raw YAML at five points below, and
+	// writeGuard only checks the output path, never the content. A
+	// newline in the name would therefore inject arbitrary manifest
+	// keys (hostNetwork, a foreign image) into a deployment.yaml that a
+	// later `kubectl apply -f` runs. Every other generator validates
+	// the name before templating; this one had to as well.
+	if code := requireName("k8s", name); code != 0 {
+		return code
+	}
+
 	dir := gf.output
 	if dir == "" {
 		dir = "deploy"

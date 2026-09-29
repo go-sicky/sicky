@@ -3,6 +3,7 @@ package nsq
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"strings"
@@ -202,6 +203,68 @@ func TestSubscribeDeduplicatesSequentially(t *testing.T) {
 
 	if created != 1 {
 		t.Fatalf("consumers created = %d, want 1", created)
+	}
+}
+
+// TestSubscribeReleasesLockBeforeDialing: Subscribe used to hold brk.mu
+// (write) across newConsumer and ConnectToNSQD. The dial is DNS + TCP to
+// every NSQD, so on a blackholed broker it ran to its full timeout with the
+// lock held, stalling every concurrent Publish and every in-flight
+// nsqHandler.HandleMessage (which takes brk.mu.RLock) for the duration.
+//
+// newConsumer is the injectable seam, so blocking there parks the call in
+// exactly the window the fix moved outside the critical section.
+func TestSubscribeReleasesLockBeforeDialing(t *testing.T) {
+	brk := newTestBroker(t, "127.0.0.1:1")
+	defer func() {
+		if err := brk.Disconnect(); err != nil {
+			t.Errorf("disconnect: %v", err)
+		}
+	}()
+
+	inDial := make(chan struct{})
+	release := make(chan struct{})
+
+	brk.newConsumer = func(topic, channel string, cfg *nsqio.Config) (*nsqio.Consumer, error) {
+		close(inDial)
+		<-release
+
+		return nil, errors.New("blocked")
+	}
+
+	subErr := make(chan error, 1)
+	go func() { subErr <- brk.Subscribe("topic-slow", nil) }()
+
+	<-inDial // Subscribe is now inside the dial, which must hold no lock.
+
+	// A reader must acquire brk.mu while the dial is in flight. If Subscribe
+	// still held the write lock this would block, proving the regression.
+	acquired := make(chan struct{})
+	go func() {
+		brk.mu.RLock()
+		close(acquired)
+		brk.mu.RUnlock()
+	}()
+
+	select {
+	case <-acquired:
+	case <-time.After(2 * time.Second):
+		close(release)
+		<-subErr
+		t.Fatal("brk.mu.RLock blocked while Subscribe was dialing: Subscribe holds the write lock across ConnectToNSQD")
+	}
+
+	close(release)
+	<-subErr
+
+	// The failed subscribe must have released its reservation, otherwise the
+	// topic is poisoned: every later Subscribe would see it as "dup".
+	brk.mu.RLock()
+	_, reserved := brk.pending["topic-slow"]
+	brk.mu.RUnlock()
+
+	if reserved {
+		t.Fatal("topic still reserved in brk.pending after a failed subscribe")
 	}
 }
 

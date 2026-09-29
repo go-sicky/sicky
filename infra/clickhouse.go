@@ -125,9 +125,24 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 		"dsn", redactDSN(cfg.DSN),
 	)
 
+	// Swap under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	// The success log moved out too: it is a synchronous write to the
+	// handler and must not run under the global lock either.
 	mu.Lock()
-	defer mu.Unlock()
-	if ClickHouse != nil {
+
+	existing := ClickHouse
+	if existing == nil {
+		ClickHouse = db
+		Clickhouse = db
+	}
+
+	mu.Unlock()
+
+	if existing != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
 		logger.Logger.Warn("clickhouse already initialized, closing duplicate connection")
@@ -138,11 +153,8 @@ func initClickHouse(cfg *ClickHouseConfig) (*ch.DB, error) {
 			)
 		}
 
-		return ClickHouse, nil
+		return existing, nil
 	}
-
-	ClickHouse = db
-	Clickhouse = db
 
 	return db, nil
 }

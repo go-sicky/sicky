@@ -47,7 +47,6 @@ type Config struct {
 	Prompt                string `json:"prompt"                  mapstructure:"prompt"                  yaml:"prompt"`
 	PromptColor           string `json:"prompt_color"            mapstructure:"prompt_color"            yaml:"prompt_color"`
 	StopCommand           string `json:"stop_command"            mapstructure:"stop_command"            yaml:"stop_command"`
-	DisableWrappers       bool   `json:"disable_wrappers"        mapstructure:"disable_wrappers"        yaml:"disable_wrappers"`
 	DisableJobs           bool   `json:"disable_jobs"            mapstructure:"disable_jobs"            yaml:"disable_jobs"`
 	DisableServerRegister bool   `json:"disable_server_register" mapstructure:"disable_server_register" yaml:"disable_server_register"`
 	DisableTracing        bool   `json:"disable_tracing"         mapstructure:"disable_tracing"         yaml:"disable_tracing"`

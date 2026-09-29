@@ -30,7 +30,11 @@
 
 package grpc
 
-import "time"
+import (
+	"time"
+
+	"github.com/go-sicky/sicky/utils"
+)
 
 const (
 	// DefaultNetwork is a grpc constant.
@@ -169,11 +173,23 @@ func (c *Config) Ensure() *Config {
 		c.WriteBufferSize = 0
 	}
 
-	if c.ShutdownTimeout < 0 {
-		c.ShutdownTimeout = 0
-	}
+	// A bare number in a duration field (`keepalive_time: 30`) decodes
+	// as 30 nanoseconds, and gRPC feeds these straight into
+	// KeepaliveParams: `connection_timeout: 10` would tear down every
+	// connection after 10ns and fail every RPC. The http, fiber and
+	// client/grpc configs already normalize; grpc was the one miss.
+	c.ConnectionTimeout = utils.NormalizeDuration(c.ConnectionTimeout)
+	c.MaxConnectionAgeGrace = utils.NormalizeDuration(c.MaxConnectionAgeGrace)
+	c.KeepaliveTime = utils.NormalizeDuration(c.KeepaliveTime)
+	c.KeepaliveTimeout = utils.NormalizeDuration(c.KeepaliveTimeout)
+	c.MaxConnectionIdle = utils.NormalizeDuration(c.MaxConnectionIdle)
+	c.MinPingInterval = utils.NormalizeDuration(c.MinPingInterval)
+	c.ShutdownTimeout = utils.NormalizeDuration(c.ShutdownTimeout)
 
-	if c.ShutdownTimeout == 0 {
+	// A negative or absent ShutdownTimeout falls back to the default;
+	// clamping to 0 first and then defaulting 0 was equivalent but read
+	// as two rules.
+	if c.ShutdownTimeout <= 0 {
 		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 

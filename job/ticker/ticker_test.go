@@ -122,3 +122,81 @@ func TestStopTimesOutOnStuckLoop(t *testing.T) {
 		t.Fatalf("final stop: %v", err)
 	}
 }
+
+// TestLoopKeepsItsOwnChannelsAcrossRestart replays the Stop/Start
+// interleaving that used to hand a live loop somebody else's channels.
+//
+// Stop closes job.done, sets running=false and unlocks; a Start that
+// lands in that window replaces job.done and job.ticker. A loop that
+// re-read those fields on every iteration then selects on the *new*
+// channels, so the close that was supposed to stop it is lost and the
+// loop never exits. A loop that closed over its own channels keeps
+// observing the closed one and exits promptly.
+//
+// The window between Stop's Unlock and its draining.Store is two
+// statements wide and cannot be hit reliably from outside, so the test
+// performs both critical sections by hand while the loop is parked
+// inside a handler.
+func TestLoopKeepsItsOwnChannelsAcrossRestart(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{}, 1)
+
+	j := New(&job.Options{ID: uuid.New(), Name: "channels"}, &Config{Interval: 1})
+	if err := j.Add(&Task{Inteval: 1, Handler: func(time.Time, uint64) error {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-release
+
+		return nil
+	}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	if err := j.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no tick within 5s")
+	}
+
+	// Stop's critical section, without the draining flag.
+	j.Lock()
+	close(j.done)
+	j.ticker.Stop()
+	j.running = false
+	j.Unlock()
+
+	// Start's critical section, landing in the window above.
+	j.Lock()
+	j.done = make(chan struct{})
+	j.ticker = time.NewTicker(time.Duration(j.config.Interval) * time.Second)
+	j.running = true
+	j.Unlock()
+
+	// Let the parked handler return so the loop reaches its select.
+	close(release)
+
+	// The loop must exit on the done channel it captured, not wait for
+	// the replacement one this test installed.
+	if !utils.WaitGroupTimeout(&j.wg, 2*time.Second, nil) {
+		j.Lock()
+		j.ticker.Stop()
+		j.Unlock()
+
+		t.Fatal("the loop did not exit after its own done channel was " +
+			"closed: it re-read job.done and is now selecting on the " +
+			"replacement channel, so the first Stop's close was lost")
+	}
+
+	// Clean up the state the test installed.
+	j.Lock()
+	j.ticker.Stop()
+	j.running = false
+	close(j.done)
+	j.Unlock()
+}

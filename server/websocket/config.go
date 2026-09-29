@@ -45,6 +45,10 @@ const (
 	DefaultMaxIdleDuration = 60
 	// DefaultShutdownTimeout is a websocket constant.
 	DefaultShutdownTimeout = 10
+	// DefaultMaxMessageBytes is a websocket constant. It matches the
+	// 4 MiB body limit the HTTP stacks apply, so a websocket peer
+	// cannot force an unbounded in-RAM frame with a single message.
+	DefaultMaxMessageBytes = 4 << 20
 	// DefaultTrustProxy enables Fiber's trusted-proxy handling unless
 	// explicitly disabled via Config.TrustProxy.
 	DefaultTrustProxy = true
@@ -67,13 +71,29 @@ type Config struct {
 	MaxIdleDuration  int      `json:"max_idle_duration" mapstructure:"max_idle_duration" yaml:"max_idle_duration"`
 	ShutdownTimeout  int      `json:"shutdown_timeout"  mapstructure:"shutdown_timeout"  yaml:"shutdown_timeout"`
 	Origins          []string `json:"origins"           mapstructure:"origins"           yaml:"origins"`
-	MaxMessageBytes  int      `json:"max_message_bytes" mapstructure:"max_message_bytes" yaml:"max_message_bytes"`
+	// MaxMessageBytes caps a single inbound message. Ensure() refills
+	// any non-positive value with DefaultMaxMessageBytes, so the limit
+	// is always in force; unlike gorilla's zero read limit there is no
+	// "unlimited" setting, and lifting the cap is a deliberate act of
+	// raising the number rather than of disabling it.
+	MaxMessageBytes int `json:"max_message_bytes" mapstructure:"max_message_bytes" yaml:"max_message_bytes"`
+	// MaxSessions caps concurrent upgraded connections. Zero means
+	// unlimited and is warned about at New(), mirroring server/tcp and
+	// server/udp: an absent key must not silently impose a cap that
+	// would disconnect an existing fleet of long-lived clients.
+	MaxSessions int `json:"max_sessions" mapstructure:"max_sessions" yaml:"max_sessions"`
 	// TrustProxy enables Fiber's trusted-proxy handling (X-Forwarded-*
 	// honored for IP/host/scheme). It is a pointer so the zero config
 	// keeps the secure default: nil means DefaultTrustProxy (true),
-	// covering loopback, link-local and private ranges. Set an explicit
-	// false only for direct-exposure deployments without a proxy.
+	// which trusts loopback only. Set an explicit false for
+	// direct-exposure deployments without any proxy.
 	TrustProxy *bool `json:"trust_proxy" mapstructure:"trust_proxy" yaml:"trust_proxy"`
+	// TrustProxies lists the proxy addresses (IP or CIDR) whose
+	// X-Forwarded-* headers are honored. Only loopback is trusted out
+	// of the box; a proxy behind NAT or on another host belongs here,
+	// because trusting the whole private range would let every
+	// same-segment client forge the client IP.
+	TrustProxies []string `json:"trust_proxy_proxies" mapstructure:"trust_proxy_proxies" yaml:"trust_proxy_proxies"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -118,9 +138,17 @@ func (c *Config) Ensure() *Config {
 		c.ShutdownTimeout = DefaultShutdownTimeout
 	}
 
-	// Origins: empty means same-origin enforcement (browser clients only),
-	// non-browser clients without an Origin header are always allowed.
-	// MaxMessageBytes: 0 means unlimited (read limit disabled).
+	// MaxMessageBytes has no zero-is-unlimited state: an absent key would
+	// otherwise disable the only DoS guard gorilla offers, so zero and a
+	// negative both refill the default.
+	if c.MaxMessageBytes <= 0 {
+		c.MaxMessageBytes = DefaultMaxMessageBytes
+	}
+
+	// MaxSessions keeps zero as "unlimited" (see the field doc); unlike
+	// MaxMessageBytes an absent cap is not a memory-exhaustion risk on
+	// its own, so only New() warns about it.
+
 	if c.TrustProxy == nil {
 		c.TrustProxy = new(bool)
 		*c.TrustProxy = DefaultTrustProxy

@@ -55,7 +55,7 @@ func TestRunRespectsMustFlags(t *testing.T) {
 	options.Context = t.Context()
 	options.MustBroker = true // Init() would have set this once
 
-	cfg := &Config{Manager: &ManagerConfig{Enable: false}}
+	cfg := &Config{Manager: &ManagerConfig{Enable: new(false)}}
 	err := Run(cfg)
 	if !errors.Is(err, ErrBrokerNotInitialized) {
 		t.Fatalf("Run with MustBroker and no broker = %v, want ErrBrokerNotInitialized", err)
@@ -89,7 +89,7 @@ func TestRunClearsSingletons(t *testing.T) {
 		return nil
 	})
 
-	cfg := &Config{Manager: &ManagerConfig{Enable: false}}
+	cfg := &Config{Manager: &ManagerConfig{Enable: new(false)}}
 	if err := Run(cfg); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

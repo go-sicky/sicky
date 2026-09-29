@@ -38,9 +38,22 @@ import "time"
 // JSON/YAML/viper decode `read_timeout: 10` as 10 nanoseconds (the
 // sibling `*_sec` fields in the same config mean seconds), which turns
 // the timeout into a self-inflicted denial of service: every request
-// fails its read deadline. Values below a millisecond are read as a
-// count of seconds; zero (use the default) and negative values (abort in
-// Validate) are left untouched.
+// fails its read deadline. A value below a millisecond is read as a
+// count of seconds by scaling its raw nanosecond value, which is what
+// turns the 10 of `read_timeout: 10` into 10s.
+//
+// Zero and negative values are returned untouched so the caller can
+// tell them apart. This function deliberately does not decide what a
+// negative means, and there is no Validate that aborts on one: each
+// caller owns that decision, and every caller in this repo treats a
+// negative safely. server/http and server/fiber clamp a negative to 0
+// and then substitute the default; server/grpc clamps its keepalive
+// fields to 0, which gRPC reads as "use the client default", and its
+// ShutdownTimeout to the default; client/grpc ignores a non-positive
+// ConnectionTimeout at the point of use, which means "no timeout".
+// So a negative duration is never honored as a deadline, and callers
+// that want a different policy should clamp before calling, not expect
+// this function to reject the value.
 func NormalizeDuration(d time.Duration) time.Duration {
 	if d > 0 && d < time.Millisecond {
 		// int64 arithmetic: multiplying two Durations reads as a

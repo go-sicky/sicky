@@ -37,26 +37,19 @@ const (
 	MCPTransportHTTP = "http"
 )
 
-const (
-	// DefaultTransport is a mcp constant.
-	DefaultTransport = MCPTransportStdio
-)
-
-// Config is a mcp component.
+// Config is a mcp component. It carries no transport or listen address:
+// the transport is a construction argument (see mcp.New and the cli --transport
+// flag), not configuration, so the server can never advertise a transport it
+// was not built with.
 type Config struct {
-	DisableWrappers       bool   `json:"disable_wrappers"        mapstructure:"disable_wrappers"        yaml:"disable_wrappers"`
-	DisableJobs           bool   `json:"disable_jobs"            mapstructure:"disable_jobs"            yaml:"disable_jobs"`
-	DisableServerRegister bool   `json:"disable_server_register" mapstructure:"disable_server_register" yaml:"disable_server_register"`
-	DisableTracing        bool   `json:"disable_tracing"         mapstructure:"disable_tracing"         yaml:"disable_tracing"`
-	Transport             string `json:"transport"               mapstructure:"transport"               yaml:"transport"`
-	Listen                string `json:"listen"                  mapstructure:"listen"                  yaml:"listen"`
+	DisableJobs           bool `json:"disable_jobs"            mapstructure:"disable_jobs"            yaml:"disable_jobs"`
+	DisableServerRegister bool `json:"disable_server_register" mapstructure:"disable_server_register" yaml:"disable_server_register"`
+	DisableTracing        bool `json:"disable_tracing"         mapstructure:"disable_tracing"         yaml:"disable_tracing"`
 }
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
-	return &Config{
-		Transport: DefaultTransport,
-	}
+	return &Config{}
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).

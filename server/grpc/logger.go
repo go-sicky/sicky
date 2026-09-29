@@ -73,19 +73,27 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
+			// Sanitize at the read site, not at the log call. The
+			// tracing interceptor only runs when a tracer is configured
+			// (tracer.type defaults to "none"), so deferring this to it
+			// left the access log recording raw client metadata in the
+			// default configuration, bounded only by gRPC's
+			// MaxHeaderListSize. The HTTP stacks sanitize at the read
+			// site too; user-agent is deliberately left verbatim because
+			// the propagation charset would reject every real agent.
 			rids := md.Get("X-Request-ID")
 			if len(rids) > 0 {
-				requestID = rids[0]
+				requestID = sanitizePropagatedValue(rids[0])
 			}
 
 			tids := md.Get("X-B3-Traceid")
 			if len(tids) > 0 {
-				traceID = tids[0]
+				traceID = sanitizePropagatedValue(tids[0])
 			}
 
 			sids := md.Get("X-B3-Spanid")
 			if len(sids) > 0 {
-				spanID = sids[0]
+				spanID = sanitizePropagatedValue(sids[0])
 			}
 
 			uas := md.Get("user-agent")

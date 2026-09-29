@@ -17,9 +17,13 @@ func TestWaitGroupTimeoutDrained(t *testing.T) {
 		t.Fatal("a released group must count as drained")
 	}
 
-	// onDrained runs after Wait returns, so it may land just after the
-	// caller resumes; poll briefly instead of asserting immediately.
-	waitFor(t, drained.Load)
+	// onDrained is guaranteed to have run before the waiter resumes, so
+	// assert it directly: a caller that restarts the component on the
+	// other side of this call must not see a stale draining flag.
+	if !drained.Load() {
+		t.Fatal("onDrained must run before the waiter resumes: a restart " +
+			"after this call would observe draining=true and refuse")
+	}
 }
 
 func TestWaitGroupTimeoutGivesUp(t *testing.T) {
@@ -57,17 +61,31 @@ func TestWaitGroupTimeoutZeroWaits(t *testing.T) {
 	}
 }
 
-func waitFor(t *testing.T, cond func() bool) {
-	t.Helper()
+// TestWaitTimeoutDrainsBeforeReturning pins the ordering that makes a
+// stop-then-start cycle deterministic: by the time WaitTimeout reports
+// drained, the caller's "still draining" flag is already cleared. The
+// helper goroutine used to close(done) first and clear the flag second,
+// which left a one-statement window where a restart got
+// ErrStopTimeout from a component that was demonstrably idle.
+//
+// onDrained deliberately sleeps: the guarantee is that the waiter cannot
+// resume until it has run, so a slow callback must not be observable as
+// a still-set flag. That also makes the old ordering fail reliably
+// instead of depending on a lucky goroutine schedule.
+func TestWaitTimeoutDrainsBeforeReturning(t *testing.T) {
+	var drained atomic.Bool
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
+	ok := WaitTimeout(func() {}, time.Second, func() {
+		time.Sleep(20 * time.Millisecond)
+		drained.Store(true)
+	})
 
-		time.Sleep(5 * time.Millisecond)
+	if !ok {
+		t.Fatal("a released wait must report drained")
 	}
 
-	t.Fatal("condition never became true")
+	if !drained.Load() {
+		t.Fatal("onDrained must run before the waiter resumes: draining " +
+			"was still set on return, so a restart would see ErrStopTimeout")
+	}
 }

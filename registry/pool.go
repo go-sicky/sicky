@@ -365,15 +365,15 @@ func GetService(service string) *Service {
 // mutate their own without racing the readers (GetPool/GetInstances
 // return copies of these).
 func PurgePool(ins []*Instance) {
-	poolLock.Lock()
-	defer poolLock.Unlock()
-
-	if currentPool == nil {
-		currentPool = NewPool()
-	}
-
-	// Rebuild the services map in place so the *Pool pointer (and its
-	// Notify channel) stays stable for existing holders.
+	// Build the replacement map before taking poolLock. cloneInstance
+	// allocates a fresh Instance plus its Servers and Topics maps for
+	// every entry, so holding the package-global write lock across the
+	// rebuild blocks every pool reader (GetPool, GetInstance,
+	// GetInstances, GetService) for the whole pass: a 1k-instance
+	// cluster turns one discovery refresh into ~10k allocations during
+	// which discovery is unavailable. Building outside the lock is safe
+	// because ins is caller-owned (see the deep-copy note below) and
+	// nothing below reads or writes currentPool until the swap.
 	services := make(map[string]*Service, len(ins))
 	for _, in := range ins {
 		if in == nil {
@@ -397,6 +397,15 @@ func PurgePool(ins []*Instance) {
 		// Deep copy: the caller owns its Instance (it may reuse it for
 		// the next registration) and the pool hands out copies of ours.
 		svc.Instances[in.ID] = cloneInstance(in)
+	}
+
+	// Swap in place so the *Pool pointer (and its Notify channel) stays
+	// stable for existing holders that already captured it.
+	poolLock.Lock()
+	defer poolLock.Unlock()
+
+	if currentPool == nil {
+		currentPool = NewPool()
 	}
 
 	currentPool.Lock()

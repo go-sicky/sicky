@@ -176,7 +176,7 @@ func TestValidateClamp(t *testing.T) {
 	cfg := &Config{
 		LogLevel: "verbose",
 		Manager: &ManagerConfig{
-			Enable:          true,
+			Enable:          new(true),
 			ShutdownTimeout: -3,
 			ReadTimeout:     -1,
 			WriteTimeout:    -1,

@@ -145,7 +145,7 @@ func TestHTTPTransportSessionIsolation(t *testing.T) {
 
 func TestHTTPTransportRejectsOversizedMessage(t *testing.T) {
 	tr := NewHTTPTransport("127.0.0.1:0")
-	tr.messages = make(chan []byte, 1)
+	tr.messages = make(chan inbound, 1)
 	tr.done = make(chan struct{})
 	tr.sessions["s"] = &sseSession{out: make(chan []byte, 1)}
 
@@ -292,6 +292,97 @@ func peekLine(t *testing.T, r io.Reader) string {
 		return res.line
 	case <-time.After(500 * time.Millisecond):
 		return ""
+	}
+}
+
+// TestHTTPTransportQueuedMessagesKeepTheirSession: the response target
+// must travel with the message. A transport-level "current session"
+// field is overwritten by the second client as soon as both have posted,
+// so the server loop answers A's request on B's stream - a cross-client
+// leak of whatever the tool returned, carrying B's JSON-RPC id.
+func TestHTTPTransportQueuedMessagesKeepTheirSession(t *testing.T) {
+	tr := NewHTTPTransport("127.0.0.1:0")
+	if err := tr.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	defer func() {
+		if err := tr.Stop(); err != nil {
+			t.Errorf("stop: %v", err)
+		}
+	}()
+
+	base := "http://" + tr.ln.Addr().String()
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	sseA, sessionA := openSSE(t, client, ctx, base)
+	defer func() {
+		_ = sseA.Close()
+	}()
+
+	sseB, sessionB := openSSE(t, client, ctx, base)
+	defer func() {
+		_ = sseB.Close()
+	}()
+
+	if sessionA == "" || sessionB == "" || sessionA == sessionB {
+		t.Fatalf("distinct sessions required: %q vs %q", sessionA, sessionB)
+	}
+
+	// Both clients post BEFORE the server loop reads anything. The
+	// second post is the one that used to clobber the target.
+	post(t, client, base, sessionA, `{"jsonrpc":"2.0","id":1,"method":"ping"}`, http.StatusAccepted)
+	post(t, client, base, sessionB, `{"jsonrpc":"2.0","id":2,"method":"ping"}`, http.StatusAccepted)
+
+	// A's message is dequeued first; its answer belongs on A's stream.
+	msg, err := tr.Read()
+	if err != nil {
+		t.Fatalf("read A: %v", err)
+	}
+
+	if !strings.Contains(string(msg), `"id":1`) {
+		t.Fatalf("first dequeued message = %q, want A's (id 1)", msg)
+	}
+
+	if err := tr.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"secret":"A-only"}}`)); err != nil {
+		t.Fatalf("write A: %v", err)
+	}
+
+	// A must get its own answer. peekLine (not readLine) so a failure
+	// reports "A received nothing" instead of blocking on the deadline.
+	// Note peekLine abandons its reader goroutine, so a stream that is
+	// peeked must never be read again - that is why B is read below
+	// only once, at the end.
+	if line := peekLine(t, sseA); !strings.Contains(line, `"secret":"A-only"`) {
+		t.Fatalf("A's stream got %q, want A's own response", line)
+	}
+
+	// B's message still routes to B.
+	msg, err = tr.Read()
+	if err != nil {
+		t.Fatalf("read B: %v", err)
+	}
+
+	if !strings.Contains(string(msg), `"id":2`) {
+		t.Fatalf("second dequeued message = %q, want B's (id 2)", msg)
+	}
+
+	if err := tr.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"secret":"B-only"}}`)); err != nil {
+		t.Fatalf("write B: %v", err)
+	}
+
+	// The leak check: with a shared "current session" the first line
+	// here is A's secret, delivered to B.
+	line := readLine(t, ctx, sseB)
+	if strings.Contains(line, "A-only") {
+		t.Fatalf("B's stream received A's response: %q", line)
+	}
+
+	if !strings.Contains(line, `"secret":"B-only"`) {
+		t.Fatalf("B's stream got %q, want B's own response", line)
 	}
 }
 

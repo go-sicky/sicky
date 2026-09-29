@@ -72,11 +72,16 @@ func WaitTimeout(wait func(), timeout time.Duration, onDrained func()) bool {
 
 	go func() {
 		wait()
-		close(done)
 
+		// onDrained must run before close(done): the waiter resumes on
+		// close and would otherwise observe the still-draining flag it
+		// was just told to expect cleared, turning a clean restart into
+		// a spurious ErrStopTimeout.
 		if onDrained != nil {
 			onDrained()
 		}
+
+		close(done)
 	}()
 
 	if timeout <= 0 {

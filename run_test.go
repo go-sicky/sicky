@@ -119,7 +119,7 @@ func TestRunLifecycleOrder(t *testing.T) {
 	BeforeStop(mark("beforeStop"))
 	AfterStop(mark("afterStop"))
 
-	cfg := &Config{Manager: &ManagerConfig{Enable: false}}
+	cfg := &Config{Manager: &ManagerConfig{Enable: new(false)}}
 	if err := Run(cfg); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestRunFailedServiceStopsOnce(t *testing.T) {
 	// Unblock the wait as soon as the failure path reaches shutdown.
 	AfterStart(func(context.Context) error { cancel(); return nil })
 
-	cfg := &Config{Manager: &ManagerConfig{Enable: false}}
+	cfg := &Config{Manager: &ManagerConfig{Enable: new(false)}}
 	err := Run(cfg)
 	if err == nil {
 		t.Fatal("Run must return the service start error")
@@ -195,7 +195,7 @@ func TestRunCancelDuringWait(t *testing.T) {
 		cancel()
 	}()
 
-	cfg := &Config{Manager: &ManagerConfig{Enable: false}}
+	cfg := &Config{Manager: &ManagerConfig{Enable: new(false)}}
 	if err := Run(cfg); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

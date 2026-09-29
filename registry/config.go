@@ -37,6 +37,11 @@ const (
 
 // Config is a registry component.
 type Config struct {
+	// PoolPurgeInterval is the discovery-refresh period in seconds.
+	// Zero (which is also what an absent key decodes to) fills the
+	// default, so omitting the key never silently disables
+	// discovery. A negative value disables the refresh ticker, which
+	// is a legitimate choice for a write-only registry deployment.
 	PoolPurgeInterval int64 `json:"pool_purge_interval" mapstructure:"pool_purge_interval" yaml:"pool_purge_interval"`
 }
 
@@ -53,7 +58,16 @@ func (c *Config) Ensure() *Config {
 		c = DefaultConfig()
 	}
 
-	if c.PoolPurgeInterval <= 0 {
+	// Zero — including an absent key, which decodes to 0 — fills the
+	// default, so a config that never mentions the key keeps the 60s
+	// discovery refresh. A negative interval is the explicit "off"
+	// signal: it zeroes the field, which is what makes sicky.Run's
+	// `> 0` guard reachable. The previous `<= 0 → default` filled the
+	// default in both cases, so that guard was dead and an operator
+	// asking for no refresh silently got one.
+	if c.PoolPurgeInterval < 0 {
+		c.PoolPurgeInterval = 0
+	} else if c.PoolPurgeInterval == 0 {
 		c.PoolPurgeInterval = DefaultPoolPurgeInterval
 	}
 

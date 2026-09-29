@@ -38,6 +38,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/runner"
 	"github.com/go-sicky/sicky/utils"
@@ -384,15 +385,20 @@ func (r *Static) _worker() {
 				metrics.RunnerTaskRunsTotal.WithLabelValues("static", result).Inc()
 				metrics.RunnerTaskDuration.WithLabelValues("static").Observe(time.Since(start).Seconds())
 			}()
-			r.options.Logger.TraceContext(
-				r.ctx,
-				"runner task created",
-				"runner", r.String(),
-				"id", r.options.ID,
-				"name", r.options.Name,
-				"worker", self,
-				"task", t.ID.String(),
-			)
+			// Guarded: this is per task, and t.ID.String() allocates a
+			// 36-byte string on top of the variadic argument slice even
+			// when the default InfoLevel discards the whole call.
+			if r.options.Logger.Enabled(logger.TraceLevel) {
+				r.options.Logger.TraceContext(
+					r.ctx,
+					"runner task created",
+					"runner", r.String(),
+					"id", r.options.ID,
+					"name", r.options.Name,
+					"worker", self,
+					"task", t.ID.String(),
+				)
+			}
 
 			// Call handler
 			if r.options.Handler != nil {

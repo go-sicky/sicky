@@ -105,13 +105,22 @@ func (c *Config) Ensure() *Config {
 		c.Stream.MaxConsumers = c.Stream.MaxConsummers
 	}
 
+	// 0 means "no consumers permitted" to the NATS server, so it must never
+	// survive Ensure(): DefaultConfig's 256 was only reachable while c.Stream
+	// was nil, so any partial stream block (e.g. just stream.name) shipped
+	// AddStream(MaxConsumers: 0) and no subscriber could ever attach.
+	if c.Stream.MaxConsumers == 0 {
+		c.Stream.MaxConsumers = DefaultStreamMaxConsumers
+	}
+
 	c.Stream.MaxConsummers = c.Stream.MaxConsumers
 
 	return c
 }
 
-// Validate rejects a negative max_consumers. Zero values are valid
-// (Ensure fills defaults); nil is valid (disabled).
+// Validate rejects a negative max_consumers. Zero is no longer expressible
+// (Ensure refills it with DefaultStreamMaxConsumers first); nil is valid
+// (disabled).
 func (c *Config) Validate() error {
 	if c == nil || c.Stream == nil {
 		return nil

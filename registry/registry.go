@@ -32,11 +32,17 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
+
+// ErrNotInitialized is returned by Load when no registry has been registered.
+// sicky.ErrRegistryNotInitialized is an alias for this value, so errors.Is
+// matches either spelling.
+var ErrNotInitialized = errors.New("sicky: registry is not initialized")
 
 // Registry is a registry component.
 type Registry interface {
@@ -120,6 +126,10 @@ func Clear() {
 }
 
 /* {{{ [Helpers]. */
+
+// Register registers an instance. A nil return with no registry means
+// there is nothing to register with, which leaves the desired state
+// already satisfied: nothing was routed anywhere before either.
 func Register(ins *Instance) error {
 	rgMu.RLock()
 	rg := defaultRegistry
@@ -131,7 +141,8 @@ func Register(ins *Instance) error {
 	return rg.Register(ins)
 }
 
-// Deregister removes the registration.
+// Deregister removes the registration. Like Register, a nil return with no
+// registry means the registration is already absent.
 func Deregister(id uuid.UUID) error {
 	rgMu.RLock()
 	rg := defaultRegistry
@@ -143,7 +154,10 @@ func Deregister(id uuid.UUID) error {
 	return rg.Deregister(id)
 }
 
-// CheckInstance checks instance liveness.
+// CheckInstance reports whether an instance is live. False covers both
+// "no registry" and "not registered": the signature predates the error
+// sentinels and its answer is the conservative one either way, since
+// neither state justifies routing to the instance.
 func CheckInstance(id uuid.UUID) bool {
 	rgMu.RLock()
 	rg := defaultRegistry
@@ -155,19 +169,23 @@ func CheckInstance(id uuid.UUID) bool {
 	return rg.CheckInstance(id)
 }
 
-// Load loads persisted state.
+// Load loads persisted state. It returns ErrNotInitialized when no registry
+// is registered: (nil, nil) there is indistinguishable from "the registry is
+// reachable and holds no instances", so a misconfigured deployment would
+// silently discover nothing and keep serving stale routes.
 func Load() ([]*Instance, error) {
 	rgMu.RLock()
 	rg := defaultRegistry
 	rgMu.RUnlock()
 	if rg == nil {
-		return nil, nil
+		return nil, ErrNotInitialized
 	}
 
 	return rg.Load()
 }
 
-// Watch watches for changes.
+// Watch watches for changes. A nil return means no registry is registered,
+// so there are no changes to watch for.
 func Watch() error {
 	rgMu.RLock()
 	rg := defaultRegistry

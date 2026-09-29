@@ -34,11 +34,19 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/go-sicky/sicky/registry"
 )
+
+// reloadDebounce coalesces the burst of inotify events a single
+// registry write produces. One os.WriteFile emits at least CREATE and
+// WRITE, and a rolling restart of M peers emits O(M) events in the same
+// directory, so reloading per event turned a rollout into O(M^2)
+// directory scans and O(M) pool rebuilds.
+const reloadDebounce = 100 * time.Millisecond
 
 // Watcher is a local component.
 type Watcher struct {
@@ -92,6 +100,16 @@ func (w *Watcher) Start() {
 	go func() {
 		defer w.close()
 
+		// The timer starts stopped; qualifying events arm it and the
+		// timer case runs the single reload that replaces the per-event
+		// one. See reloadDebounce.
+		timer := time.NewTimer(reloadDebounce)
+		if !timer.Stop() {
+			<-timer.C
+		}
+
+		defer timer.Stop()
+
 		for {
 			select {
 			case <-w.registry.ctx.Done():
@@ -101,38 +119,32 @@ func (w *Watcher) Start() {
 					return
 				}
 
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
-					w.registry.options.Logger.DebugContext(
-						w.registry.ctx,
-						"registry directory changed",
-						"registry", w.registry.String(),
-						"event", event.String(),
-					)
-
-					ins, err := w.registry.Load()
-					if err != nil {
-						w.registry.options.Logger.ErrorContext(
-							w.registry.ctx,
-							"reload services list failed",
-							"registry", w.registry.String(),
-							"id", w.registry.options.ID,
-							"name", w.registry.options.Name,
-							"error", err.Error(),
-						)
-
-						continue
-					}
-
-					w.registry.options.Logger.InfoContext(
-						w.registry.ctx,
-						"watcher triggered",
-						"registry", w.registry.String(),
-						"id", w.registry.options.ID,
-						"name", w.registry.options.Name,
-					)
-
-					registry.PurgePool(ins)
+				if !event.Has(fsnotify.Write) && !event.Has(fsnotify.Create) && !event.Has(fsnotify.Remove) {
+					continue
 				}
+
+				w.registry.options.Logger.DebugContext(
+					w.registry.ctx,
+					"registry directory changed",
+					"registry", w.registry.String(),
+					"event", event.String(),
+				)
+
+				// Re-arm instead of reloading: a burst of events collapses
+				// into the one pass that runs once the directory goes quiet.
+				// The non-blocking drain is required: Reset only re-arms a
+				// timer whose channel is empty, and a fired-but-undrained
+				// timer would leave a stale tick that reloads twice.
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+
+				timer.Reset(reloadDebounce)
+			case <-timer.C:
+				w.reload()
 			case err, ok := <-w.watcher.Errors:
 				if !ok {
 					return
@@ -147,6 +159,32 @@ func (w *Watcher) Start() {
 			}
 		}
 	}()
+}
+
+// reload re-reads the directory and republishes the pool. It runs once
+// per settled burst of events rather than once per event; see
+// reloadDebounce.
+func (w *Watcher) reload() {
+	ins, err := w.registry.Load()
+	if err != nil {
+		w.registry.options.Logger.ErrorContext(
+			w.registry.ctx,
+			"reload services list failed",
+			"registry", "local",
+			"error", err.Error(),
+		)
+
+		return
+	}
+
+	w.registry.options.Logger.InfoContext(
+		w.registry.ctx,
+		"watcher triggered",
+		"registry", "local",
+		"instances", len(ins),
+	)
+
+	registry.PurgePool(ins)
 }
 
 // Stop stops the component and releases resources.

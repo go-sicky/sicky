@@ -51,6 +51,13 @@ type GeneralLogger interface {
 	LogContext(ctx context.Context, level Level, msg string, args ...any)
 	// LogfContext writes formatted log entry with context
 	LogfContext(ctx context.Context, level Level, msg string, args ...any)
+	// Enabled reports whether an entry at level would be written. Every
+	// method above is variadic, so a caller that builds arguments for a
+	// disabled level pays the allocation of the []any plus a boxing
+	// allocation per argument before slog consults the handler and
+	// discards the lot. Hot paths guard their per-message Debug or Trace
+	// calls with this to avoid that garbage entirely.
+	Enabled(level Level) bool
 
 	// Helpers
 	Trace(msg string, args ...any)
@@ -180,6 +187,15 @@ func (gl *generalLogger) LogContext(ctx context.Context, level Level, msg string
 // format must be a constant string.
 func (gl *generalLogger) LogfContext(ctx context.Context, level Level, format string, args ...any) {
 	gl.ins.Log(ctx, level2slog(level), fmt.Sprintf(format, args...))
+}
+
+// Enabled is part of the public API.
+// Enabled delegates to the handler rather than reading gl.level, because
+// level only drives the level of a handler this constructor created; a
+// caller that passed its own *slog.Logger in gets that logger's own
+// level, which the handler is the only place that knows.
+func (gl *generalLogger) Enabled(level Level) bool {
+	return gl.ins.Enabled(context.Background(), level2slog(level))
 }
 
 // Helpers.

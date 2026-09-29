@@ -30,22 +30,14 @@
 
 package service
 
-const (
-	// Default configuration values
-	// DefaultEnableManager is a service constant.
-	DefaultEnableManager = true
-)
-
-// Config is a service component.
-type Config struct {
-	EnableManager bool `json:"enable_manager" mapstructure:"enable_manager" yaml:"enable_manager"` // Enable or disable the manager service
-}
+// Config is a service component. It carries no fields: the manager is
+// enabled by the presence of the top-level "manager" block (see
+// sicky.ManagerConfig.Enabled), not by a switch here.
+type Config struct{}
 
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
-	return &Config{
-		EnableManager: DefaultEnableManager,
-	}
+	return &Config{}
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).

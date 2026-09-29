@@ -66,10 +66,14 @@ var sensitiveEnvKeys = []string{
 	"tracer.trust_remote_sampled",
 	"tracer.headers",
 
-	// Discovery and messaging selection.
-	"registry.type",
+	// Discovery and messaging selection. registry.redis.password is a
+	// credential in the same class as infra.redis.password, so it belongs
+	// here too. "registry.type" and "broker.type" were removed: neither
+	// registry.Config nor broker.Config declares a Type field, so binding
+	// them was a no-op that also made warnIgnoredEnv treat SICKY_REGISTRY_TYPE
+	// as a known key - accepted, then silently dropped.
 	"registry.local.registry_file_path",
-	"broker.type",
+	"registry.redis.password",
 
 	// Infra credentials: an ignored variable means the backend is
 	// reached with whatever the file says (often nothing).
@@ -82,8 +86,12 @@ var sensitiveEnvKeys = []string{
 	"infra.nats.token",
 	"infra.nats.password",
 	"infra.nats.enable_tls",
+	"infra.nats.creds_file",
+	"infra.nats.nkey_file",
+	"infra.nats.root_ca_file",
 	"infra.mqtt.password",
 	"infra.mqtt.enable_tls",
+	"infra.mqtt.ca_file",
 	"infra.s3.access_key",
 	"infra.s3.secret_key",
 	"infra.s3.session_token",
@@ -91,6 +99,7 @@ var sensitiveEnvKeys = []string{
 	"infra.elastic.password",
 	"infra.elastic.api_key",
 	"infra.elastic.service_token",
+	"infra.elastic.ca_cert_file",
 
 	// Process-wide behavior.
 	"log_level",

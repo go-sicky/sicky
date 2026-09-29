@@ -109,10 +109,7 @@ func serveMCP(cmdName string, args []string) int {
 			Version: *version,
 			Context: ctx,
 		},
-		&mcp.Config{
-			Transport: *transport,
-			Listen:    *listen,
-		},
+		&mcp.Config{},
 	)
 
 	mcpServer := svc.MCPServer()

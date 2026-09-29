@@ -152,12 +152,21 @@ func (job *Ticker) Start() error {
 		return utils.ErrStopTimeout
 	}
 
-	job.done = make(chan struct{})
-	job.ticker = time.NewTicker(time.Duration(job.config.Interval) * time.Second)
+	// Snapshot both channels into locals. The loop goroutine must close
+	// over them rather than read job.ticker/job.done on every iteration:
+	// Stop writes those fields under the write lock and a concurrent Start
+	// may replace them, so a field read here is an unsynchronised race
+	// that also silently hands the old loop the *new* ticker's channel
+	// and the *new* done channel, losing the first Stop's close and
+	// running the same tasks in two loops.
+	done := make(chan struct{})
+	ticker := time.NewTicker(time.Duration(job.config.Interval) * time.Second)
+	job.done = done
+	job.ticker = ticker
 	job.wg.Go(func() {
 		for {
 			select {
-			case t, ok := <-job.ticker.C:
+			case t, ok := <-ticker.C:
 				if !ok {
 					return
 				}
@@ -215,7 +224,7 @@ func (job *Ticker) Start() error {
 
 				// Increase counter
 				job.counter.Add(1)
-			case <-job.done:
+			case <-done:
 				return
 			}
 		}

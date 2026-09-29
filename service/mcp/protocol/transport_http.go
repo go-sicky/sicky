@@ -73,6 +73,16 @@ type sseSession struct {
 	out chan []byte
 }
 
+// inbound is one client message together with the session that sent it.
+// The session travels with the message instead of being parked on the
+// transport: a single "current session" field is overwritten by every
+// handler goroutine as soon as two clients post concurrently, so the
+// answer to the first message is written to the second client's stream.
+type inbound struct {
+	body []byte
+	sess *sseSession
+}
+
 // HTTPTransport is a protocol component.
 //
 // Access rules (checked on both endpoints): a valid bearer token always
@@ -90,23 +100,28 @@ type HTTPTransport struct {
 	// without a token.
 	AllowedHosts []string
 
-	messages  chan []byte
+	messages  chan inbound
 	done      chan struct{}
 	closeOnce sync.Once
 
 	mu       sync.Mutex
 	sessions map[string]*sseSession
-	current  *sseSession
 	closed   bool
 	srv      *http.Server
 	ln       net.Listener
+
+	// current is the session owning the message the serve loop is
+	// handling right now. It is written by Read (the serve goroutine)
+	// and read by Write (the same goroutine, before its next Read), so
+	// it needs no lock; the serve loop is serial.
+	current *sseSession
 }
 
 // NewHTTPTransport creates a new HTTPTransport.
 func NewHTTPTransport(addr string) *HTTPTransport {
 	return &HTTPTransport{
 		addr:     addr,
-		messages: make(chan []byte, 256),
+		messages: make(chan inbound, 256),
 		done:     make(chan struct{}),
 		sessions: make(map[string]*sseSession),
 	}
@@ -192,11 +207,17 @@ func (t *HTTPTransport) Stop() error {
 	return nil
 }
 
-// Read reads the next client message.
+// Read reads the next client message and remembers which session sent
+// it, so the matching Write goes back to that session.
 func (t *HTTPTransport) Read() ([]byte, error) {
 	select {
 	case msg := <-t.messages:
-		return msg, nil
+		// Bind the target here, on the serve goroutine, not in the
+		// handler that enqueued it: by the time this message is
+		// processed another client may already have posted.
+		t.current = msg.sess
+
+		return msg.body, nil
 	case <-t.done:
 		return nil, io.EOF
 	}
@@ -206,15 +227,16 @@ func (t *HTTPTransport) Read() ([]byte, error) {
 // currently being processed.
 func (t *HTTPTransport) Write(data []byte) error {
 	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
+	closed := t.closed
+	t.mu.Unlock()
 
+	if closed {
 		return io.ErrClosedPipe
 	}
 
+	// Read and Write run on the same (serve) goroutine with no Read in
+	// between, so this needs no lock.
 	target := t.current
-	t.mu.Unlock()
-
 	if target == nil {
 		// Nobody is waiting: dropping beats writing into a buffer some
 		// other client would drain.
@@ -345,10 +367,6 @@ func (t *HTTPTransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		t.mu.Lock()
 		delete(t.sessions, sid)
-		if t.current == sess {
-			// The in-flight message belonged to a client that left.
-			t.current = nil
-		}
 		t.mu.Unlock()
 	}()
 
@@ -428,22 +446,8 @@ func (t *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t.mu.Lock()
-	if t.closed {
-		t.mu.Unlock()
-
-		http.Error(w, "server closed", http.StatusServiceUnavailable)
-
-		return
-	}
-
-	// Responses for this message go to the sender; the server loop is
-	// serial, so one in-flight target is enough.
-	t.current = sess
-	t.mu.Unlock()
-
 	select {
-	case t.messages <- body:
+	case t.messages <- inbound{body: body, sess: sess}:
 	case <-t.done:
 		http.Error(w, "server closed", http.StatusServiceUnavailable)
 

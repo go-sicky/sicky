@@ -51,6 +51,15 @@ var ErrObtainUDPAddress = errors.New("obtain UDP address failed")
 // ErrServerNotRunning is returned when Send is called on a stopped server.
 var ErrServerNotRunning = errors.New("udp server is not running")
 
+// Structured-log and metadata field keys. Every log call in this file
+// emits the same "server"/"name" pair, so the literals are named once
+// rather than repeated (goconst) and cannot drift apart between call
+// sites, which would silently break field-based log indexing.
+const (
+	logFieldServer = "server"
+	logFieldName   = "name"
+)
+
 /* {{{ [Server] */
 
 // UDPServer : Server definition.
@@ -74,6 +83,10 @@ type UDPServer struct {
 	rateMu     sync.Mutex
 	rateWindow time.Time
 	rateCounts map[string]int
+	// rateLog samples the source-table overflow warning so a sustained
+	// spoofed-source flood logs at most once a second instead of once
+	// per dropped key.
+	rateLog *utils.LogSampler
 
 	sync.RWMutex
 	wg sync.WaitGroup
@@ -159,6 +172,7 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 		metadata:      utils.NewMetadata(),
 		pool:          NewPool(cfg.MaxIdleDuration),
 		rateCounts:    make(map[string]int),
+		rateLog:       utils.NewLogSampler(1, time.Second),
 	}
 
 	srv.handlers.Store(&[]Handler{})
@@ -166,9 +180,9 @@ func New(opts *server.Options, cfg *Config) *UDPServer {
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"udp server created",
-		"server", srv.String(),
+		logFieldServer, srv.String(),
 		"id", srv.options.ID,
-		"name", srv.options.Name,
+		logFieldName, srv.options.Name,
 		"network", addr.Network(),
 		"address", addr.String(),
 	)
@@ -227,11 +241,11 @@ func (srv *UDPServer) Start() error {
 		return nil
 	}
 
-	srv.metadata.Set("server", srv.String())
+	srv.metadata.Set(logFieldServer, srv.String())
 	srv.metadata.Set("network", srv.addr.Network())
 	srv.metadata.Set("address", srv.addr.String())
 	srv.metadata.Set("advertise_address", srv.advertiseAddr.String())
-	srv.metadata.Set("name", srv.options.Name)
+	srv.metadata.Set(logFieldName, srv.options.Name)
 	srv.metadata.Set("id", srv.options.ID.String())
 	c, ok := srv.addr.(*net.UDPAddr)
 	if !ok {
@@ -239,9 +253,9 @@ func (srv *UDPServer) Start() error {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"obtain UDP address failed",
-			"server", srv.String(),
+			logFieldServer, srv.String(),
 			"id", srv.options.ID,
-			"name", srv.options.Name,
+			logFieldName, srv.options.Name,
 			"network", srv.addr.Network(),
 			"address", srv.addr.String(),
 		)
@@ -258,9 +272,9 @@ func (srv *UDPServer) Start() error {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"network listen failed",
-			"server", srv.String(),
+			logFieldServer, srv.String(),
 			"id", srv.options.ID,
-			"name", srv.options.Name,
+			logFieldName, srv.options.Name,
 			"network", srv.addr.Network(),
 			"address", srv.addr.String(),
 			"error", err.Error(),
@@ -299,9 +313,9 @@ func (srv *UDPServer) Start() error {
 					srv.options.Logger.InfoContext(
 						srv.ctx,
 						"udp connection closed",
-						"server", srv.String(),
+						logFieldServer, srv.String(),
 						"id", srv.options.ID,
-						"name", srv.options.Name,
+						logFieldName, srv.options.Name,
 						"network", srv.addr.Network(),
 						"address", srv.addr.String(),
 					)
@@ -321,9 +335,9 @@ func (srv *UDPServer) Start() error {
 
 				if allow, suppressed := errLog.Allow(); allow {
 					args := []any{
-						"server", srv.String(),
+						logFieldServer, srv.String(),
 						"id", srv.options.ID,
-						"name", srv.options.Name,
+						logFieldName, srv.options.Name,
 						"network", srv.addr.Network(),
 						"address", srv.addr.String(),
 						"error", err.Error(),
@@ -360,9 +374,9 @@ func (srv *UDPServer) Start() error {
 						// Sampled: a cap-drop storm under flood must not log-DoS.
 						if allow, suppressed := capLog.Allow(); allow {
 							args := []any{
-								"server", srv.String(),
+								logFieldServer, srv.String(),
 								"id", srv.options.ID,
-								"name", srv.options.Name,
+								logFieldName, srv.options.Name,
 								"max_sessions", srv.config.MaxSessions,
 							}
 
@@ -417,9 +431,9 @@ func (srv *UDPServer) Start() error {
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"udp server listened",
-		"server", srv.String(),
+		logFieldServer, srv.String(),
 		"id", srv.options.ID,
-		"name", srv.options.Name,
+		logFieldName, srv.options.Name,
 		"network", srv.addr.Network(),
 		"address", srv.addr.String(),
 	)
@@ -456,9 +470,9 @@ func (srv *UDPServer) Stop() error {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"network close failed",
-			"server", srv.String(),
+			logFieldServer, srv.String(),
 			"id", srv.options.ID,
-			"name", srv.options.Name,
+			logFieldName, srv.options.Name,
 			"network", srv.addr.Network(),
 			"address", srv.addr.String(),
 			"error", err.Error(),
@@ -495,9 +509,9 @@ func (srv *UDPServer) Stop() error {
 	srv.options.Logger.InfoContext(
 		srv.ctx,
 		"udp server shutdown",
-		"server", srv.String(),
+		logFieldServer, srv.String(),
 		"id", srv.options.ID,
-		"name", srv.options.Name,
+		logFieldName, srv.options.Name,
 		"network", srv.addr.Network(),
 		"address", srv.addr.String(),
 	)
@@ -592,9 +606,9 @@ func (srv *UDPServer) Handle(hdls ...Handler) {
 		srv.options.Logger.DebugContext(
 			srv.ctx,
 			"udp handler registered",
-			"server", srv.String(),
+			logFieldServer, srv.String(),
 			"id", srv.options.ID,
-			"name", srv.options.Name,
+			logFieldName, srv.options.Name,
 			"handler", hdl.Name(),
 		)
 	}
@@ -662,6 +676,36 @@ func (srv *UDPServer) allowPacketKey(key string) bool {
 		return false
 	}
 
+	// The key is a client-supplied source address, and UDP lets a client
+	// spoof it freely, so the table is bounded before it grows: once the
+	// source table is full, an unseen key is dropped for the rest of the
+	// window instead of inserting another entry. Without this a
+	// spoofed-source flood of N distinct addresses inserted N entries
+	// (plus N addrKey strings) per second, so the "mitigation" itself
+	// became the memory-exhaustion vector. Known sources keep counting.
+	if _, known := srv.rateCounts[key]; !known && len(srv.rateCounts) >= MaxRateLimitSources {
+		if allow, suppressed := srv.rateLog.Allow(); allow {
+			args := []any{
+				logFieldServer, srv.String(),
+				"id", srv.options.ID,
+				logFieldName, srv.options.Name,
+				"max_rate_limit_sources", MaxRateLimitSources,
+			}
+
+			if suppressed > 0 {
+				args = append(args, "suppressed", suppressed)
+			}
+
+			srv.options.Logger.WarnContext(
+				srv.ctx,
+				"udp rate limit source table full, dropping packets from untracked sources",
+				args...,
+			)
+		}
+
+		return false
+	}
+
 	srv.rateCounts[key]++
 
 	return true
@@ -688,9 +732,9 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 			srv.options.Logger.ErrorContext(
 				srv.ctx,
 				"udp handler panicked",
-				"server", srv.String(),
+				logFieldServer, srv.String(),
 				"id", srv.options.ID,
-				"name", srv.options.Name,
+				logFieldName, srv.options.Name,
 				"handler_op", op,
 				"session_id", sessID,
 				"remote", remote,
@@ -708,9 +752,9 @@ func (srv *UDPServer) safelyInvoke(op string, sess *Session, addr *net.UDPAddr, 
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"udp data process error",
-			"server", srv.String(),
+			logFieldServer, srv.String(),
 			"id", srv.options.ID,
-			"name", srv.options.Name,
+			logFieldName, srv.options.Name,
 			"handler_op", op,
 			"session_id", sessID,
 			"remote", remote,

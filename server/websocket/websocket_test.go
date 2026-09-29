@@ -62,9 +62,22 @@ func TestConfigEnsureDefaults(t *testing.T) {
 		t.Errorf("expected shutdown timeout %d, got %d", DefaultShutdownTimeout, cfg.ShutdownTimeout)
 	}
 
-	// MaxMessageBytes must stay 0 (unlimited) and Origins stay nil (same-origin).
-	if cfg.MaxMessageBytes != 0 {
-		t.Errorf("expected max message bytes 0, got %d", cfg.MaxMessageBytes)
+	// MaxMessageBytes must be the 4 MiB default (an absent key used to
+	// leave it 0, which gorilla reads as "no read limit" at all), and
+	// Origins stay nil (same-origin enforcement).
+	if cfg.MaxMessageBytes != DefaultMaxMessageBytes {
+		t.Errorf("expected max message bytes %d, got %d", DefaultMaxMessageBytes, cfg.MaxMessageBytes)
+	}
+
+	// MaxSessions stays 0: the cap is opt-in, because imposing one by
+	// default would silently disconnect an existing fleet of long-lived
+	// clients. New() warns about it instead.
+	if cfg.MaxSessions != 0 {
+		t.Errorf("expected max sessions 0, got %d", cfg.MaxSessions)
+	}
+
+	if cfg.TrustProxies != nil {
+		t.Errorf("expected nil trust proxies, got %v", cfg.TrustProxies)
 	}
 
 	if cfg.Origins != nil {

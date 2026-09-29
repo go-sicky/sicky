@@ -32,11 +32,19 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
+
+// ErrNotInitialized is returned by the package-level data-plane helpers
+// when no broker has been registered. Reporting success there would tell
+// the caller a message was transmitted when it was dropped on the floor.
+// sicky.ErrBrokerNotInitialized is an alias for this value, so
+// errors.Is matches either spelling.
+var ErrNotInitialized = errors.New("sicky: broker is not initialized")
 
 // Broker is a broker component.
 type Broker interface {
@@ -121,39 +129,58 @@ func Clear() {
 }
 
 /* {{{ [Helpers]. */
+
+// Publish sends a message through the default broker. It returns
+// ErrNotInitialized when no broker is registered, because a nil return
+// there reports a message as transmitted when nothing sent it.
+//
+// The lock is released before the call: Publish on a JetStream broker is a
+// synchronous ack round-trip, and holding brkMu across it would park any
+// pending writer (Set, Clear) which in turn blocks every later reader, so one
+// slow ack would stall the whole publish path process-wide.
 func Publish(topic string, m *Message) error {
 	brkMu.RLock()
-	defer brkMu.RUnlock()
+	brk := defaultBroker
+	brkMu.RUnlock()
 
-	if defaultBroker == nil {
-		return nil
+	if brk == nil {
+		return ErrNotInitialized
 	}
 
-	return defaultBroker.Publish(topic, m)
+	return brk.Publish(topic, m)
 }
 
-// Subscribe subscribes a handler.
+// Subscribe subscribes a handler on the default broker. It returns
+// ErrNotInitialized when no broker is registered, and snapshots the broker
+// under the lock and calls out unlocked, for the same reason as Publish.
 func Subscribe(topic string, h Handler) error {
 	brkMu.RLock()
-	defer brkMu.RUnlock()
+	brk := defaultBroker
+	brkMu.RUnlock()
 
-	if defaultBroker == nil {
-		return nil
+	if brk == nil {
+		return ErrNotInitialized
 	}
 
-	return defaultBroker.Subscribe(topic, h)
+	return brk.Subscribe(topic, h)
 }
 
-// Unsubscribe removes a subscription.
+// Unsubscribe removes a subscription on the default broker. It snapshots the
+// broker under the lock and calls out unlocked, for the same reason as Publish.
+//
+// A nil return means the topic is no longer subscribed, whether or not a
+// broker was ever registered: there is nothing to route to, so the caller's
+// intent is satisfied. Unlike Publish there is no work silently dropped.
 func Unsubscribe(topic string) error {
 	brkMu.RLock()
-	defer brkMu.RUnlock()
+	brk := defaultBroker
+	brkMu.RUnlock()
 
-	if defaultBroker == nil {
+	if brk == nil {
 		return nil
 	}
 
-	return defaultBroker.Unsubscribe(topic)
+	return brk.Unsubscribe(topic)
 }
 
 /* }}} */

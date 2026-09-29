@@ -51,6 +51,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/go-sicky/sicky/infra"
 	"github.com/go-sicky/sicky/logger"
@@ -120,6 +121,15 @@ type Manager struct {
 
 	// auth throttles failed bearer attempts on the guarded endpoints.
 	auth authThrottle
+
+	// healthProbes collapses concurrent /health and /ready fan-outs into
+	// a single pass. The endpoints are unauthenticated by design and each
+	// pass spawns 10 goroutines issuing 6 backend pings, so without this
+	// a few thousand anonymous requests per second multiply into tens of
+	// thousands of backend pings. Concurrent callers share one result;
+	// sequential callers still each get a real-time pass, so readiness
+	// never reports a stale reading.
+	healthProbes singleflight.Group
 
 	metricsRegistry *prometheus.Registry
 
@@ -748,7 +758,36 @@ func runCheck(ctx context.Context, timeout time.Duration, check func(context.Con
 	}
 }
 
+// collectComponentHealth returns a real-time component probe.
+//
+// /health and /ready are unauthenticated and each probe fans out to 10
+// goroutines issuing up to 6 backend pings, so concurrent scrapes (an
+// orchestrator, a k8s probe, a load balancer and a human with curl all
+// hitting it at once) used to multiply that fan-out. Concurrent callers
+// now share a single in-flight pass.
+//
+// The result is deliberately NOT cached: a caller that arrives after the
+// previous pass finished gets its own fresh probe, so readiness reports
+// real state rather than a value up to a TTL old. Deduplication is
+// therefore strictly a same-instant collapse, never a staleness window.
 func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHealth {
+	// singleflight shares the first caller's result with the others, so
+	// the leader's context governs the probes. That is safe here because
+	// a probe bounded by the leader's context reports unhealthy, and every
+	// waiter renders the same verdict from the same data.
+	res, _, _ := m.healthProbes.Do("components", func() (any, error) {
+		return m.probeComponents(reqCtx), nil
+	})
+
+	components, _ := res.([]componentHealth)
+
+	return components
+}
+
+// probeComponents performs one real fan-out over the configured
+// components. It is the singleflight leader body; see
+// collectComponentHealth.
+func (m *Manager) probeComponents(reqCtx context.Context) []componentHealth {
 	ctx, cancel := context.WithTimeout(reqCtx, 2*time.Second)
 	defer cancel()
 

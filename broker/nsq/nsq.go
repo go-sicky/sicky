@@ -44,6 +44,7 @@ import (
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
 )
 
@@ -66,6 +67,10 @@ type NSQ struct {
 	mu            sync.RWMutex
 	subscriptions map[string]*nsq.Consumer
 	handlers      map[string]broker.Handler
+	// pending reserves topics whose Subscribe call is still in flight. The
+	// reservation keeps the dup check atomic without holding brk.mu across
+	// the DNS + TCP dial to every NSQD that ConnectToNSQD performs.
+	pending map[string]struct{}
 
 	// newConsumer builds the nsq consumer; tests replace it to count how
 	// many consumers a concurrent Subscribe actually creates.
@@ -93,6 +98,7 @@ func New(opts *broker.Options, cfg *Config) *NSQ {
 		options:       opts,
 		subscriptions: make(map[string]*nsq.Consumer),
 		handlers:      make(map[string]broker.Handler),
+		pending:       make(map[string]struct{}),
 	}
 
 	brk.options.Logger.InfoContext(
@@ -304,16 +310,22 @@ func (brk *NSQ) Publish(topic string, m *broker.Message) error {
 }
 
 // Subscribe subscribes a handler.
+//
+// The consumer build and the DNS + TCP dial happen with brk.mu released:
+// holding the write lock across ConnectToNSQD blocked every in-flight message
+// handler (nsqHandler.HandleMessage takes brk.mu.RLock) and every Publish for
+// the full dial timeout. Atomicity of the dup check is preserved by
+// reserving the topic in brk.pending, which a concurrent caller sees exactly
+// like an existing subscription.
 func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
-	// One critical section covering the dup check, the consumer build and
-	// the dial: two concurrent Subscribe calls for the same topic used to
-	// both pass the check, both connect, and overwrite each other in the
-	// map - leaking a consumer that neither Unsubscribe nor Disconnect can
-	// ever reach (nats/jetstream already insert under their lock).
+	// Check-and-reserve under one lock: two concurrent Subscribe calls for
+	// the same topic used to both pass the check, both connect, and
+	// overwrite each other in the map - leaking a consumer that neither
+	// Unsubscribe nor Disconnect can ever reach.
 	brk.mu.Lock()
-
 	_, dup := brk.subscriptions[topic]
-	if dup {
+	_, reserved := brk.pending[topic]
+	if dup || reserved {
 		brk.mu.Unlock()
 
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "dup").Inc()
@@ -330,6 +342,14 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 		return nil
 	}
 
+	brk.pending[topic] = struct{}{}
+	// Register handler before dialing so Connect() replay sees it.
+	if h != nil {
+		brk.handlers[topic] = h
+	}
+
+	brk.mu.Unlock()
+
 	newConsumer := brk.newConsumer
 	if newConsumer == nil {
 		newConsumer = nsq.NewConsumer
@@ -337,6 +357,9 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 
 	consumer, err := newConsumer(topic, brk.config.Channel, brk.nsqCfg)
 	if err != nil {
+		brk.mu.Lock()
+		delete(brk.pending, topic)
+		delete(brk.handlers, topic)
 		brk.mu.Unlock()
 
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "error").Inc()
@@ -355,24 +378,27 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 	}
 
 	consumer.SetLogger(brk.nsqLogger, nsq.LogLevelWarning)
-	// Register handler before dialing so Connect() replay sees it.
-	if h != nil {
-		brk.handlers[topic] = h
-	}
-
 	consumer.AddHandler(&nsqHandler{
 		Topic:   topic,
 		Channel: brk.config.Channel,
 		Broker:  brk,
 	})
 	err = consumer.ConnectToNSQD(brk.config.Endpoint)
+
+	// Drop the reservation before branching: the topic is no longer in
+	// flight whether the dial succeeded or not, and holding it on the error
+	// path would permanently poison the topic.
+	brk.mu.Lock()
+	delete(brk.pending, topic)
+
 	if err != nil {
+		delete(brk.handlers, topic)
+		brk.mu.Unlock()
+
 		metrics.BrokerSubscribeTotal.WithLabelValues("nsq", topic, "error").Inc()
 		// The consumer already spawned connection goroutines: stop it so
 		// the half-open dial loop does not leak.
 		consumer.Stop()
-		brk.mu.Unlock()
-
 		brk.options.Logger.ErrorContext(
 			brk.ctx,
 			"nsq broker consumer connection failed",
@@ -406,12 +432,25 @@ func (brk *NSQ) Subscribe(topic string, h broker.Handler) error {
 
 // Unsubscribe removes a subscription.
 func (brk *NSQ) Unsubscribe(topic string) error {
+	// Take the consumer out under the lock, then stop it outside: Stop
+	// performs network teardown, and holding the write lock across it stalls
+	// every in-flight message handler and every Publish for that duration.
+	// The map entry goes first so a re-Subscribe is not rejected while the
+	// old consumer is still shutting down.
 	brk.mu.Lock()
-	defer brk.mu.Unlock()
 	consumer := brk.subscriptions[topic]
+	delete(brk.subscriptions, topic)
+	delete(brk.pending, topic)
+	// handlers is the replay list Connect iterates, so leaving the entry
+	// behind would resubscribe this topic on the next reconnect and retain
+	// the handler closure (and whatever it captures) for the process
+	// lifetime. Unsubscribe must forget the desired state, not just the
+	// live subscription.
+	delete(brk.handlers, topic)
+	brk.mu.Unlock()
+
 	if consumer != nil {
 		consumer.Stop()
-		delete(brk.subscriptions, topic)
 		brk.options.Logger.DebugContext(
 			brk.ctx,
 			"nsq broker unsubscribed",
@@ -482,15 +521,20 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 
 		metrics.ObserveBrokerHandler("nsq", h.Topic, result, time.Since(start))
 	}()
-	h.Broker.options.Logger.DebugContext(
-		h.Broker.ctx,
-		"nsq message received",
-		"broker", h.Broker.String(),
-		"id", h.Broker.options.ID,
-		"name", h.Broker.options.Name,
-		"topic", h.Topic,
-		"channel", h.Channel,
-	)
+	// Guarded: this is the per-message hot path, and the variadic call
+	// allocates the argument slice plus a boxing allocation per argument
+	// before slog checks the level and drops it.
+	if h.Broker.options.Logger.Enabled(logger.DebugLevel) {
+		h.Broker.options.Logger.DebugContext(
+			h.Broker.ctx,
+			"nsq message received",
+			"broker", h.Broker.String(),
+			"id", h.Broker.options.ID,
+			"name", h.Broker.options.Name,
+			"topic", h.Topic,
+			"channel", h.Channel,
+		)
+	}
 
 	h.Broker.mu.RLock()
 	hdl := h.Broker.handlers[h.Topic]
@@ -513,15 +557,19 @@ func (h *nsqHandler) HandleMessage(m *nsq.Message) (err error) {
 			return err
 		}
 
-		h.Broker.options.Logger.DebugContext(
-			h.Broker.ctx,
-			"nsq broker handler processed",
-			"broker", h.Broker.String(),
-			"id", h.Broker.options.ID,
-			"name", h.Broker.options.Name,
-			"topic", h.Topic,
-			"channel", h.Channel,
-		)
+		// Guarded for the same reason as the "nsq message received"
+		// log above: one variadic allocation set per delivered message.
+		if h.Broker.options.Logger.Enabled(logger.DebugLevel) {
+			h.Broker.options.Logger.DebugContext(
+				h.Broker.ctx,
+				"nsq broker handler processed",
+				"broker", h.Broker.String(),
+				"id", h.Broker.options.ID,
+				"name", h.Broker.options.Name,
+				"topic", h.Topic,
+				"channel", h.Channel,
+			)
+		}
 	}
 
 	return nil

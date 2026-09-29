@@ -31,8 +31,10 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -69,6 +71,14 @@ var (
 	services       = make(map[uuid.UUID]Service)
 	defaultService Service
 	svcMu          sync.RWMutex
+
+	// regSeq is the monotonic registration counter behind Ordered. It is
+	// bumped once per accepted service, never on a rejected one, so the
+	// sequence reflects the order services were actually registered in.
+	regSeq uint64
+	// regOrder maps an ID to its registration sequence. It lives beside
+	// services so the two are always written together under svcMu.
+	regOrder = make(map[uuid.UUID]uint64)
 )
 
 // Set registers service instances; the first one becomes the default.
@@ -86,6 +96,13 @@ func Set(svcs ...Service) {
 		}
 
 		services[svc.Options().ID] = svc
+
+		// Record the registration order. Callers that need a dependency
+		// between services depend on the order they call Set in, not on
+		// map iteration, which Go randomizes per range.
+		regSeq++
+		regOrder[svc.Options().ID] = regSeq
+
 		if defaultService == nil {
 			defaultService = svc
 		}
@@ -109,12 +126,40 @@ func Default() Service {
 }
 
 // Services returns a copy of the service registry.
+//
+// The map is unordered, so iterating it yields a different order on every
+// pass; use Ordered when the sequence matters.
 func Services() map[uuid.UUID]Service {
 	svcMu.RLock()
 	defer svcMu.RUnlock()
 
 	out := make(map[uuid.UUID]Service, len(services))
 	maps.Copy(out, services)
+
+	return out
+}
+
+// Ordered returns the registered services in the order they were passed to
+// Set. The lifecycle uses it so a service that was registered after one it
+// depends on starts after it and stops before it; the registry keeps no
+// explicit dependency edges, so registration order is the contract.
+//
+// Set is the only source of a sequence, so the order is exactly the order of
+// the Set calls. A service that Set rejected (nil, or an already-registered
+// ID) keeps the position of the registration that was accepted, and a
+// Clear resets the sequence so a restart renumbers from the beginning.
+func Ordered() []Service {
+	svcMu.RLock()
+	defer svcMu.RUnlock()
+
+	out := make([]Service, 0, len(services))
+	for _, svc := range services {
+		out = append(out, svc)
+	}
+
+	slices.SortFunc(out, func(a, b Service) int {
+		return cmp.Compare(regOrder[a.Options().ID], regOrder[b.Options().ID])
+	})
 
 	return out
 }
@@ -126,6 +171,12 @@ func Clear() {
 
 	services = make(map[uuid.UUID]Service)
 	defaultService = nil
+
+	// Reset the registration sequence too: leaving it running would let a
+	// service registered after a Clear sort ahead of one registered
+	// before it, which is the opposite of what a restart expects.
+	regOrder = make(map[uuid.UUID]uint64)
+	regSeq = 0
 }
 
 /*

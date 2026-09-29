@@ -173,11 +173,25 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		return nil, err
 	}
 
+	// Swap under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	// The success log moved out too: it is a synchronous write to the
+	// handler and must not run under the global lock either.
 	mu.Lock()
-	defer mu.Unlock()
-	if Elastic != nil {
+
+	existing := Elastic
+	if existing == nil {
+		Elastic = client
+	}
+
+	mu.Unlock()
+
+	if existing != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
-		// instead of leaking its transport.
+		// instead of leaking it.
 		logger.Logger.Warn("elasticsearch already initialized, closing duplicate client")
 		cctx, ccancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
 		defer ccancel()
@@ -188,10 +202,8 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 			)
 		}
 
-		return Elastic, nil
+		return existing, nil
 	}
-
-	Elastic = client
 
 	logger.Logger.InfoContext(
 		context.Background(),

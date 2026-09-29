@@ -412,13 +412,121 @@ func ResultOf(err error) string {
 	return "error"
 }
 
+// pairCache memoizes the counter and histogram children of one
+// Observe* metric pair, keyed by the label values they were resolved
+// with.
+//
+// Every WithLabelValues call re-hashes its labels and takes the
+// MetricVec's own RWMutex. The Observe* helpers below sit on the
+// framework's hottest paths (once per message, per redis command and per
+// SQL query), so at any real concurrency that mutex is a shared,
+// ping-ponging cache line and the hashing is pure repeated work: the
+// label sets are fixed after the first operations and never change.
+// Resolving each child once turns per-operation work into a single map
+// lookup on a map that is read-mostly.
+//
+// The cache is safe to hold for the process lifetime because the
+// MetricVecs it wraps are package-level variables that are never
+// reassigned; Unregister only drops a collector from the registry pool
+// and leaves the Vecs (and therefore the children) intact.
+type pairCache struct {
+	total *prometheus.CounterVec
+	dur   *prometheus.HistogramVec
+	// totalN and durN are how many leading labels the counter and the
+	// histogram take. Both are carried per pair rather than derived,
+	// because the relationship between them is not uniform: six pairs
+	// take totalN == durN+1 (the shared labels plus a trailing result
+	// or code), but the job pair takes 3 and 1 respectively. A "drop
+	// the last label" rule would hand WithLabelValues two values for
+	// that three-label counter and panic on the first job run.
+	totalN int
+	durN   int
+
+	mu sync.RWMutex
+	m  map[labelsKey]metricPair
+}
+
+// labelsKey is the fixed-width key the caches are indexed by. The four
+// slots cover the widest signature in this file
+// (server, method, route, code); narrower calls leave the rest empty.
+// A struct key keeps the lookup allocation-free, which an interface-key
+// sync.Map could not: boxing a struct into an any would allocate on
+// every observation.
+type labelsKey struct {
+	a, b, c, d string
+}
+
+// metricPair is one resolved counter/histogram pair.
+type metricPair struct {
+	counter  prometheus.Counter
+	observer prometheus.Observer
+}
+
+// newPairCache returns a cache for the given counter and histogram Vecs.
+// totalN and durN are the number of leading labels each one takes.
+func newPairCache(total *prometheus.CounterVec, dur *prometheus.HistogramVec, totalN, durN int) *pairCache {
+	return &pairCache{
+		total:  total,
+		dur:    dur,
+		totalN: totalN,
+		durN:   durN,
+		m:      make(map[labelsKey]metricPair),
+	}
+}
+
+// resolve returns the memoized children for the given labels, resolving
+// them through WithLabelValues on the first call for each label set.
+// Unused trailing label slots are ignored, so callers may always pass
+// four values.
+func (c *pairCache) resolve(a, b, cc, d string) (prometheus.Counter, prometheus.Observer) {
+	key := labelsKey{a: a, b: b, c: cc, d: d}
+
+	c.mu.RLock()
+	pair, ok := c.m[key]
+	c.mu.RUnlock()
+
+	if ok {
+		return pair.counter, pair.observer
+	}
+
+	// Miss: this label set has never been observed, so pay for the label
+	// slice once. WithLabelValues still validates the label count, so a
+	// mismatched arity panics here exactly as it did before.
+	labels := [4]string{a, b, cc, d}
+
+	pair = metricPair{
+		counter:  c.total.WithLabelValues(labels[:c.totalN]...),
+		observer: c.dur.WithLabelValues(labels[:c.durN]...),
+	}
+
+	c.mu.Lock()
+	c.m[key] = pair
+	c.mu.Unlock()
+
+	return pair.counter, pair.observer
+}
+
+// The per-pair caches. Go resolves package-level initialization order
+// by dependency, so each one is built after the Vecs it wraps.
+var (
+	infraOpCache    = newPairCache(InfraOpsTotal, InfraOpDuration, 3, 2)
+	serverReqCache  = newPairCache(ServerRequestsTotal, ServerRequestDuration, 4, 3)
+	clientReqCache  = newPairCache(ClientRequestsTotal, ClientRequestDuration, 4, 3)
+	brokerPubCache  = newPairCache(BrokerPublishTotal, BrokerPublishDuration, 3, 2)
+	brokerHndCache  = newPairCache(BrokerHandlerTotal, BrokerHandlerDuration, 3, 2)
+	jobRunCache     = newPairCache(JobRunsTotal, JobRunDuration, 3, 1)
+	registryOpCache = newPairCache(RegistryOpsTotal, RegistryOpDuration, 3, 2)
+)
+
 // ObserveInfraOp records one infra operation (counter + histogram).
 // op is a low-cardinality verb (e.g. "query", "get", "publish", "put");
 // never pass raw SQL, URLs or topic payloads here.
 func ObserveInfraOp(infra, op string, start time.Time, err error) {
 	result := ResultOf(err)
-	InfraOpsTotal.WithLabelValues(infra, op, result).Inc()
-	InfraOpDuration.WithLabelValues(infra, op).Observe(time.Since(start).Seconds())
+	counter, observer := infraOpCache.resolve(infra, op, result, "")
+
+	counter.Inc()
+	observer.Observe(time.Since(start).Seconds())
 }
 
 // SetInfraUp publishes singleton presence/connected state.
@@ -438,40 +546,52 @@ func CountInfraInit(infra string, err error) {
 
 // ObserveServerRequest records one inbound request/message.
 func ObserveServerRequest(server, method, route, code string, d time.Duration) {
-	ServerRequestsTotal.WithLabelValues(server, method, route, code).Inc()
-	ServerRequestDuration.WithLabelValues(server, method, route).Observe(d.Seconds())
+	counter, observer := serverReqCache.resolve(server, method, route, code)
+
+	counter.Inc()
+	observer.Observe(d.Seconds())
 }
 
 // ObserveClientRequest records one outbound call.
 func ObserveClientRequest(client, method, host, code string, d time.Duration) {
-	ClientRequestsTotal.WithLabelValues(client, method, host, code).Inc()
-	ClientRequestDuration.WithLabelValues(client, method, host).Observe(d.Seconds())
+	counter, observer := clientReqCache.resolve(client, method, host, code)
+
+	counter.Inc()
+	observer.Observe(d.Seconds())
 }
 
 // ObserveBrokerPublish records one publish attempt.
 func ObserveBrokerPublish(broker, topic string, start time.Time, err error) {
 	result := ResultOf(err)
-	BrokerPublishTotal.WithLabelValues(broker, topic, result).Inc()
-	BrokerPublishDuration.WithLabelValues(broker, topic).Observe(time.Since(start).Seconds())
+	counter, observer := brokerPubCache.resolve(broker, topic, result, "")
+
+	counter.Inc()
+	observer.Observe(time.Since(start).Seconds())
 }
 
 // ObserveBrokerHandler records one handler outcome.
 func ObserveBrokerHandler(broker, topic, result string, d time.Duration) {
-	BrokerHandlerTotal.WithLabelValues(broker, topic, result).Inc()
-	BrokerHandlerDuration.WithLabelValues(broker, topic).Observe(d.Seconds())
+	counter, observer := brokerHndCache.resolve(broker, topic, result, "")
+
+	counter.Inc()
+	observer.Observe(d.Seconds())
 }
 
 // ObserveJobRun records one job run outcome.
 func ObserveJobRun(job, task, result string, d time.Duration) {
-	JobRunsTotal.WithLabelValues(job, task, result).Inc()
-	JobRunDuration.WithLabelValues(job).Observe(d.Seconds())
+	counter, observer := jobRunCache.resolve(job, task, result, "")
+
+	counter.Inc()
+	observer.Observe(d.Seconds())
 }
 
 // ObserveRegistryOp records one registry operation.
 func ObserveRegistryOp(backend, op string, start time.Time, err error) {
 	result := ResultOf(err)
-	RegistryOpsTotal.WithLabelValues(backend, op, result).Inc()
-	RegistryOpDuration.WithLabelValues(backend, op).Observe(time.Since(start).Seconds())
+	counter, observer := registryOpCache.resolve(backend, op, result, "")
+
+	counter.Inc()
+	observer.Observe(time.Since(start).Seconds())
 }
 
 // Register registers the collector.

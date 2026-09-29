@@ -43,6 +43,7 @@ import (
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
 )
 
@@ -65,6 +66,10 @@ type JetStream struct {
 	mu            sync.RWMutex
 	subscriptions map[string]*nats.Subscription
 	handlers      map[string]broker.Handler
+	// pending reserves topics whose Subscribe call is still in flight. The
+	// reservation keeps check-and-insert atomic without holding brk.mu across
+	// the $JS.API.CONSUMER.* round-trip that streamer.Subscribe performs.
+	pending map[string]struct{}
 }
 
 // New creates a new instance (nil on invalid config).
@@ -88,6 +93,7 @@ func New(opts *broker.Options, cfg *Config) *JetStream {
 		options:       opts,
 		subscriptions: make(map[string]*nats.Subscription),
 		handlers:      make(map[string]broker.Handler),
+		pending:       make(map[string]struct{}),
 	}
 
 	brk.options.Logger.InfoContext(
@@ -318,25 +324,38 @@ func (brk *JetStream) Publish(topic string, m *broker.Message) error {
 }
 
 // Subscribe subscribes a handler.
+//
+// The JetStream consumer-create round-trip is performed with brk.mu released:
+// holding the write lock across it blocked Publish, Unsubscribe, Handle and
+// Disconnect for the full server RTT, and a handler that subscribed from a
+// publish callback deadlocked outright. Atomicity of the check-and-insert is
+// preserved by reserving the topic in brk.pending, which a concurrent caller
+// sees exactly like an existing subscription.
 func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 	brk.mu.Lock()
-	defer brk.mu.Unlock()
-	if brk.conn == nil || !brk.conn.IsConnected() || brk.conn.IsClosed() {
+	conn, streamer := brk.conn, brk.streamer
+	if conn == nil || streamer == nil || !conn.IsConnected() || conn.IsClosed() {
+		brk.mu.Unlock()
 		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "error").Inc()
 
 		return ErrBrokerNotConnected
 	}
 
-	// Check-and-insert under the same lock: two concurrent Subscribe calls
+	// Check-and-reserve under the same lock: two concurrent Subscribe calls
 	// for one topic must not both pass the existence check.
 	_, exists := brk.subscriptions[topic]
-	if exists {
+	_, reserved := brk.pending[topic]
+	if exists || reserved {
+		brk.mu.Unlock()
 		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "dup").Inc()
 
 		return ErrTopicAlreadySubscribed
 	}
 
-	sub, err := brk.streamer.Subscribe(topic, func(msg *nats.Msg) {
+	brk.pending[topic] = struct{}{}
+	brk.mu.Unlock()
+
+	sub, err := streamer.Subscribe(topic, func(msg *nats.Msg) {
 		start := time.Now()
 		result := "acked"
 		defer func() {
@@ -374,20 +393,38 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 				_ = msg.Nak()
 				result = "nacked"
 			} else {
-				brk.options.Logger.DebugContext(
-					brk.ctx,
-					"jetstream broker handler processed",
-					"broker", brk.String(),
-					"id", brk.options.ID,
-					"name", brk.options.Name,
-					"topic", topic,
-				)
+				// Guarded: once per delivered message, and the
+				// variadic call allocates the argument slice even
+				// when the default InfoLevel discards it.
+				if brk.options.Logger.Enabled(logger.DebugLevel) {
+					brk.options.Logger.DebugContext(
+						brk.ctx,
+						"jetstream broker handler processed",
+						"broker", brk.String(),
+						"id", brk.options.ID,
+						"name", brk.options.Name,
+						"topic", topic,
+					)
+				}
+
 				_ = msg.Ack()
 			}
 		} else {
 			_ = msg.Ack()
 		}
 	}, nats.ManualAck())
+
+	// Drop the reservation before branching: the topic is no longer in
+	// flight whether the subscribe succeeded or not, and holding it on the
+	// error path would permanently poison the topic.
+	brk.mu.Lock()
+	delete(brk.pending, topic)
+	if err == nil {
+		brk.subscriptions[topic] = sub
+	}
+
+	brk.mu.Unlock()
+
 	if err != nil {
 		metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "error").Inc()
 		brk.options.Logger.ErrorContext(
@@ -412,7 +449,6 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 		"topic", topic,
 	)
 
-	brk.subscriptions[topic] = sub
 	metrics.BrokerSubscribeTotal.WithLabelValues("jetstream", topic, "ok").Inc()
 
 	return nil
@@ -420,15 +456,23 @@ func (brk *JetStream) Subscribe(topic string, h broker.Handler) error {
 
 // Unsubscribe removes a subscription.
 func (brk *JetStream) Unsubscribe(topic string) error {
+	// Drop the subscription under the lock, then call Unsubscribe outside it:
+	// the call reaches the NATS server, and holding the write lock across it
+	// would stall every concurrent Publish for the full RTT. The local entry
+	// is removed first so a re-Subscribe of the same topic is not rejected
+	// while the server-side unsubscribe is still in flight.
 	brk.mu.Lock()
-	defer brk.mu.Unlock()
 	sub := brk.subscriptions[topic]
-	if sub != nil {
-		if err := sub.Unsubscribe(); err != nil {
-			return fmt.Errorf("jetstream broker unsubscribe (topic %s): %w", topic, err)
-		}
+	delete(brk.subscriptions, topic)
+	delete(brk.pending, topic)
+	brk.mu.Unlock()
 
-		delete(brk.subscriptions, topic)
+	if sub == nil {
+		return nil
+	}
+
+	if err := sub.Unsubscribe(); err != nil {
+		return fmt.Errorf("jetstream broker unsubscribe (topic %s): %w", topic, err)
 	}
 
 	return nil

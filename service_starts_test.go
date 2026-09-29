@@ -37,7 +37,7 @@ func TestRunCountsSuccessfulServiceStarts(t *testing.T) {
 		return nil
 	})
 
-	cfg := &Config{Manager: &ManagerConfig{Enable: false}}
+	cfg := &Config{Manager: &ManagerConfig{Enable: new(false)}}
 	if err := Run(cfg); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

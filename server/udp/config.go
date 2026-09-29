@@ -49,6 +49,15 @@ const (
 	MinReapIntervalSeconds = 5
 	// DefaultShutdownTimeout is a udp constant.
 	DefaultShutdownTimeout = 10
+	// MaxRateLimitSources bounds the per-source packet-rate table. The
+	// keys are client-supplied source addresses and UDP lets a client
+	// spoof them, so an unbounded table turns the flood guard into the
+	// memory-exhaustion vector it was meant to prevent. It is a constant
+	// rather than a config field because it only caps attacker-controlled
+	// bookkeeping: raising it costs one map entry per distinct source per
+	// second and never changes the limit a tracked source is held to.
+	// MaxRateLimitSources is a udp constant.
+	MaxRateLimitSources = 1 << 16
 )
 
 // Config is a udp component.

@@ -180,18 +180,30 @@ func initS3(cfg *S3Config) (*s3.Client, error) {
 
 	client := s3.NewFromConfig(c, clientOpts)
 
+	// Swap under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	// The success log moved out too: it is a synchronous write to the
+	// handler and must not run under the global lock either.
 	mu.Lock()
-	defer mu.Unlock()
-	if S3 != nil {
-		// First-wins: keep the existing singleton. The S3 client holds
-		// no closeable resources, so there is nothing to drop.
-		logger.Logger.Warn("s3 already initialized, keeping existing client")
 
-		return S3, nil
+	existing := S3
+	if existing == nil {
+		S3 = client
+		s3Bucket = strings.TrimSpace(cfg.Bucket)
 	}
 
-	S3 = client
-	s3Bucket = strings.TrimSpace(cfg.Bucket)
+	mu.Unlock()
+
+	if existing != nil {
+		// First-wins: keep the existing singleton and drop the duplicate
+		// instead of leaking it.
+		logger.Logger.Warn("s3 already initialized, keeping existing client")
+
+		return existing, nil
+	}
 
 	logger.Logger.InfoContext(
 		context.Background(),

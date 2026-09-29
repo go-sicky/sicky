@@ -43,6 +43,7 @@ import (
 
 	"github.com/go-sicky/sicky/broker"
 	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/logger"
 	"github.com/go-sicky/sicky/metrics"
 )
 
@@ -322,7 +323,11 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 					"topic", topic,
 					"error", err.Error(),
 				)
-			} else {
+			} else if brk.options.Logger.Enabled(logger.DebugLevel) {
+				// Guarded: this runs once per delivered message, and
+				// the variadic call would otherwise allocate the
+				// argument slice on every message even when the
+				// default InfoLevel discards it.
 				brk.options.Logger.DebugContext(
 					brk.ctx,
 					"nats broker handler processed",
@@ -366,15 +371,28 @@ func (brk *Nats) Subscribe(topic string, h broker.Handler) error {
 
 // Unsubscribe removes a subscription.
 func (brk *Nats) Unsubscribe(topic string) error {
+	// Take the subscription out under the lock, then unsubscribe outside
+	// it: sub.Unsubscribe is a NATS server round-trip, and holding the
+	// write lock across it stalls every publish, handler and connect for
+	// the duration. Removing the map entries first also lets a
+	// re-Subscribe proceed while the old subscription is still closing.
 	brk.mu.Lock()
-	defer brk.mu.Unlock()
 	sub := brk.subscriptions[topic]
-	if sub != nil {
-		if err := sub.Unsubscribe(); err != nil {
-			return fmt.Errorf("nats broker unsubscribe (topic %s): %w", topic, err)
-		}
+	delete(brk.subscriptions, topic)
+	// handlers is the replay list Connect iterates, so leaving the entry
+	// behind would resubscribe this topic on the next reconnect and retain
+	// the handler closure (and whatever it captures) for the process
+	// lifetime. Unsubscribe must forget the desired state, not just the
+	// live subscription.
+	delete(brk.handlers, topic)
+	brk.mu.Unlock()
 
-		delete(brk.subscriptions, topic)
+	if sub == nil {
+		return nil
+	}
+
+	if err := sub.Unsubscribe(); err != nil {
+		return fmt.Errorf("nats broker unsubscribe (topic %s): %w", topic, err)
 	}
 
 	return nil

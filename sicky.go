@@ -39,6 +39,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -120,10 +121,15 @@ var (
 	ErrMustInfraNotInitialized = errors.New("sicky: must infrastructure is not initialized")
 
 	// ErrRegistryNotInitialized signals no registry backend was configured.
-	ErrRegistryNotInitialized = errors.New("sicky: registry is not initialized")
+	// It aliases registry.ErrNotInitialized, which the package-level
+	// registry.Load returns, so errors.Is matches both spellings.
+	ErrRegistryNotInitialized = registry.ErrNotInitialized
 
 	// ErrBrokerNotInitialized signals no broker backend was configured.
-	ErrBrokerNotInitialized = errors.New("sicky: broker is not initialized")
+	// It aliases broker.ErrNotInitialized, which the package-level
+	// broker.Publish and broker.Subscribe return, so errors.Is matches
+	// both spellings.
+	ErrBrokerNotInitialized = broker.ErrNotInitialized
 
 	// ErrNATSBrokerNil signals the NATS broker constructor returned nil.
 	ErrNATSBrokerNil = errors.New("sicky: nats broker init returned nil")
@@ -446,6 +452,14 @@ func Run(cfg *Config) error {
 		errs   []error
 		runErr error
 
+		// hookErr collects SickyWrapper failures. They are reported to the
+		// caller but must never be folded into runErr: runErr doubles as the
+		// "fatal startup, skip the signal wait" flag at the shutdown label,
+		// so a failing hook used to tear down a healthy process. AGENTS §3.3
+		// documents the opposite ("hook failures log an error but do NOT
+		// abort the process").
+		hookErr error
+
 		rgConsulIns  *rgConsul.Consul
 		rgRedisIns   *rgRedis.Redis
 		rgLocalIns   *rgLocal.Local
@@ -536,7 +550,7 @@ func Run(cfg *Config) error {
 				"before start wrapper failed",
 				"error", err.Error(),
 			)
-			runErr = errors.Join(runErr, fmt.Errorf("before start wrapper: %w", err))
+			hookErr = errors.Join(hookErr, fmt.Errorf("before start wrapper: %w", err))
 		}
 	}
 
@@ -972,7 +986,7 @@ func Run(cfg *Config) error {
 	}
 
 	// Start manager
-	if cfg.Manager != nil && cfg.Manager.Enable && !options.DisableManager {
+	if cfg.Manager.Enabled() && !options.DisableManager {
 		managerApp = NewManager(cfg.Manager, options.AppName, options.Version)
 		managerApp.cfgVar = cfg
 		err = managerApp.Start()
@@ -987,8 +1001,13 @@ func Run(cfg *Config) error {
 		}
 	}
 
-	// Services
-	for id, svc := range service.Services() {
+	// Services, in registration order: a service registered after one it
+	// depends on must start after it. service.Services returns a map and
+	// Go randomizes iteration per range, so ranging it made the startup
+	// order a coin flip on every run.
+	for _, svc := range service.Ordered() {
+		id := svc.Options().ID
+
 		logger.InfoContext(
 			options.Context,
 			"Starting service",
@@ -1088,7 +1107,7 @@ func Run(cfg *Config) error {
 				"after start wrapper failed",
 				"error", err.Error(),
 			)
-			runErr = errors.Join(runErr, fmt.Errorf("after start wrapper: %w", err))
+			hookErr = errors.Join(hookErr, fmt.Errorf("after start wrapper: %w", err))
 		}
 	}
 
@@ -1202,11 +1221,17 @@ shutdown:
 				"before stop wrapper failed",
 				"error", err.Error(),
 			)
-			runErr = errors.Join(runErr, fmt.Errorf("before stop wrapper: %w", err))
+			hookErr = errors.Join(hookErr, fmt.Errorf("before stop wrapper: %w", err))
 		}
 	}
 
-	for id, svc := range service.Services() {
+	// Stop in reverse registration order so teardown mirrors startup: a
+	// service that was started after a dependency is stopped before it.
+	svcs := service.Ordered()
+	for i := range slices.Backward(svcs) {
+		svc := svcs[i]
+		id := svc.Options().ID
+
 		if _, failed := failedSvcs[svc]; failed {
 			// Already stopped inline at Start failure; do not stop twice.
 			continue
@@ -1441,11 +1466,13 @@ shutdown:
 				"after stop wrapper failed",
 				"error", err.Error(),
 			)
-			runErr = errors.Join(runErr, fmt.Errorf("after stop wrapper: %w", err))
+			hookErr = errors.Join(hookErr, fmt.Errorf("after stop wrapper: %w", err))
 		}
 	}
 
-	return runErr
+	// Hook failures are surfaced to the caller, last, so they can never
+	// influence the startup/shutdown control flow above.
+	return errors.Join(runErr, hookErr)
 }
 
 func validateConfig(cfg *Config) {
@@ -1469,7 +1496,7 @@ func validateConfig(cfg *Config) {
 		}
 	}
 
-	if cfg.Manager != nil && cfg.Manager.Enable {
+	if cfg.Manager.Enabled() {
 		if cfg.Manager.ShutdownTimeout <= 0 {
 			logger.Logger.Warn("manager shutdown timeout is invalid (possibly zeroed by environment variable), clamped to default",
 				"old", cfg.Manager.ShutdownTimeout, "new", DefaultShutdownTimeout)

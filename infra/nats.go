@@ -191,19 +191,31 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 		return nil, err
 	}
 
+	// Swap under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	// The success log moved out too: it is a synchronous write to the
+	// handler and must not run under the global lock either.
 	mu.Lock()
-	defer mu.Unlock()
-	if NATS != nil {
+
+	existing := NATS
+	if existing == nil {
+		NATS = nc
+		Nats = nc
+	}
+
+	mu.Unlock()
+
+	if existing != nil {
 		// First-wins: keep the existing singleton and drop the duplicate
 		// instead of leaking it.
 		logger.Logger.Warn("nats already initialized, closing duplicate connection")
 		nc.Close()
 
-		return NATS, nil
+		return existing, nil
 	}
-
-	NATS = nc
-	Nats = nc
 
 	logger.Logger.InfoContext(
 		context.Background(),

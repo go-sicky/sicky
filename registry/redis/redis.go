@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +51,13 @@ type Redis struct {
 	cancel  context.CancelFunc
 	options *registry.Options
 	client  *redis.Client
+
+	// watchOnce makes Watch idempotent: the orchestrator calls it both
+	// directly (concrete type) and through registry.Watch() (default
+	// registry), and every service also calls it on each attached
+	// registry. Each call otherwise opened its own PubSub connection and
+	// goroutine, permanently doubling HGETALL and PurgePool per change.
+	watchOnce sync.Once
 }
 
 // New creates a new instance (nil on invalid config).
@@ -298,8 +306,19 @@ func (rg *Redis) Load() (instances []*registry.Instance, err error) {
 	return instances, nil
 }
 
-// Watch watches for changes.
+// Watch watches for changes. It is idempotent: repeated calls return nil
+// without opening a second PubSub subscription.
 func (rg *Redis) Watch() error {
+	rg.watchOnce.Do(func() {
+		rg.startWatch()
+	})
+
+	return nil
+}
+
+// startWatch subscribes to the notify key and reloads the pool whenever a
+// notification arrives. It runs at most once per instance; see watchOnce.
+func (rg *Redis) startWatch() {
 	pubsub := rg.client.Subscribe(rg.ctx, rg.config.NotifyKey)
 
 	go func() {
@@ -337,8 +356,6 @@ func (rg *Redis) Watch() error {
 			}
 		}
 	}()
-
-	return nil
 }
 
 // Stop stops the component and releases resources.
