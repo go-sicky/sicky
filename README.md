@@ -105,6 +105,11 @@ go get github.com/go-sicky/sicky
 }
 ```
 
+`manager.enable` is tri-state: omit it and the manager runs (the block is present),
+`false` turns it off, `true` is the same as omitting it. The same rule applies to
+`"manager": {}` — an empty block is enough. See `ManagerConfig.Enabled()` for the
+Go-side equivalent.
+
 ### 2. Write your service
 
 `main.go`:

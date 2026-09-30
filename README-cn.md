@@ -150,6 +150,9 @@ go get github.com/go-sicky/sicky
 
 > ⚠️ 注意：`sicky.Config` 里 `Manager` 字段为 `nil` 表示**禁用** Manager（breaking 语义，
 > 只有 `DefaultConfig()` 才默认启用）。上面 JSON 能生效是因为 Viper 反序列化后 `Manager` 非 nil。
+
+> 💡 `manager.enable` 是三态的：省略即启用（配置块存在即启用），`false` 才关闭，
+> `true` 与省略等价 —— 所以 `"manager": {}` 就足以启用。Go 侧对应 `ManagerConfig.Enabled()`。
 > 如果你在代码里手写 `cfg := &sicky.Config{}` 然后 `Run(cfg)`，Manager 是不会启动的，
 > `/health`、`/metrics` 都没有——这是符合代码行为的，不是 bug。
 

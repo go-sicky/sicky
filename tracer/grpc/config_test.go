@@ -27,11 +27,12 @@ func TestConfigEnsureFillsDefaults(t *testing.T) {
 		t.Fatalf("ServiceVersion = %q, want %q", c.ServiceVersion, DefaultServiceVersion)
 	}
 
-	// SampleRate is deliberately absent here. Ensure only clamps values
-	// OUTSIDE [0,1]; a zero in-range value is left alone, so
-	// DefaultSampleRate comes from DefaultConfig (reached by a nil
-	// receiver), not from Ensure. That asymmetry is pinned by
-	// TestConfigEnsureKeepsZeroSampleRateAsDocumented.
+	// SampleRate is filled too: Ensure refills a non-positive rate, so a
+	// zero Config no longer reaches TraceIDRatioBased(0) and silently
+	// exports nothing. Pinned by TestConfigEnsureRefillsZeroSampleRate.
+	if c.SampleRate != DefaultSampleRate {
+		t.Fatalf("SampleRate = %v, want %v", c.SampleRate, DefaultSampleRate)
+	}
 }
 
 // TestConfigEnsureIsNilSafe: a nil receiver must not panic, because Run
@@ -82,21 +83,20 @@ func TestConfigEnsureKeepsExplicitSampleRate(t *testing.T) {
 	}
 }
 
-// TestConfigEnsureKeepsZeroSampleRateAsDocumented pins the current
-// behavior, which differs from the root sicky.TracerConfig: here the guard
-// is `> 1.0 || < 0.0`, so an explicit 0.0 survives Ensure.
+// TestConfigEnsureRefillsZeroSampleRate is a regression test for the silent no-op tracer. A bare float64
+// config key the operator omitted decodes to 0, and 0 used to reach
+// sdktrace.TraceIDRatioBased(0), which never samples: the tracer reported
+// itself initialized and exported nothing at all. Ensure now refills a
+// non-positive rate with the default, the same rule the root
+// sicky.TracerConfig.Ensure applies, so a process run through sicky.Run
+// and one that builds this tracer directly agree.
 //
-// This matters because 0.0 reaches sdktrace.TraceIDRatioBased(0) and
-// exports nothing. sicky.Run is safe because the root TracerConfig.Ensure
-// now refills a zero rate with DefaultTracerSampleRate before it reaches
-// this package, but a caller that constructs a tracer directly with
-// `grpc.New(nil, &Config{})` gets the silent no-op. If this test ever
-// needs to change, the fix belongs here too, not only at the root.
-func TestConfigEnsureKeepsZeroSampleRateAsDocumented(t *testing.T) {
-	got := (&Config{SampleRate: 0}).Ensure()
-	if got.SampleRate != 0 {
-		t.Fatalf("SampleRate = %v, want 0: the sub-package guard is `> 1.0 || < 0.0` and does not refill zero; "+
-			"sicky.Run is protected by the root config, a direct New(nil, &Config{}) caller is not", got.SampleRate)
+// The cost is that a deliberate 0% is not expressible at this level; a
+// caller that wants less traffic lowers the rate above zero instead.
+func TestConfigEnsureRefillsZeroSampleRate(t *testing.T) {
+	if got := (&Config{SampleRate: 0}).Ensure().SampleRate; got != DefaultSampleRate {
+		t.Fatalf("SampleRate = %v, want %v: a zero rate must be refilled, not passed to TraceIDRatioBased(0), "+
+			"which samples nothing", got, DefaultSampleRate)
 	}
 }
 

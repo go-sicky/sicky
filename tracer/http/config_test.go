@@ -47,7 +47,7 @@ func TestConfigEnsureFillsDefaults(t *testing.T) {
 	// OUTSIDE [0,1]; a zero in-range value is left alone, so
 	// DefaultSampleRate comes from DefaultConfig (reached by a nil
 	// receiver), not from Ensure. That asymmetry is pinned by
-	// TestConfigEnsureKeepsZeroSampleRateAsDocumented.
+	// TestConfigEnsureRefillsZeroSampleRate.
 }
 
 func TestConfigEnsureIsNilSafe(t *testing.T) {
@@ -90,15 +90,20 @@ func TestConfigEnsureKeepsExplicitSampleRate(t *testing.T) {
 	}
 }
 
-func TestConfigEnsureKeepsZeroSampleRateAsDocumented(t *testing.T) {
-	// A zero is inside the accepted range, so Ensure leaves it alone. This
-	// differs from sicky.TracerConfig.Ensure, which treats zero as "unset"
-	// because viper decodes an absent float64 key to zero. A direct caller
-	// of this package therefore gets a sampler that exports nothing; the
-	// trade-off is pinned here so a future change to either side has to be
-	// deliberate.
-	if got := (&Config{SampleRate: 0}).Ensure().SampleRate; got != 0 {
-		t.Fatalf("SampleRate = %v, want 0 preserved (in-range zero is not clamped)", got)
+// TestConfigEnsureRefillsZeroSampleRate is a regression test for the silent no-op tracer. A bare float64
+// config key the operator omitted decodes to 0, and 0 used to reach
+// sdktrace.TraceIDRatioBased(0), which never samples: the tracer reported
+// itself initialized and exported nothing at all. Ensure now refills a
+// non-positive rate with the default, the same rule the root
+// sicky.TracerConfig.Ensure applies, so a process run through sicky.Run
+// and one that builds this tracer directly agree.
+//
+// The cost is that a deliberate 0% is not expressible at this level; a
+// caller that wants less traffic lowers the rate above zero instead.
+func TestConfigEnsureRefillsZeroSampleRate(t *testing.T) {
+	if got := (&Config{SampleRate: 0}).Ensure().SampleRate; got != DefaultSampleRate {
+		t.Fatalf("SampleRate = %v, want %v: a zero rate must be refilled, not passed to TraceIDRatioBased(0), "+
+			"which samples nothing", got, DefaultSampleRate)
 	}
 }
 

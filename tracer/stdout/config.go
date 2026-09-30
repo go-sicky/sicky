@@ -78,7 +78,7 @@ func (c *Config) Ensure() *Config {
 		c.ServiceVersion = DefaultServiceVersion
 	}
 
-	if c.SampleRate > 1.0 || c.SampleRate < 0.0 {
+	if c.SampleRate <= 0.0 || c.SampleRate > 1.0 {
 		c.SampleRate = DefaultSampleRate
 	}
 
