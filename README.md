@@ -231,6 +231,15 @@ The orchestrator iterates all registered instances during `Run()`.
 
 Go-Sicky uses [Viper](https://github.com/spf13/viper) for configuration, supporting local files and remote providers.
 
+### Command-Line Flags
+
+- `--config`/`-C` — **the short form is uppercase `C`**: config name, default `config`. Accepts a local filename or a remote `REMOTE://ADDR/PATH` store (e.g. `consul://localhost:8500/app/config`).
+- `--config-type` — config format, default `json`. No short form.
+- `--version`/`-V` — prints `AppName Version (Branch) Build Commit BuildTime` and returns `ErrVersionShown`; the caller exits 0. The library never calls `os.Exit`.
+- `Init(opts, switches...)` also registers extra boolean `FlagSwitch` values. A second `Init` call returns `ErrAlreadyInitialized` (pflag registration is not idempotent).
+
+⚠️ There is no lowercase `-c` flag.
+
 ### Config File Locations
 
 Config files are searched in order (`sicky.go:140-143`):
@@ -643,6 +652,53 @@ sicky help        # also: sicky serve -h, sicky new -h
 | `internal` | Internal request `Context` (ID, AppName, broker/registry/tracer/logger carriers) |
 | `cli` | CLI entry point — `sicky new/generate/serve/version/help` (`cli/sicky.go`) |
 | `cmd` | Binary entry point (`cmd/sicky/main.go`) |
+
+---
+
+## Development
+
+There is **no CI** in this repository, so the verification gate is local.
+
+```sh
+make hook-install   # once per clone: sets git config core.hooksPath .githooks
+make verify         # per-commit gate: fmt-check, vet, lint, build, race (~19s warm)
+make full           # additionally tidy-check, vuln, cover — run before releasing
+make help           # list every target
+```
+
+The pre-commit hook runs `make verify`, so a commit cannot land without it. Use `git commit --no-verify` only when a failure is provably unrelated to the staged change.
+
+`golangci-lint` is the authoritative linter and the only thing enforcing the code-format rules (blank line after block-then-code, blank line above `return`, lowercase log messages). Note that the formatter gate is `golangci-lint fmt --diff`, not `gofmt -l`: `.golangci.yml` additionally enables `gofumpt` and `goimports`.
+
+`make vuln` wraps `govulncheck`, which has no allowlist flag — `scripts/vuln-allow.sh` diffs its findings against `.vuln-allow`, where each entry carries the reason it is considered unreachable. A **new** advisory fails the check.
+
+`AGENTS.md` holds the full agent-facing development guide (architecture, conventions, lifecycle ordering).
+
+---
+
+## Observability & Operations
+
+- **Metrics**: when adding a server/client protocol, add a counter in `metrics/metrics.go` and call `.Inc()` at the correct insertion point — for servers in the access-log interceptor/middleware before the handler runs (TCP/UDP/WebSocket before the `OnData` loop), for clients as the first statement of `Call()`/`Invoke`.
+- **Health**: business checks go through `RegisterHealthChecker`, which merges them into `/health` + `/ready` (same 2s context, error text redacted). Never start a separate metrics/health port — everything goes through the Manager.
+- **Tracing**: `tracer.type` selects `grpc|http|stdout` for standard OTLP (explicit exporter + provider) and `uptrace` for the uptrace-go SDK (which owns its provider). Server interceptors (fiber/http/grpc) extract through the unified propagator and re-inject W3C + B3 downstream; `tracestate` is passed through only, never stored or sanitized. `SkipPaths` defaults to skipping `/health`, `/metrics`, `/docs` (explicitly empty means trace everything).
+- **Logs & secrets**: infra logs Info on success and Error on failure; DSN/URI userinfo, passwords, tokens, api-keys and secrets never enter logs (DSNs go through `redactDSN()`, everything else records only endpoint/username). Remote addresses such as `consul://user:pass@...` are `Redacted()` automatically.
+- **Goroutines**: every server/manager background goroutine uses `defer wg.Done()`, `go func()` carries no `error` return, and errors are logged internally. TCP splits its WaitGroups into accept and connection phases for a two-phase stop; fiber uses `ShutdownWithTimeout` (a bare `fasthttp Shutdown` hangs on a custom listener).
+- **gRPC interceptors**: tracing + logging are merged into a **single** `ChainUnaryInterceptor(tracing, logging)` / `WithChainUnaryInterceptor` (repeated `Chain` calls append rather than overwrite on grpc ≥ v1.83.2, but a single call is version-proof); streaming RPCs must pair `ChainStreamInterceptor` / `WithChainStreamInterceptor` (tracing + logging + counters). `NewMetadataInterceptor` in `server/grpc/metadata.go` is a deliberate no-op placeholder — do not wire it.
+
+---
+
+## Known Reserves & Unreachable Features
+
+Kept as-is per the actual code — not deleted, not hidden:
+
+- `registry/mdns/`: 100% commented out, kept as a memorial, unsupported, and no `zeroconf` dependency will be added.
+- `server/grpc/metadata.go` `NewMetadataInterceptor`: a no-op placeholder, deliberately unwired.
+- `logger/fiber.go`, `tracer/fiber.go`: deleted in the v3 migration (zero references); the Fiber side uses `server/fiber`'s built-in chain.
+- The scaffold's `tool.go.gotmpl` (`ReadResource`/`GetPrompt`) and `resource.go.gotmpl` (`CallTool`/`GetPrompt`) return an explicit `not implemented` error (matching `project/mcp/handler.go.gotmpl`), not a silent `nil, nil`.
+- CLI dangling commands and generate stubs (see [CLI](#cli)) — defined but unregistered.
+- `manager.enable_swagger` / `swagger_path`: kept unimplemented (see above).
+- `config.ErrTracerNoEndpoint`: defined, currently unused by `Validate()` (a missing OTLP endpoint falls back to the exporter default).
+- By-design defaults: the Manager binds `127.0.0.1:8888` (loopback only — an external bind must be configured explicitly); TLS is 1.2+ only; `0` means disabled/unlimited; gRPC keepalive, NATS exhaustion and friends stay as they are; a non-positive `BodyLimit` fills the default (no opt-out in this version); negative TCP/UDP timeouts, session counts and rate limits are clamped with a loud log rather than aborting startup.
 
 ---
 

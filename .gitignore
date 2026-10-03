@@ -7,3 +7,6 @@ bin/
 # Local scan/issue notes — never committed.
 issue_*.md
 
+# `make cover` output (Makefile COVERPROFILE).
+coverage.out
+

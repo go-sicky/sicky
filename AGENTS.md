@@ -42,11 +42,10 @@ Go-Sicky heavily relies on Go interfaces to maintain decoupling:
 
 ### 2.4 Registration Pattern
 Each abstraction layer uses a self-registration pattern via global state:
-- The `New()` constructor of each implementation calls the package-level `Set(self)` function, adding itself to a global map (e.g. `broker.Set(brk)` at `broker/nats/nats.go:78`, `tracer.Set(trc)`, `server.Set(srv)` at `server/grpc/grpc.go:171`).
-- The first registered instance becomes the "default" singleton, accessible via `package.Default()` (for `broker`, `registry`, `tracer`, `service`; `server` is an exception — see below).
+- The `New()` constructor of each implementation calls the package-level `Set(self)` function, adding itself to a global map (e.g. `broker.Set(brk)` in `broker/nats`, `tracer.Set(tc)` in `tracer/{grpc,http,stdout,uptrace}`, `server.Set(srv)` in `server/grpc`, `registry.Set(rg)` in `registry/{consul,redis,local}`). Citations here name symbols, not `file:line`: line numbers rot on every edit, and this document previously carried four that were already wrong.
+- The first registered instance becomes the "default" singleton, accessible via `package.Default()` (all eight abstractions: `broker`, `registry`, `server`, `tracer`, `service`, `client`, `job`, `runner`). First-registration-wins, so the default is whichever implementation's `New()` ran first — in `Run()` that is config order, not an explicit choice.
 - The orchestrator (`sicky.go`) creates instances via `New()` based on configuration presence, which triggers self-registration.
 - **Exceptions**:
-  - `server/server.go:75` has `Set/Get` but **no `Default()`** (unlike `broker/broker.go:71` etc.). The global map is now `sync.RWMutex`-guarded like the others.
   - In `sicky.go` the orchestrator uses concrete types (e.g. `*rgConsul.Consul`, `*rgRedis.Redis`, `*brkNats.Nats`) for implementation-specific methods like `Watch()`. This is an acknowledged exception to the "always use abstractions" rule, necessary when specific implementations expose methods not present in the interface.
 
 ## 3. Development Conventions
@@ -66,7 +65,7 @@ Most components follow this structure (interface lives in `{package}.go`, not `i
 
 ### 3.2 Configuration
 - **Viper** is used for all configuration.
-- Environment variables are automatically mapped using the `SICKY_` prefix (e.g., `SICKY_APP_NAME` from `options.go:39 DefaultEnvPrefix`), with dot-to-underscore replacement (`sicky.go` `SetEnvPrefix`+`SetEnvKeyReplacer`+`AutomaticEnv()`).
+- Environment variables are automatically mapped using the `SICKY_` prefix (e.g., `SICKY_APP_NAME` from `options.go` `DefaultEnvPrefix`), with dot-to-underscore replacement (`sicky.go` `SetEnvPrefix`+`SetEnvKeyReplacer`+`AutomaticEnv()`).
 - **Env vars only resolve keys viper already knows** (`Unmarshal` walks `AllKeys()` = override + flags + *explicitly bound* env vars + config file + defaults — the automatic env namespace is not in there). A `SICKY_*` variable whose key is absent from the config file is therefore dropped: `env.go` `bindSensitiveEnv` calls `BindEnv` for the security-critical keys (`sensitiveEnvKeys`: manager auth/TLS, tracer DSN/headers, infra credentials, `log_level`, ...) so those always work, and `warnIgnoredEnv` logs every other `SICKY_*` variable that resolves to no known key ("will be ignored") instead of dropping it silently. Add new secret-ish keys to `sensitiveEnvKeys` when they appear in `Config`.
 - Config files are searched at `/etc`, `/etc/<app_name>`, `$HOME/.<app_name>`, and the current directory (`sicky.go:139-143`, `configLoc` default `config` at `sicky.go:82`, `configType` default `json` at `sicky.go:83`).
 - No `context.TODO()` exists in the codebase (`grep` 0 hits) — use `context.Background()` for static initialization (`options.go:65`, `sicky.go:239`, `manager.go:78`, `broker/options.go:66` etc.) or pass a derived context for operations with timeouts.
@@ -116,11 +115,11 @@ The framework provides hooks at two levels:
   - **Registry metrics**: `sicky_registry_ops_total{backend,op,result}` + duration for register/deregister/load/watch/check (check has no histogram, result `ok/missing/error`), `instances` gauge on Load, `watch_events_total`.
   - **Infra metrics**: `sicky_infra_ops_total{infra,op,result}` + duration + `sicky_infra_up{infra}` + `init_total`. Redis (hook), Bun (QueryHook) and Mongo (CommandMonitor) observe every operation automatically; Elastic/S3 record `ping`/`head_bucket` probes; all 10 `Init*` count init outcomes (nil cfg = disabled, untouched) and `Clear*` drops `up` to 0.
 - **Cardinality rules**: `topic` labels stay full-fidelity by decision — watch `/metrics` line count after adding high-cardinality topics. `method` is normalized through `metrics.NormalizeHTTPMethod` (standard methods only, everything else → `OTHER`) and an unmatched `route` collapses to `metrics.NormalizeRouteLabel`'s `unmatched` (fiber resolves the route only after the chain, see `routeLabel`); both are client input and would mint one series per request otherwise. Matched route templates stay verbatim. `uri/url/dsn` must NEVER enter labels (use `RedactDSN` for logs only).
-- **Known metric bugs** (see TODOs): gRPC unary interceptors are assembled with a single `ChainUnaryInterceptor(tracing, logging)` / `WithChainUnaryInterceptor` call (merged — on grpc v1.83.2 repeated `Chain*` calls append rather than overwrite, so nothing was lost, but a single call is version-proof); streaming RPCs now have `ChainStreamInterceptor`/`WithChainStreamInterceptor` (tracing + logging + counters). The legacy `logger/tracer` Fiber middlewares were deleted in the v3 migration — `server/fiber`'s built-in chain owns `sicky_server_requests_total{server="fiber"}`.
+- **Known metric bugs** (see TODOs): gRPC unary interceptors are assembled with a single `ChainUnaryInterceptor(tracing, logging)` / `WithChainUnaryInterceptor` call (merged — this was originally believed to overwrite, but repeated `Chain*` calls append rather than overwrite on grpc ≥ v1.83.2, so nothing was lost; a single call is version-proof and is what sicky now uses); streaming RPCs now have `ChainStreamInterceptor`/`WithChainStreamInterceptor` (tracing + logging + counters). The legacy `logger/tracer` Fiber middlewares were deleted in the v3 migration — `server/fiber`'s built-in chain owns `sicky_server_requests_total{server="fiber"}`.
 
 ### 3.7 Manager Conventions
 - `NewManager(cfg, appName, appVersion)` is nil-config safe (calls `Ensure()`) and creates `prometheus.Registry`, capturing `cfgVar` for `/config` exposure.
-- 6 handlers: `MetricsPath` (`/metrics`, public), `HealthPath` (`/health` with `collectComponentHealth` for 10 infra types + registered business checkers → `healthy/not_configured/unhealthy`; only `unhealthy` degrades overall status; infra probes concurrent + panic-safe, business checks via `runCheck` with their own deadline), `LivePath` (`/live`, static 200), `ReadyPath` (`/ready`, same aggregation as `/health`), `VersionPath`, `InfoPath`, `ConfigPath` (403 if `ExposeConfig==false`, secrets redacted when exposed), `ServicePoolPath` (`registry.GetPool()` snapshot). `/config` + `/services` require `Authorization: Bearer <auth_token>` when `ManagerConfig.AuthToken` is set, else loopback-only. `http.Server` carries `Read/Write/IdleTimeout` (defaults 10/10/60s); default bind is `127.0.0.1:8888` (loopback) — an external bind must be configured explicitly.
+- 8 handlers: `MetricsPath` (`/metrics`, public), `HealthPath` (`/health` with `collectComponentHealth` for 10 infra types + registered business checkers → `healthy/not_configured/unhealthy`; only `unhealthy` degrades overall status; infra probes concurrent + panic-safe, business checks via `runCheck` with their own deadline), `LivePath` (`/live`, static 200), `ReadyPath` (`/ready`, same aggregation as `/health`), `VersionPath`, `InfoPath`, `ConfigPath` (403 if `ExposeConfig==false`, secrets redacted when exposed), `ServicePoolPath` (`registry.GetPool()` snapshot). `/config` + `/services` require `Authorization: Bearer <auth_token>` when `ManagerConfig.AuthToken` is set, else loopback-only. `http.Server` carries `Read/Write/IdleTimeout` (defaults 10/10/60s); default bind is `127.0.0.1:8888` (loopback) — an external bind must be configured explicitly.
 - `Start()` does `wg.Add(1)` + `go func() { defer wg.Done(); srv.ListenAndServe() }`; `Stop()` does `Shutdown` with `ShutdownTimeout` then `wg.Wait()`. All Manager and server goroutines use `defer wg.Done()` (fixed in `server/http`, `server/tcp`, `server/udp`); `go func()` signatures carry no `error` return — errors are logged internally.
 
 ### 3.8 Code Format Details
@@ -143,7 +142,7 @@ Project-specific formatting rules beyond `gofmt`/`gofumpt` (apply to all `*.go` 
   ```
 - **Log lowercase**: structured logger messages (`*.Logger.(Info|Error|Warn|Debug|Trace|Fatal)(Context)?`) start lowercase; a leading all-caps acronym is lowercased whole (`"TCP server created"` → `"tcp server created"`, never `"tCP ..."`). Out of scope by decision: CLI user-facing `stderr` output, test assertions.
 - **Spelling**: US English (`misspell` gate). Intentional exceptions keep a deprecation note instead of being "fixed" (e.g. `TickerHander = TickerHandler` at `sicky.go:87-88`).
-- **Necessary comments**: exported symbols carry `// Name ...` docs ending with `.` (`revive` + `godot` gates); every non-trivial error branch / `Validate()` rejection / magic-number default states *why* in one line (e.g. `infra/redis.go:166-167`, `runner/static/static.go:118-120`).
+- **Necessary comments**: exported symbols carry `// Name ...` docs ending with `.` (`revive` + `godot` gates); every non-trivial error branch / `Validate()` rejection / magic-number default states *why* in one line (e.g. `infra/redis.go` "Close the handle opened above instead of leaking its sockets", `runner/static/static.go:118-120`).
 
 ## 4. Key Packages & Directories
 - `/broker`: Messaging abstraction (`broker/broker.go`) + NATS, JetStream, NSQ implementations.
@@ -164,11 +163,11 @@ Project-specific formatting rules beyond `gofmt`/`gofumpt` (apply to all `*.go` 
 - `/utils`: Helper functions for networking (IP resolution, `Net2fd` at `utils/net.go`), HTTP response envelopes (`utils/http.go`), metadata (`utils/metadata.go`), and debugging (`utils/debug.go`), with tests (`utils/*_test.go`).
 
 ## 5. Technology Stack
-- **Go Version**: 1.26.0 (`go.mod:3`)
+- **Go Version**: 1.26.7 (`go.mod`)
 - **Main Dependencies**:
   - `github.com/gofiber/fiber/v3 v3.5.0`: Web framework (Fiber + WebSocket servers) + `gofiber/contrib/v3/websocket v1.2.4` + `gofiber/contrib/v3/swaggo v1.0.10`. Fiber v3 notes: `fiber.Ctx` is an interface (handlers take `c fiber.Ctx`, never `*fiber.Ctx`); request-scoped values use generic `fiber.Locals[T]`; listener knobs (`ListenerNetwork`, `DisableStartupMessage`) live in `ListenConfig` passed to `app.Listener`; `ETag` is an `etag` middleware (not an App flag); `TrustProxy` defaults on via `trust_proxy *bool`, but sicky narrows what fiber trusts to loopback plus the operator-named `trust_proxy_proxies` (link-local and private ranges are never trusted: a pod-network peer could forge `X-Forwarded-*`); `UserContext/SetUserContext` are gone (`Context/SetContext`, Ctx itself is a `context.Context`).
-  - `google.golang.org/grpc v1.83.2`: RPC framework (gRPC server + client) + `protobuf v1.36.12`.
-  - `github.com/spf13/viper v1.21.0` + `viper/remote v1.21.0`: Configuration management (local files + remote providers via `_ "viper/remote"` at `sicky.go:61`).
+  - `google.golang.org/grpc v1.84.0`: RPC framework (gRPC server + client) + `protobuf v1.36.12`.
+  - `github.com/spf13/viper v1.21.0` + `viper/remote v1.21.0`: Configuration management (local files + remote providers via `_ "viper/remote"` in `sicky.go`).
   - `go.opentelemetry.io/otel v1.46.0`: OpenTelemetry tracing (SDK `v1.46.0`, exporters `otlptrace/grpc|http`, `stdouttrace`, B3 propagator `contrib/propagators/b3`).
   - `github.com/prometheus/client_golang v1.24.1`: Prometheus metrics.
   - `github.com/uptrace/bun v1.2.18` + dialects `pgdialect/mysqldialect/sqlitedialect/mssqldialect/oracledialect` + `pgdriver` + `bundebug` + `bunrouter v1.0.23`: SQL ORM (PostgreSQL, MySQL, SQLite, MSSQL, DaMeng via `oracledialect` fallback in `infra/bun.go:103`).
@@ -206,21 +205,30 @@ When working on this codebase:
 13. **Code Format Details**: apply §3.8 on every edit — blank line after block-then-code (R1) and above `return` (R2), lowercase log messages, US spelling, why-comments on error branches. `gofmt`/`gofumpt` do NOT enforce R1/R2 — self-check the diff before finishing.
 
 ### 6.1 Local Verification Gate
-There is **no build script and no CI** in this repository; the gate below is manual and must be run before calling any change done. Run it from the repo root.
+There is **no CI** in this repository. The gate is enforced locally by a `pre-commit` hook. Enable it once per clone:
 
 ```sh
-gofmt -l .                          # must print nothing
-go build ./...
-go vet ./...
-golangci-lint run --timeout 5m      # the real linter: 0 issues is the bar
-go test -race -count=1 ./...        # exit 0
-go mod tidy && git diff --exit-code go.mod go.sum   # no-op unless imports changed
+make hook-install    # sets git config core.hooksPath .githooks (local config, not versioned)
 ```
 
-**`golangci-lint` is the authoritative linter**, and the only thing that enforces §3.8. `goimports` is *not* installed, so fix import grouping by hand (stdlib, blank, third-party, blank, sicky) and let the linter confirm. `gofmt`/`go vet` do not catch R1/R2 or lowercase-log violations.
+Then:
 
-**Optional scanners** (not required for the gate, but run them when touching dependencies or security-sensitive code):
-- `govulncheck ./...` — reachability-aware dependency CVE scan. Two known entries are expected: `GO-2026-5932` (`golang.org/x/crypto/openpgp`, unmaintained, no fix, reachable only through viper's blank `_ "github.com/spf13/viper/remote"` import — not exploitable by sicky) and `GO-2026-6443` (grpc server panic on a missing `:authority`; the unguarded `handler_server.go` path is reachable only via `grpc.Server.ServeHTTP`, which sicky never calls — it uses `Serve(lis)`, whose authority guards already exist at v1.84.0, and v1.84.0 is the newest stable release, so the only "fix" is a `-dev` pseudo-version that must not be pinned into a released framework). Re-check both when grpc ships v1.85.0 stable.
+```sh
+make verify          # the per-commit gate: fmt-check, vet, lint, build, race (~19s warm)
+make full            # additionally tidy-check, vuln, cover — run before releasing
+```
+
+`make verify` is what the hook runs, so a commit cannot land without it. Bypass with `git commit --no-verify` only when a failure is provably unrelated to the staged change. `make help` lists every target.
+
+Two deliberate deviations from the recipe this section used to spell out inline:
+
+- `fmt-check` runs `golangci-lint fmt --diff`, **not** `gofmt -l .`. The `formatters` section of `.golangci.yml` enables `gofumpt` and `goimports` (with `local-prefixes: github.com/go-sicky/sicky`) on top of `gofmt`, so `gofmt -l` under-checks. Import grouping is machine-enforced by `golangci-lint fmt`, not maintained by hand.
+- `tidy-check` runs `go mod tidy -diff`, which reports without writing. The old `go mod tidy && git diff --exit-code` recipe mutates the tree first and leaves it dirty on failure.
+
+**`golangci-lint` is the authoritative linter**, and the only thing that enforces §3.8. `gofmt`/`go vet`/`go test` do not catch R1/R2 or lowercase-log violations.
+
+**Optional scanners** (not part of `verify`, but run them when touching dependencies or security-sensitive code):
+- `make vuln` — reachability-aware dependency CVE scan. Two known entries are expected and are listed in `.vuln-allow` with their reasoning: `GO-2026-5932` (`golang.org/x/crypto/openpgp`, unmaintained, no fix, reachable only through viper's blank `_ "github.com/spf13/viper/remote"` import — not exploitable by sicky) and `GO-2026-6443` (grpc server panic on a missing `:authority`; the unguarded `handler_server.go` path is reachable only via `grpc.Server.ServeHTTP`, which sicky never calls — it uses `Serve(lis)`, whose authority guards already exist at v1.84.0, and v1.84.0 is the newest stable release, so the only "fix" is a `-dev` pseudo-version that must not be pinned into a released framework). Re-check both when grpc ships v1.85.0 stable. `govulncheck` has no allowlist flag, so `scripts/vuln-allow.sh` diffs its findings against `.vuln-allow`; a **new** advisory fails the script.
 - `gosec -quiet -fmt=text ./...` — **do not treat its output as a gate.** The standalone binary does not read `.golangci.yml` and its suppression token is `#nosec`, not `//nolint:`, so it re-reports findings that `golangci-lint` already suppresses (in-source `//nolint:gosec` annotations and the `cli/.*\.go` exclusion rule). Where the two disagree, `.golangci.yml` wins.
 
 **Regression-test discipline**: every fix ships with a test, and every test ships with a **negative control** — revert the source, confirm the test fails for the *right* reason, then restore. A control that passes means the assertion is not exercising the code path. After restoring a backup, verify the content with a `grep`; never trust the copy's exit code.
@@ -228,10 +236,10 @@ go mod tidy && git diff --exit-code go.mod go.sum   # no-op unless imports chang
 ## 7. Known Gaps and TODOs
 - [x] `infra/` Config types are missing `Ensure()` methods (10 types: `BadgerConfig`, `BunConfig`, `ClickhouseConfig`, `ElasticConfig`, `MongoConfig`, `MQTTConfig`, `NatsConfig`, `RedisConfig`, `RistrettoConfig`, `S3Config`).
 - [x] Top-level empty `Config` structs (`server`, `client`, `tracer`, `job`, `broker`, `runner`, `runner/static`) all have nil-safe `Ensure()` — placeholders for future fields, no gap.
-- [x] Remote config loading requires the `_ "github.com/spf13/viper/remote"` import in `sicky.go:61` (fixed; note `runtime/config.go:34` also still imports it as side-effect).
+- [x] Remote config loading requires the `_ "github.com/spf13/viper/remote"` import in `sicky.go` (fixed; note `runtime/config.go` also still imports it as side-effect — that package has since been removed).
 - [x] gRPC interceptors merged into single `ChainUnaryInterceptor(tracing, logging)` / `WithChainUnaryInterceptor` calls; streaming RPCs now covered by `ChainStreamInterceptor`/`WithChainStreamInterceptor` (tracing + logging + counters). `server/grpc/metadata.go:40 NewMetadataInterceptor` stays unwired (no-op placeholder, kept deliberately).
 - [x] Fiber double-count: legacy `logger/tracer` Fiber middlewares deleted in the v3 migration — `server/fiber`'s built-in chain is the sole owner of the series.
-- [x] `runtime/` package was deprecated dead code — removed entirely (zero importers; the only live line, `_ "viper/remote"`, was already imported by `sicky.go:61`). `docker/`+`nomad/` `.gitkeep` placeholders removed with it.
+- [x] `runtime/` package was deprecated dead code — removed entirely (zero importers; the only live line, `_ "viper/remote"`, was already imported by `sicky.go`). `docker/`+`nomad/` `.gitkeep` placeholders removed with it.
 - [x] `service/` commented-out legacy `Run()`/`Shutdown()` (`service.go:123-227`) removed (`Clear()` kept).
 - [x] Infra `Init*` logging fully compliant: `Bun` sql.Open four branches gained `Error` logs (Elastic/MQTT/Nats/S3 already had them).
 - [x] `registry/mdns/` is **deprecated** (100% commented out, `mdns.go:33-248`, `config.go`, comments kept deliberately) — no longer supported, no `zeroconf` dependency will be added.
@@ -248,7 +256,7 @@ go mod tidy && git diff --exit-code go.mod go.sum   # no-op unless imports chang
 
 ### Fixed in 2026-09-04 hardening pass (P2)
 - [x] `server/*` lifecycle: `server.go` map lock-guarded; `http/tcp/udp` use `defer wg.Done()` with no `error` return on `go func()`; `tcp/udp wg.Add` moved after successful `Listen`; `Running/Addr/IP/Port/Advertise*` read under `RLock`; `tcp/udp Stop` continues past `Close` errors; `http/websocket` TLS config failure is fail-fast; TCP tracks live connections (`conns` map + `wg`) and closes them on `Stop`.
-- [x] gRPC interceptors merged (unary) + stream interceptors added (server + client, tracing + logging + counters); fixed client tracing nil-branch swallowing RPCs. `AGENTS.md` "Chain overwrite" claim corrected (grpc v1.83.2 appends).
+- [x] gRPC interceptors merged (unary) + stream interceptors added (server + client, tracing + logging + counters); fixed client tracing nil-branch swallowing RPCs. The AGENTS.md "Chain overwrite" claim was corrected: repeated `Chain*` calls append (on grpc ≥ v1.83.2), so the merge lost nothing.
 - [x] `logger.NewFiberMiddleware` marked deprecated (code untouched); double-count documented as never-mount-both.
 - [x] `Ensure()` added to all 10 `infra/*Config` types (Ristretto fills README defaults) and 4 empty top-level `Config` types; `sicky.Config.Ensure()` wires infra sub-configs.
 
@@ -289,7 +297,7 @@ go mod tidy && git diff --exit-code go.mod go.sum   # no-op unless imports chang
 
 ### Fixed in 2026-09-04 follow-up (client/grpc + CORS + scaffold P0/P1)
 - [x] gRPC client TLS: `tls_cert_pem`+`tls_key_pem` load a real `X509KeyPair` (TLS 1.2+) instead of the empty `// SSL` branch; half-config and unparseable PEM fail fast (`ErrIncompleteTLSConfig`, nil client, error log) — never silent plaintext. `Call()` bumps `{method="noop"}` on `sicky_client_requests_total` (real unary counting stays in `Invoke`).
-- [x] gRPC client discovery: the commented-out `registry.PoolChan` block is replaced by a working watcher — `Service` mode seeds `InitialState` from `resolveGRPCAddrs` (`Instance.Servers[type==grpc]`) and re-syncs on `registry.NotifyChan()` events (+30s resync, 5s retry before `InitPool`); the goroutine stops on `Disconnect` (`done` channel + `sync.Once`). `Addr` mode is unaffected. `registry/pool.go:150` adds `NotifyChan()`, stable across `PurgePool`.
+- [x] gRPC client discovery: the commented-out `registry.PoolChan` block is replaced by a working watcher — `Service` mode seeds `InitialState` from `resolveGRPCAddrs` (`Instance.Servers[type==grpc]`) and re-syncs on `registry.NotifyChan()` events (+30s resync, 5s retry before `InitPool`); the goroutine stops on `Disconnect` (`done` channel + `sync.Once`). `Addr` mode is unaffected. `registry.NotifyChan()` is stable across `PurgePool`.
 - [x] CORS hardening: deprecated `server/http.CORSMiddleware` (reflected any `Origin` + credentials, `85400` typo) is now a deny-all alias — never mount it, use `NewCORSMiddleware` with an explicit whitelist. `server/http` gains `CORSConfig.Validate()` (mirrors fiber); `*`+`AllowCredentials` fails closed in `NewCORSMiddleware` and both server constructors (error log + deny-all); untrusted preflight sets `Vary: Origin`.
 - [x] `runner.Config` gains nil-safe `Ensure()` — all 7 empty top-level `Config` structs are now consistent.
 - [x] Scaffold templates fail loudly: `tool.go.gotmpl` (`ReadResource`/`GetPrompt`) and `resource.go.gotmpl` (`CallTool`/`GetPrompt`) return explicit `not implemented` errors instead of `nil, nil` (matches `project/mcp/handler.go.gotmpl`).

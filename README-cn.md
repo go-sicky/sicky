@@ -272,6 +272,19 @@ go run main.go
 - **Hook 失败**只记 error 日志，不中断流程。Sicky 级 hook 签名 `func(ctx) error`；
   Server 级 hook 签名 `func() error`（无 ctx），两边不一样，注意别混。
 
+### 自注册模式
+
+每个组件在构造时把自己注册进全局池：
+
+```go
+svc := svcStandard.New(...)   // → service.Set(svc)
+srv := srvFiber.New(...)      // → server.Set(srv)
+brk := brkNats.New(...)       // → broker.Set(brk)
+```
+
+编排器在 `Run()` 期间遍历所有已注册的实例。首个注册的实例成为该包的默认单例（`package.Default()`），
+所以默认值取决于**哪个 `New()` 先跑**——在 `Run()` 里就是配置的先后顺序，而不是显式指定。
+
 ---
 
 ## 配置
@@ -746,6 +759,27 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 
 ---
 
+## 开发与验证
+
+本仓库**没有 CI**，验证门是本地的。
+
+```sh
+make hook-install   # 每个 clone 一次：设置 git config core.hooksPath .githooks
+make verify         # 每次提交的门：fmt-check、vet、lint、build、race（热缓存约 19 秒）
+make full           # 另外加 tidy-check、vuln、cover —— 发版前跑
+make help           # 列出全部 target
+```
+
+pre-commit hook 执行的就是 `make verify`，所以提交不可能绕过它。只有在失败原因可证明与暂存改动无关时，才用 `git commit --no-verify`。
+
+`golangci-lint` 是权威 linter，也是唯一强制代码格式规则的东西（block 后空行、`return` 上空行、日志小写开头）。注意格式门是 `golangci-lint fmt --diff` 而不是 `gofmt -l`：`.golangci.yml` 里额外启用了 `gofumpt` 和 `goimports`。
+
+`make vuln` 包装 `govulncheck`；它本身没有白名单开关，所以 `scripts/vuln-allow.sh` 把它的发现与 `.vuln-allow` 求差集，清单里每一条都写明为什么判定为不可达。**新**的公告会让检查失败。
+
+完整的开发指南（架构、约定、生命周期顺序）在 `AGENTS.md`。
+
+---
+
 ## 可观测性与运维
 
 - **指标**：新加 server/client 协议时，去 `metrics/metrics.go` 加 counter 并在正确位置 `.Inc()`：
@@ -761,7 +795,7 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 - **goroutine**：所有 server/manager 后台 goroutine 用 `defer wg.Done()`，`go func()` 不带 error 返回，错误内部记日志。
   TCP 分 accept 与连接两组 WaitGroup 两阶段停；fiber 用 `ShutdownWithTimeout`（裸 `fasthttp Shutdown` 在自定义 listener 上会 hang）。
 - **gRPC 拦截器**：tracing + logging 合并在**单个** `ChainUnaryInterceptor(tracing, logging)` /
-  `WithChainUnaryInterceptor` 里（grpc v1.83.2 下重复调 Chain 是 append 不是覆盖，但单次调用版本-proof）；
+  `WithChainUnaryInterceptor` 里（grpc ≥ v1.83.2 下重复调 Chain 是 append 不是覆盖，但单次调用版本-proof）；
   streaming 必须配 `ChainStreamInterceptor` / `WithChainStreamInterceptor`（tracing + logging + counters）。
   `server/grpc/metadata.go` 的 `NewMetadataInterceptor` 是故意留的 no-op 占位，不用接线。
 
