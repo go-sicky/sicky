@@ -319,7 +319,37 @@ func ConfigUnmarshal(raw any) error {
 	bound := bindSensitiveEnvFor(configIns, raw, strings.ToUpper(envPrefix))
 	warnIgnoredEnv(configIns, strings.ToUpper(envPrefix), bound)
 
-	return configIns.Unmarshal(raw)
+	if err := configIns.Unmarshal(raw); err != nil {
+		return err
+	}
+
+	warnUnknownConfigKeys(configIns, raw)
+
+	return nil
+}
+
+// warnUnknownConfigKeys reports configuration keys that fall under a sicky.Config
+// but match no field on it.
+//
+// viper drops a key it cannot map, without a word. A misspelled `bun` or
+// `auth_token` therefore produces a service that starts with the setting
+// quietly absent — no database, no auth token — which is the worst shape a
+// configuration mistake can take.
+//
+// This is a warning, not an error: refusing to start over a typo would be a
+// worse outcome than a typo on a key nobody reads. Only keys under a prefix
+// the framework owns are checked, because it cannot know what the application
+// put under its own blocks.
+func warnUnknownConfigKeys(v *viper.Viper, raw any) {
+	schema := buildConfigSchema(raw)
+
+	for _, key := range schema.unknownKeys(v.AllKeys()) {
+		logger.Logger.Warn(
+			"configuration key matches no field and will be ignored",
+			"key", key,
+			"hint", "check for a typo; an unrecognized key is silently dropped",
+		)
+	}
 }
 
 func registryName() string {

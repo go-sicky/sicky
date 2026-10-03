@@ -96,7 +96,7 @@ func configPrefixes(raw any) []string {
 
 			// A squash has no key of its own: its fields live at the
 			// parent's path, which is what "prefix" already holds.
-			if options == "squash" {
+			if options == mapstructureSquash {
 				walkType(field.Type, prefix, depth+1)
 
 				continue
