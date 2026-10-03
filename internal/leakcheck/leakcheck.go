@@ -67,6 +67,23 @@ var fasthttpExemptions = []goleak.Option{
 	goleak.IgnoreAnyFunction("github.com/valyala/fasthttp.updateServerDate.func1"),
 }
 
+// net/http's post-Close linger.
+//
+// http.Server.Close force-closes every connection, and each one that had a
+// pending response parks in conn.closeWriteAndWait first. That function is a
+// single unconditional `time.Sleep(rstAvoidanceDelay)` — 500ms as of Go 1.26
+// — after which the connection is dropped for real. The sleep does not
+// consult the peer, so there is nothing a caller can do to shorten it and
+// nothing it can do to hang it.
+//
+// Exempted for that reason: it is bounded by construction, it holds no state
+// of ours, and no code from this module appears anywhere in its stack, so it
+// cannot mask a leak here. Anything reachable only through it is a stdlib
+// connection being torn down.
+var netHTTPExemptions = []goleak.Option{
+	goleak.IgnoreAnyFunction("net/http.(*conn).closeWriteAndWait"),
+}
+
 // Options returns the goleak options a package's TestMain should use:
 //
 //	goleak.VerifyTestMain(m, leakcheck.Options()...)
@@ -75,9 +92,10 @@ var fasthttpExemptions = []goleak.Option{
 // testing and the runtime already had running before the suite started.
 // Anything a test starts must still be gone when the package run finishes.
 func Options(extra ...goleak.Option) []goleak.Option {
-	opts := make([]goleak.Option, 0, 1+len(fasthttpExemptions)+len(extra))
+	opts := make([]goleak.Option, 0, 1+len(fasthttpExemptions)+len(netHTTPExemptions)+len(extra))
 	opts = append(opts, goleak.IgnoreCurrent())
 	opts = append(opts, fasthttpExemptions...)
+	opts = append(opts, netHTTPExemptions...)
 
 	return append(opts, extra...)
 }

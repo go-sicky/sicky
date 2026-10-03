@@ -90,6 +90,19 @@ type inbound struct {
 // must be a loopback name or an explicitly allowed one (defeats DNS
 // rebinding, which lands on loopback), and a browser Origin must match
 // the request (defeats CSRF from another site).
+const (
+	// shutdownGrace is how long a graceful shutdown waits for in-flight
+	// requests before the transport forces them closed. SSE streams are in
+	// flight for as long as a client stays connected, so this bounds a
+	// client that never goes away rather than describing the common case.
+	shutdownGrace = 5 * time.Second
+
+	// serveJoinTimeout bounds the wait for the serve goroutine after the
+	// listener has been closed. Close unblocks Serve, so this is only
+	// reached by a handler that never returns.
+	serveJoinTimeout = 2 * time.Second
+)
+
 type HTTPTransport struct {
 	addr string
 
@@ -103,6 +116,11 @@ type HTTPTransport struct {
 	messages  chan inbound
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// serveWg joins the Serve goroutine. Without it Stop can return while
+	// the transport is still accepting on the listener it just closed, and
+	// "Stop returned" would not mean "serving has stopped".
+	serveWg sync.WaitGroup
 
 	mu       sync.Mutex
 	sessions map[string]*sseSession
@@ -164,7 +182,7 @@ func (t *HTTPTransport) Start() error {
 		fmt.Printf("sicky mcp: listening on %s without an auth token; only loopback clients are accepted\n", ln.Addr().String())
 	}
 
-	go func() {
+	t.serveWg.Go(func() {
 		if err := t.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			t.mu.Lock()
 			closed := t.closed
@@ -174,7 +192,7 @@ func (t *HTTPTransport) Start() error {
 				fmt.Printf("HTTP transport error: %s\n", err.Error())
 			}
 		}
-	}()
+	})
 
 	return nil
 }
@@ -197,14 +215,41 @@ func (t *HTTPTransport) Stop() error {
 	// channel. Readers wake up on done instead.
 	t.closeOnce.Do(func() { close(t.done) })
 
-	if srv != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+	if srv == nil {
+		t.serveWg.Wait()
 
-		_ = srv.Shutdown(ctx)
+		return nil
 	}
 
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+
+	// Shutdown only stops accepting and waits for in-flight requests. An
+	// SSE stream is in flight for as long as the client stays connected, so
+	// a client that never goes away turns Shutdown into a guaranteed
+	// timeout — and reporting nil while the listener is still open claims a
+	// clean shutdown that did not happen.
+	shutdownErr := srv.Shutdown(ctx)
+
+	if shutdownErr != nil {
+		// Escalate: Close drops every remaining connection rather than
+		// waiting for it. The alternative is a transport that reports itself
+		// stopped and keeps serving.
+		if cerr := srv.Close(); cerr != nil && !errors.Is(cerr, http.ErrServerClosed) {
+			shutdownErr = errors.Join(shutdownErr, fmt.Errorf("force close: %w", cerr))
+		}
+
+		shutdownErr = fmt.Errorf("graceful shutdown did not complete, forced close: %w", shutdownErr)
+	}
+
+	// Join the serve goroutine so that when Stop returns the listener is
+	// genuinely closed. Close has already unblocked Serve, so this cannot
+	// hang; the bound is a backstop against a handler that never returns.
+	if !utils.WaitGroupTimeout(&t.serveWg, serveJoinTimeout, nil) {
+		shutdownErr = errors.Join(shutdownErr, errors.New("transport serve goroutine did not exit"))
+	}
+
+	return shutdownErr
 }
 
 // Read reads the next client message and remembers which session sent
