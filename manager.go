@@ -836,12 +836,19 @@ func runCheck(ctx context.Context, timeout time.Duration, check func(context.Con
 // real state rather than a value up to a TTL old. Deduplication is
 // therefore strictly a same-instant collapse, never a staleness window.
 func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHealth {
-	// singleflight shares the first caller's result with the others, so
-	// the leader's context governs the probes. That is safe here because
-	// a probe bounded by the leader's context reports unhealthy, and every
-	// waiter renders the same verdict from the same data.
+	// singleflight shares the first caller's result with the others, so the
+	// leader's context would otherwise govern the probes for every waiter.
+	//
+	// Detach from it first. The leader's reqCtx is one scraper's HTTP request
+	// context: if that scraper hangs up mid-probe, a bound leader would fail
+	// every other scraper's fan-out too, and all of them would report
+	// unhealthy for backends that are fine. WithoutCancel keeps the request's
+	// values (trace and deadline metadata) while dropping its cancellation;
+	// probeComponents then applies the real 2s bound.
+	probeCtx := context.WithoutCancel(reqCtx)
+
 	res, _, _ := m.healthProbes.Do("components", func() (any, error) {
-		return m.probeComponents(reqCtx), nil
+		return m.probeComponents(probeCtx), nil
 	})
 
 	components, _ := res.([]componentHealth)
