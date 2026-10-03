@@ -34,7 +34,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -184,10 +183,8 @@ func (rg *Consul) Register(ins *registry.Instance) (err error) {
 		}
 	}
 
-	if ins.Tags != nil {
-		for n, v := range ins.Tags {
-			reg.Meta["tag-"+strconv.Itoa(n)] = v
-		}
+	if value, present := encodeTags(ins.Tags); present {
+		reg.Meta[metaTagsKey] = value
 	}
 
 	err = rg.client.Agent().ServiceRegister(reg)
@@ -380,11 +377,13 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 
 				instance.Topics[key] = &topic
 			}
-
-			if strings.HasPrefix(k, "tag-") {
-				instance.Tags = append(instance.Tags, v)
-			}
 		}
+
+		// Tags are read outside the per-key loop: the legacy per-index keys
+		// are ordered by index, not by map iteration, so collecting them as
+		// the loop ran produced a different order on every call. See
+		// encode.go.
+		instance.Tags = instanceTags(svc.Meta)
 
 		instances = append(instances, instance)
 	}
