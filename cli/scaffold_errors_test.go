@@ -42,31 +42,25 @@ func scaffoldMain(t *testing.T, projectType string) string {
 	return filepath.Join(dir, "out", projectType, "main.go")
 }
 
-// scaffoldBinary builds the CLI once per run rather than requiring it to be on
-// PATH, so the test does not depend on the developer's local build state.
+// scaffoldBinary returns the CLI built once by TestMain, so a test never
+// depends on the developer's local build state and the suite pays for one
+// build rather than one per test.
 func scaffoldBinary(t *testing.T) string {
 	t.Helper()
 
-	bin := filepath.Join(t.TempDir(), "sicky")
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/go-sicky/sicky/cmd/sicky")
-
-	cmd.Dir = repoRoot(t)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build cli: %v\n%s", err, out)
+	if sickyBin == "" {
+		t.Fatal("the CLI binary was not built: TestMain did not run")
 	}
 
-	return bin
+	return sickyBin
 }
 
-// repoRoot walks up from the test's working directory (the package dir) to the
+// repoRoot walks up from the working directory (the package dir) to the
 // module root, which is where the go.mod and cmd/sicky live.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-
+func repoRoot() string {
 	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("getwd: %v", err)
+		return "."
 	}
 
 	for {
@@ -76,7 +70,7 @@ func repoRoot(t *testing.T) string {
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatal("go.mod not found above the package directory")
+			return dir
 		}
 
 		dir = parent
