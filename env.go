@@ -113,24 +113,75 @@ func envName(prefix, key string) string {
 
 // bindSensitiveEnv registers an explicit environment binding for every
 // key in sensitiveEnvKeys, which is what makes Unmarshal see it.
+//
+// It binds the flat path only, which is all that can be known before a caller
+// hands its target to ConfigUnmarshal. ConfigUnmarshal binds the rest.
 func bindSensitiveEnv(v *viper.Viper) {
+	bindSensitiveEnvAt(v, "", DefaultEnvPrefix)
+}
+
+// bindSensitiveEnvAt is bindSensitiveEnv for a target that nests sicky.Config
+// under prefix. Each key is bound with its canonical variable name — derived
+// from the key relative to Config, not from the full path — so an operator
+// types SICKY_MANAGER_AUTH_TOKEN whether the application nests the framework
+// config at the top level or under "sicky". See configPrefixes for why the
+// flat path alone was not enough.
+func bindSensitiveEnvAt(v *viper.Viper, prefix, envPrefix string) {
 	for _, key := range sensitiveEnvKeys {
-		// BindEnv without an explicit variable name derives it from the
-		// prefix and the key replacer, so it stays in step with
-		// AutomaticEnv.
-		if err := v.BindEnv(key); err != nil {
-			logger.Logger.Warn("environment binding failed", "key", key, "error", err.Error())
+		bindEnvKey(v, prefix, key, envPrefix)
+	}
+}
+
+// bindSensitiveEnvFor binds every sensitive key at every prefix where the
+// caller's target holds a sicky.Config, and returns the variable names it
+// bound so the ignored-variable check does not report them.
+//
+// The names are returned rather than recomputed because they cannot be
+// derived from AllKeys: the variable for a nested key is derived from the
+// path relative to Config, not from the full path. Deriving it from
+// AllKeys alone would call SICKY_MANAGER_AUTH_TOKEN unknown while it is in
+// fact bound and read.
+func bindSensitiveEnvFor(v *viper.Viper, raw any, envPrefix string) []string {
+	prefixes := configPrefixes(raw)
+	bound := make([]string, 0, len(prefixes)*len(sensitiveEnvKeys))
+
+	for _, prefix := range prefixes {
+		for _, key := range sensitiveEnvKeys {
+			bound = append(bound, bindEnvKey(v, prefix, key, envPrefix))
 		}
 	}
+
+	return bound
+}
+
+// bindEnvKey binds one key at one prefix and returns the variable name it
+// bound. A binding failure is logged rather than returned: the alternative is
+// ConfigUnmarshal refusing to load a configuration because an environment
+// binding failed, which turns a diagnostic into an outage.
+func bindEnvKey(v *viper.Viper, prefix, key, envPrefix string) string {
+	name := envName(envPrefix, key)
+
+	if err := v.BindEnv(joinKey(prefix, key), name); err != nil {
+		logger.Logger.Warn("environment binding failed", "key", joinKey(prefix, key), "error", err.Error())
+	}
+
+	return name
 }
 
 // ignoredEnv returns the SICKY-style variables that resolve to no known
 // configuration key. They cannot be read at all, so keeping quiet about
 // them would leave the operator believing an override applied.
-func ignoredEnv(v *viper.Viper, prefix string) []string {
-	known := make(map[string]struct{})
+//
+// bound holds the variable names bound explicitly rather than derived from a
+// key path; see bindSensitiveEnvFor.
+func ignoredEnv(v *viper.Viper, prefix string, bound []string) []string {
+	known := make(map[string]struct{}, len(bound))
 	for _, key := range v.AllKeys() {
 		known[envName(prefix, key)] = struct{}{}
+	}
+
+	for _, name := range bound {
+		known[name] = struct{}{}
 	}
 
 	ignored := make([]string, 0)
@@ -152,8 +203,8 @@ func ignoredEnv(v *viper.Viper, prefix string) []string {
 }
 
 // warnIgnoredEnv logs every environment variable that will not be read.
-func warnIgnoredEnv(v *viper.Viper, prefix string) {
-	for _, name := range ignoredEnv(v, prefix) {
+func warnIgnoredEnv(v *viper.Viper, prefix string, bound []string) {
+	for _, name := range ignoredEnv(v, prefix, bound) {
 		logger.Logger.Warn(
 			"environment variable matches no configuration key and will be ignored",
 			"env", name,

@@ -268,10 +268,14 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 	// Unmarshal only walks keys viper already knows about (override,
 	// flags, bound env vars, the config file, defaults), so a SICKY_*
 	// variable for a key missing from the file is dropped without a
-	// trace - leaving the process on the file's values. Bind the
-	// security-critical keys explicitly and shout about the rest.
+	// trace - leaving the process on the file's values.
+	//
+	// Only the flat keys can be bound here: where the application nests
+	// sicky.Config inside its own tree is only known once it hands the
+	// target to ConfigUnmarshal, which binds the rest. See
+	// configPrefixes.
 	bindSensitiveEnv(configIns)
-	warnIgnoredEnv(configIns, strings.ToUpper(options.EnvPrefix))
+	warnIgnoredEnv(configIns, strings.ToUpper(options.EnvPrefix), nil)
 
 	// MustInfra
 	mustInfraPending(options.MustInfra, func(name string) {
@@ -301,6 +305,19 @@ func ConfigUnmarshal(raw any) error {
 	if raw == nil {
 		return ErrConfigNilTarget
 	}
+
+	// Bind the security-critical keys at every path where this target holds
+	// a sicky.Config, so SICKY_MANAGER_AUTH_TOKEN and friends reach the value
+	// they name whether the application nests the framework config at the top
+	// level or under "sicky". Binding only the flat path — all this did until
+	// now — left every one of them unread for every generated application.
+	envPrefix := DefaultEnvPrefix
+	if options != nil && options.EnvPrefix != "" {
+		envPrefix = options.EnvPrefix
+	}
+
+	bound := bindSensitiveEnvFor(configIns, raw, strings.ToUpper(envPrefix))
+	warnIgnoredEnv(configIns, strings.ToUpper(envPrefix), bound)
 
 	return configIns.Unmarshal(raw)
 }
