@@ -35,7 +35,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
-	"strings"
 	"sync"
 
 	"github.com/gofiber/fiber/v3"
@@ -498,7 +497,7 @@ func (srv *FiberServer) Stop() error {
 	// Closing an already-closed listener only logs; double-close via
 	// fasthttp + us is harmless (second Close returns an error we log).
 	var errs error
-	if err := app.ShutdownWithTimeout(timeout); err != nil && !isClosedConnError(err) {
+	if err := app.ShutdownWithTimeout(timeout); err != nil && !utils.IsClosedConnError(err) {
 		srv.options.Logger.ErrorContext(
 			srv.ctx,
 			"fiber server shutdown failed",
@@ -547,21 +546,6 @@ func (srv *FiberServer) Stop() error {
 	srv.options.RunAfterStop()
 
 	return errs
-}
-
-// isClosedConnError reports benign double-close noise: our Stop backstop
-// closes the socket outside fasthttp bookkeeping, so a later shutdown may
-// re-close a stale s.ln entry. The socket is already down either way.
-func isClosedConnError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if errors.Is(err, net.ErrClosed) {
-		return true
-	}
-
-	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
 // Running reports whether the component is running.

@@ -58,12 +58,17 @@ const (
 
 // WebsocketServer : Server definition.
 type WebsocketServer struct {
-	config        *Config
-	ctx           context.Context
-	options       *server.Options
-	app           *fiber.App
-	listener      net.Listener
-	running       bool
+	config   *Config
+	ctx      context.Context
+	options  *server.Options
+	app      *fiber.App
+	listener net.Listener
+	running  bool
+	// stopping marks the window between Stop flipping running=false and its
+	// drain finishing. Start must refuse inside that window: the drain waits
+	// on srv.wg, so a Start that added a new serve/reaper goroutine there
+	// would make Stop wait out a timeout on work it just created.
+	stopping      bool
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
@@ -291,9 +296,10 @@ func (srv *WebsocketServer) Start() error {
 
 	srv.RLock()
 	running := srv.running
+	stopping := srv.stopping
 	srv.RUnlock()
-	if running {
-		// running
+	if running || stopping {
+		// running, or a Stop is still draining
 		return nil
 	}
 
@@ -301,8 +307,8 @@ func (srv *WebsocketServer) Start() error {
 
 	srv.Lock()
 
-	if srv.running {
-		// double-checked: concurrent Start won the race
+	if srv.running || srv.stopping {
+		// double-checked: a concurrent Start or an in-flight Stop won the race
 		srv.Unlock()
 
 		return nil
@@ -465,13 +471,14 @@ func (srv *WebsocketServer) startReaper() chan struct{} {
 // Stop stops the component and releases resources.
 func (srv *WebsocketServer) Stop() error {
 	srv.Lock()
-	if !srv.running {
+	if !srv.running || srv.stopping {
 		srv.Unlock()
 
-		// Not running
+		// Not running, or a Stop is already draining
 		return nil
 	}
 
+	srv.stopping = true
 	srv.running = false
 	app := srv.app
 	listener := srv.listener
@@ -487,7 +494,11 @@ func (srv *WebsocketServer) Stop() error {
 	}
 
 	if app != nil && app.Server() != nil {
-		if serr := app.ShutdownWithTimeout(timeout); serr != nil {
+		// The listener backstop below can re-close a stale entry fasthttp
+		// still holds, so a shutdown racing Start's serve registration
+		// reports "use of closed network connection". The socket is down
+		// either way; reporting it would read as a failed shutdown.
+		if serr := app.ShutdownWithTimeout(timeout); serr != nil && !utils.IsClosedConnError(serr) {
 			stopErr = errors.Join(stopErr, serr)
 		}
 	}
@@ -509,6 +520,12 @@ func (srv *WebsocketServer) Stop() error {
 	case <-time.After(timeout + time.Second):
 		stopErr = errors.Join(stopErr, errors.New("websocket server shutdown timed out"))
 	}
+
+	// Clear stopping only once the drain is over: until then a Start would
+	// add goroutines to the very WaitGroup this Stop is still draining.
+	srv.Lock()
+	srv.stopping = false
+	srv.Unlock()
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,
