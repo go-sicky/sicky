@@ -274,23 +274,12 @@ func Init(opts *Options, switches ...*FlagSwitch) error {
 	warnIgnoredEnv(configIns, strings.ToUpper(options.EnvPrefix))
 
 	// MustInfra
-	for _, infra := range options.MustInfra {
-		key := strings.ToLower(strings.TrimSpace(infra))
-		switch key {
-		case componentBadger, componentBun, componentClickhouse, componentElastic, componentMQTT, componentMongo, componentNATS, componentRedis, componentRistretto, componentS3:
-			MustInfra[key] = true
-		default:
-			if key != "" {
-				logger.Logger.Warn("unknown MustInfra entry ignored", "infra", infra)
-			}
-		}
-	}
+	mustInfraPending(options.MustInfra, func(name string) {
+		logger.Logger.Warn("unknown MustInfra entry ignored", "infra", name)
+	})
 
-	// MustBroker
-	MustBroker = options.MustBroker
-
-	// MustRegistry
-	MustRegistry = options.MustRegistry
+	// MustBroker / MustRegistry
+	setMustFlags(options.MustBroker, options.MustRegistry)
 
 	initialized = true
 
@@ -510,27 +499,18 @@ func Run(cfg *Config) error {
 	// once, while a second Run() after shutdown finds the flags already
 	// cleared to false by the first run's startup checks - which would
 	// silently skip the "must have a broker/registry" requirement.
-	MustBroker = options.MustBroker
-	MustRegistry = options.MustRegistry
+	setMustFlags(options.MustBroker, options.MustRegistry)
 
-	// Merge MustInfra from options without wiping entries set by Init().
-	// Init() already populates the global map; Run() may be called without
-	// Init() (options carry MustInfra list), so merge here instead of reset.
-	if MustInfra == nil {
-		MustInfra = make(map[string]bool)
-	}
-
-	for _, infra := range options.MustInfra {
-		key := strings.ToLower(strings.TrimSpace(infra))
-		switch key {
-		case componentBadger, componentBun, componentClickhouse, componentElastic, componentMQTT, componentMongo, componentNATS, componentRedis, componentRistretto, componentS3:
-			MustInfra[key] = true
-		default:
-			if key != "" {
-				logger.Logger.Warn("unknown MustInfra entry ignored", "infra", infra)
-			}
-		}
-	}
+	// The requirement set is copied out of the exported globals and worked
+	// on privately. Init() may never have run (Run is callable on its own,
+	// with the list carried on Options), and a second Run after shutdown
+	// finds the exported set already consumed — so merging into a snapshot
+	// rather than resetting is what keeps "must have a broker" from being
+	// silently skipped. Working on the copy is what keeps a concurrent
+	// reader of MustInfraSnapshot from seeing a map write; see must.go.
+	pendingMustInfra := mustInfraPending(options.MustInfra, func(name string) {
+		logger.Logger.Warn("unknown MustInfra entry ignored", "infra", name)
+	})
 
 	validateConfig(cfg)
 
@@ -571,9 +551,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentBadger] {
-			MustInfra[componentBadger] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentBadger)
 	}
 
 	if cfg.Infra.Bun != nil {
@@ -588,9 +566,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentBun] {
-			MustInfra[componentBun] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentBun)
 	}
 
 	if cfg.Infra.Clickhouse != nil {
@@ -605,9 +581,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentClickhouse] {
-			MustInfra[componentClickhouse] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentClickhouse)
 	}
 
 	if cfg.Infra.Elastic != nil {
@@ -622,9 +596,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentElastic] {
-			MustInfra[componentElastic] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentElastic)
 	}
 
 	if cfg.Infra.MQTT != nil {
@@ -639,9 +611,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentMQTT] {
-			MustInfra[componentMQTT] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentMQTT)
 	}
 
 	if cfg.Infra.Mongo != nil {
@@ -656,9 +626,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentMongo] {
-			MustInfra[componentMongo] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentMongo)
 	}
 
 	if cfg.Infra.Nats != nil {
@@ -673,9 +641,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentNATS] {
-			MustInfra[componentNATS] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentNATS)
 	}
 
 	if cfg.Infra.Redis != nil {
@@ -690,9 +656,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentRedis] {
-			MustInfra[componentRedis] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentRedis)
 	}
 
 	if cfg.Infra.Ristretto != nil {
@@ -707,9 +671,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentRistretto] {
-			MustInfra[componentRistretto] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentRistretto)
 	}
 
 	if cfg.Infra.S3 != nil {
@@ -724,13 +686,11 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		if MustInfra[componentS3] {
-			MustInfra[componentS3] = false
-		}
+		consumeMustInfra(pendingMustInfra, componentS3)
 	}
 
 	// Check infra
-	for name, must := range MustInfra {
+	for name, must := range pendingMustInfra {
 		if must {
 			logger.Logger.ErrorContext(
 				options.Context,
@@ -827,7 +787,7 @@ func Run(cfg *Config) error {
 				logger.Logger.WarnContext(options.Context, "consul watch failed", "error", werr.Error())
 			}
 
-			MustRegistry = false
+			consumeMustFlag(false, true)
 		} else {
 			logger.Logger.WarnContext(options.Context, "consul registry init returned nil")
 		}
@@ -836,7 +796,7 @@ func Run(cfg *Config) error {
 	if cfg.Registry.Redis != nil {
 		rgRedisIns = rgRedis.New(nil, cfg.Registry.Redis)
 		if rgRedisIns != nil {
-			MustRegistry = false
+			consumeMustFlag(false, true)
 		} else {
 			logger.Logger.WarnContext(options.Context, "redis registry init returned nil")
 		}
@@ -845,13 +805,13 @@ func Run(cfg *Config) error {
 	if cfg.Registry.Local != nil {
 		rgLocalIns = rgLocal.New(nil, cfg.Registry.Local)
 		if rgLocalIns != nil {
-			MustRegistry = false
+			consumeMustFlag(false, true)
 		} else {
 			logger.Logger.WarnContext(options.Context, "local registry init returned nil")
 		}
 	}
 
-	if MustRegistry {
+	if MustRegistryRequired() {
 		logger.Logger.ErrorContext(
 			options.Context,
 			"registry is not initialized",
@@ -914,7 +874,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		MustBroker = false
+		consumeMustFlag(true, false)
 	}
 
 	if cfg.Broker.Nsq != nil {
@@ -935,7 +895,7 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		MustBroker = false
+		consumeMustFlag(true, false)
 	}
 
 	if cfg.Broker.Jetstream != nil {
@@ -956,10 +916,10 @@ func Run(cfg *Config) error {
 			goto shutdown
 		}
 
-		MustBroker = false
+		consumeMustFlag(true, false)
 	}
 
-	if MustBroker {
+	if MustBrokerRequired() {
 		logger.Logger.ErrorContext(
 			options.Context,
 			"broker is not initialized",
