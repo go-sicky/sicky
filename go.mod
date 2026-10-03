@@ -2,6 +2,11 @@ module github.com/go-sicky/sicky
 
 go 1.26.7
 
+// The replace below intentionally targets v0.6.1 — the exact version the
+// exclude rejects. That pair is how this pin is expressed, not a typo.
+// cli/new.go reads the replace out of the CLI build info and injects it
+// into every scaffolded go.mod, so removing it silently rewrites generated
+// projects. Do not "fix" this.
 replace github.com/armon/go-metrics => github.com/hashicorp/go-metrics v0.6.1
 
 exclude github.com/hashicorp/go-metrics v0.6.1

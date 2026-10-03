@@ -413,7 +413,7 @@ type Config struct {
 		Consul *consul.Config `json:"consul" mapstructure:"consul" yaml:"consul"`
 		Redis  *redis.Config  `json:"redis"  mapstructure:"redis"  yaml:"redis"`
 		Local  *local.Config  `json:"local"  mapstructure:"local"  yaml:"local"`
-	} `json:"registry" yaml:"registry" mapstructure:"registry"`
+	} `json:"registry" mapstructure:"registry" yaml:"registry"`
 	Broker struct {
 		// Same squash note as Registry above.
 		broker.Config `mapstructure:",squash"`
@@ -421,7 +421,7 @@ type Config struct {
 		Nats      *nats.Config      `json:"nats"      mapstructure:"nats"      yaml:"nats"`
 		Nsq       *nsq.Config       `json:"nsq"       mapstructure:"nsq"       yaml:"nsq"`
 		Jetstream *jetstream.Config `json:"jetstream" mapstructure:"jetstream" yaml:"jetstream"`
-	} `json:"broker" yaml:"broker" mapstructure:"broker"`
+	} `json:"broker" mapstructure:"broker" yaml:"broker"`
 }
 
 // DefaultConfig returns the default configuration.
