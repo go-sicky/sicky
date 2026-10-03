@@ -82,7 +82,18 @@ func TestHTTPTransportSessionIsolation(t *testing.T) {
 	}()
 
 	base := "http://" + tr.ln.Addr().String()
-	client := &http.Client{Timeout: 10 * time.Second}
+	// A dedicated transport, not http.DefaultTransport: the default one's
+	// idle-connection pool is process-global, so every pooled connection
+	// outlives this test with its readLoop and writeLoop still parked. Under
+	// load that is the difference between a clean run and a goleak report
+	// naming net/http internals, and it depends on how long Shutdown happens
+	// to take.
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+
+	defer client.CloseIdleConnections()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -313,7 +324,18 @@ func TestHTTPTransportQueuedMessagesKeepTheirSession(t *testing.T) {
 	}()
 
 	base := "http://" + tr.ln.Addr().String()
-	client := &http.Client{Timeout: 10 * time.Second}
+	// A dedicated transport, not http.DefaultTransport: the default one's
+	// idle-connection pool is process-global, so every pooled connection
+	// outlives this test with its readLoop and writeLoop still parked. Under
+	// load that is the difference between a clean run and a goleak report
+	// naming net/http internals, and it depends on how long Shutdown happens
+	// to take.
+	client := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+
+	defer client.CloseIdleConnections()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
