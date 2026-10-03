@@ -37,6 +37,8 @@ import (
 	"go.opentelemetry.io/contrib/propagators/b3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+
+	"github.com/go-sicky/sicky/utils"
 )
 
 // W3C + B3 dual-track propagator. Extract accepts traceparent/tracestate,
@@ -99,21 +101,15 @@ func Sanitize(v string) string {
 	return v
 }
 
-// RedactDSN strips userinfo (tokens) from a DSN/endpoint for safe logging.
-// "https://token@host/path" -> "https://host/path".
+// RedactDSN strips credentials from a DSN/endpoint before it is logged.
+// "https://token@host/path" -> "https://host/path"; a credential in the query
+// string is replaced too, and an unparseable input fails closed.
+//
+// It delegates to utils.RedactDSN. This used to be an independent
+// implementation that returned any input without "@" verbatim, which put OTLP
+// API keys (…/v1/traces?api-key=…) into the log stream in clear.
 func RedactDSN(dsn string) string {
-	at := strings.LastIndex(dsn, "@")
-	if at < 0 {
-		return dsn
-	}
-
-	scheme := ""
-	rest := dsn[at+1:]
-	if i := strings.Index(dsn[:at], "://"); i >= 0 {
-		scheme = dsn[:i+3]
-	}
-
-	return scheme + rest
+	return utils.RedactDSN(dsn)
 }
 
 /*

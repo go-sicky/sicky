@@ -45,6 +45,36 @@ func TestRedactDSN(t *testing.T) {
 	}
 }
 
+// RedactDSN failed open: a DSN with no "@" was returned verbatim, so a
+// credential carried in the query string reached the log stream. Managed OTLP
+// vendors accept the key exactly there (…/v1/traces?api-key=…), and
+// tracer/uptrace logs the DSN at seven sites.
+func TestRedactDSNFailsClosed(t *testing.T) {
+	cases := []struct {
+		in     string
+		secret string
+	}{
+		{"uptrace://host/1?token=abc", "abc"},
+		{"https://otlp.example.com/v1/traces?api-key=SECRET", "SECRET"},
+		{"https://otlp.example.com/v1/traces?x-api-key=SECRET", "SECRET"},
+		{"collector:4317?access_token=TOK", "TOK"},
+		{"https://otlp.example.com/v1/traces?signature=SIG", "SIG"},
+	}
+
+	for _, c := range cases {
+		got := RedactDSN(c.in)
+		if strings.Contains(got, c.secret) {
+			t.Errorf("RedactDSN(%q) = %q, leaks %q", c.in, got, c.secret)
+		}
+	}
+
+	// The collector address must survive: redacting it away makes the log
+	// useless for the common case.
+	if got := RedactDSN("https://otlp.example.com:4317"); got != "https://otlp.example.com:4317" {
+		t.Errorf("credential-free endpoint = %q, want it preserved", got)
+	}
+}
+
 func TestPropagatorRoundTrip(t *testing.T) {
 	provider := sdktrace.NewTracerProvider()
 	defer func() {

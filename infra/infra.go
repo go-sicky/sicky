@@ -8,8 +8,6 @@
 package infra
 
 import (
-	"net/url"
-	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -24,6 +22,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/go-sicky/sicky/metrics"
+	"github.com/go-sicky/sicky/utils"
 )
 
 // DefaultInitTimeoutSec bounds dial/ping/connect calls that previously had
@@ -228,61 +227,12 @@ func ClearS3() {
 // Clickhouse DSN and Mongo URI both embed user:password, so they must
 // never be logged raw. Callers outside the infra package (broker,
 // registry) use this exported form.
+//
+// It delegates to utils.RedactDSN, the single implementation. The copy that
+// used to live here is gone: together with tracer.RedactDSN there were two
+// independent implementations, and the permissive one failed open.
 func RedactDSN(raw string) string {
-	if raw == "" {
-		return ""
-	}
-
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return "REDACTED"
-	}
-
-	u.User = nil
-
-	q := u.Query()
-	changed := false
-	// Substring matching, not an exact-name list: credentials arrive as
-	// access_token, refresh_token, client_secret, aws_secret_access_key,
-	// x-api-key, signature, ... and an exact list keeps missing new
-	// spellings. Over-redacting a parameter is harmless; logging one is not.
-	for k := range q {
-		if isSecretQueryKey(k) {
-			q.Set(k, "REDACTED")
-			changed = true
-		}
-	}
-
-	if changed {
-		u.RawQuery = q.Encode()
-	}
-
-	s := u.String()
-	if strings.Contains(s, "://:") {
-		return "REDACTED"
-	}
-
-	return s
-}
-
-// secretKeyFragments mark a query parameter as a credential. Keep them
-// short but distinct: they are matched as substrings of the lower-cased
-// parameter name.
-var secretKeyFragments = []string{
-	"token", "secret", "pass", "pwd", "key", "auth", "cred", "sig",
-}
-
-// isSecretQueryKey reports whether a DSN query parameter carries a
-// credential.
-func isSecretQueryKey(key string) bool {
-	lk := strings.ToLower(key)
-	for _, fragment := range secretKeyFragments {
-		if strings.Contains(lk, fragment) {
-			return true
-		}
-	}
-
-	return false
+	return utils.RedactDSN(raw)
 }
 
 // redactDSN is the package-internal alias kept for existing call sites.
