@@ -29,6 +29,19 @@
         }
 {{end}}    },
 {{end}}    "sicky": {
+        "manager": {
+            "address": "127.0.0.1:8888",
+            "metrics_path": "/metrics",
+            "health_path": "/health",
+            "live_path": "/live",
+            "ready_path": "/ready",
+            "version_path": "/version",
+            "info_path": "/info",
+            "config_path": "/config",
+            "services_path": "/services",
+            "expose_config": false,
+            "auth_token": ""
+        },
         "log_level": "debug",
         "tracer": {
             "type": "none",

@@ -993,6 +993,21 @@ func Run(cfg *Config) error {
 	}
 
 	// Start manager
+	if cfg.Manager == nil && !options.DisableManager {
+		// ManagerConfig.Enabled reads a nil block as disabled — presence is
+		// the signal, because a bare bool cannot express both "the block is
+		// here, run it" and "there is no block, do not". That is a deliberate
+		// contract, but it makes an absent block indistinguishable from a
+		// decision to disable, so say which one this is: a service with no
+		// manager has no /metrics and no /health, and the operator would
+		// otherwise find out from a monitoring alert.
+		logger.Logger.WarnContext(
+			options.Context,
+			"no manager block in the configuration: /metrics, /health, /ready and /live will not be served",
+			"hint", `add a "manager" object to the sicky configuration, or set "manager.enable" to false to acknowledge this`,
+		)
+	}
+
 	if cfg.Manager.Enabled() && !options.DisableManager {
 		managerApp = NewManager(cfg.Manager, options.AppName, options.Version)
 		managerApp.cfgVar = cfg
