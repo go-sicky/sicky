@@ -255,11 +255,53 @@ func (c *ManagerConfig) Validate() error {
 	return c.validatePaths()
 }
 
-// validatePaths dry-runs the mux registration for every config-driven
-// endpoint path. http.ServeMux panics on patterns not starting with "/"
-// and on conflicting patterns; catching it here turns a process-killing
-// panic into a Start error.
+// validatePaths requires every endpoint path to be an exact http.ServeMux
+// match, then dry-runs the registration.
+//
+// The dry-run alone was not enough, and this is a guard bypass. ServeMux
+// raises no panic when an exact pattern and a subtree pattern coexist, so
+// configuring metrics_path="/config/" next to the default config_path="/config"
+// left "/config" behind guardSensitive while "/config/" and "/config/*" were
+// served by the unguarded metrics handler — validation returned nil and the
+// operator had no signal. Forbidding the trailing slash (and the Go 1.22+
+// wildcard segment, which shadows the same way) makes shadowing
+// unrepresentable instead of merely unlikely.
+//
+// The dry-run is kept as a second line of defense: it still catches duplicate
+// exact patterns and any ServeMux rule added later.
 func (c *ManagerConfig) validatePaths() (err error) {
+	paths := []struct {
+		field string
+		value string
+	}{
+		{"metrics_path", c.MetricsPath},
+		{"health_path", c.HealthPath},
+		{"live_path", c.LivePath},
+		{"ready_path", c.ReadyPath},
+		{"version_path", c.VersionPath},
+		{"info_path", c.InfoPath},
+		{"config_path", c.ConfigPath},
+		{"service_pool_path", c.ServicePoolPath},
+	}
+
+	for _, p := range paths {
+		switch {
+		case !strings.HasPrefix(p.value, "/"):
+			return fmt.Errorf("%w: %s=%q must start with %q", ErrManagerInvalidPath, p.field, p.value, "/")
+		case strings.HasSuffix(p.value, "/"):
+			return fmt.Errorf(
+				"%w: %s=%q must not end with %q — a trailing slash makes it a subtree "+
+					"pattern and would shadow another endpoint's guard",
+				ErrManagerInvalidPath, p.field, p.value, "/",
+			)
+		case strings.ContainsAny(p.value, "{}"):
+			return fmt.Errorf(
+				"%w: %s=%q must not contain a wildcard segment — it shadows other endpoints",
+				ErrManagerInvalidPath, p.field, p.value,
+			)
+		}
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%w: %v", ErrManagerInvalidPath, r)
@@ -267,17 +309,8 @@ func (c *ManagerConfig) validatePaths() (err error) {
 	}()
 
 	mux := http.NewServeMux()
-	for _, p := range []string{
-		c.MetricsPath,
-		c.HealthPath,
-		c.LivePath,
-		c.ReadyPath,
-		c.VersionPath,
-		c.InfoPath,
-		c.ConfigPath,
-		c.ServicePoolPath,
-	} {
-		mux.Handle(p, http.NotFoundHandler())
+	for _, p := range paths {
+		mux.Handle(p.value, http.NotFoundHandler())
 	}
 
 	return nil

@@ -248,6 +248,67 @@ func TestManagerPathValidation(t *testing.T) {
 	}
 }
 
+// A trailing slash makes the pattern a subtree match, and http.ServeMux
+// happily co-registers an exact pattern with a subtree one. So configuring
+// metrics_path="/config/" left ConfigPath="/config" guarded while "/config/"
+// and "/config/*" were served by the unguarded metrics handler — and
+// validatePaths returned nil, because ServeMux raises no panic. The same
+// applies to a Go 1.22+ wildcard segment.
+func TestManagerPathValidationRejectsShadowing(t *testing.T) {
+	bad := []*ManagerConfig{
+		{Address: "127.0.0.1:0", MetricsPath: "/config/"},
+		{Address: "127.0.0.1:0", HealthPath: "/services/"},
+		{Address: "127.0.0.1:0", ConfigPath: "/config/"},
+		{Address: "127.0.0.1:0", MetricsPath: "/config/{rest...}"},
+		{Address: "127.0.0.1:0", MetricsPath: "/config/{rest}"},
+		{Address: "127.0.0.1:0", MetricsPath: "/"},
+	}
+
+	for i, c := range bad {
+		err := c.Ensure().Validate()
+		if err == nil {
+			t.Errorf("case %d (%+v): shadowing path must fail validation", i, c)
+			continue
+		}
+
+		if !errors.Is(err, ErrManagerInvalidPath) {
+			t.Errorf("case %d: got %v, want ErrManagerInvalidPath", i, err)
+		}
+	}
+
+	// Every shipped default must still validate, or the rejection above is
+	// too aggressive to be usable.
+	def := (&ManagerConfig{Address: "127.0.0.1:0"}).Ensure()
+	if err := def.Validate(); err != nil {
+		t.Errorf("default paths must validate: %v", err)
+	}
+}
+
+// Proves the shape of the bug the check above closes: ServeMux resolves
+// "/config/x" through the subtree registration, not the exact one.
+func TestServeMuxSubtreeShadowsExactPattern(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.Handle("/config", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("guarded"))
+	}))
+	mux.Handle("/config/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("unguarded"))
+	}))
+
+	for _, tc := range []struct{ path, want string }{
+		{"/config", "guarded"},
+		{"/config/", "unguarded"},
+		{"/config/x", "unguarded"},
+	} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, http.NoBody))
+
+		if got := w.Body.String(); got != tc.want {
+			t.Errorf("GET %s = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestManagerBindFailureReturnsError(t *testing.T) {
 	m1 := NewManager(&ManagerConfig{Address: "127.0.0.1:0"}, "app", "v1")
 	if err := m1.Start(); err != nil {
