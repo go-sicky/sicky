@@ -150,35 +150,53 @@ func (m *Message) Format(v any, mime ...int) error {
 		tm = mime[0]
 	}
 
-	var err error
+	// Encode into a local and commit only on success.
+	//
+	// Assigning straight to m.Body wiped the payload on a marshal failure —
+	// both encoders return nil bytes with the error — and left Mime naming a
+	// codec that no longer described the body. The result is a message that
+	// publishes as empty and scans clean on the far side: data loss with a
+	// nil error at both ends. Raw already guards this for its own path, and
+	// a reused Message has a real body to lose.
+	var (
+		body []byte
+		err  error
+	)
+
 	switch tm {
 	case MsgJSON:
-		m.Body, err = json.Marshal(v)
+		body, err = json.Marshal(v)
 	case MsgProtobuf:
 		pm, ok := v.(proto.Message)
 		if !ok {
 			return fmt.Errorf("broker: format protobuf (topic %q): %w", m.Topic, ErrFormatNotProtoMessage)
 		}
 
-		m.Body, err = proto.Marshal(pm)
+		body, err = proto.Marshal(pm)
 	case MsgMessagePack:
-		m.Body, err = msgpack.Marshal(v)
+		body, err = msgpack.Marshal(v)
 	default:
 		// Raw
-		if b, ok := v.([]byte); ok {
-			m.Body = b
-			tm = MsgRaw
-		} else {
+		b, ok := v.([]byte)
+		if !ok {
 			return fmt.Errorf("broker: format raw (topic %q): %w", m.Topic, ErrFormatNotBytes)
 		}
+
+		body, tm = b, MsgRaw
 	}
 
-	// Always record the effective mime: previously the JSON/msgpack
-	// paths returned early with Mime left at zero (Raw), so Scan on the
-	// receiving side silently skipped decoding (data loss with nil error).
+	if err != nil {
+		return err
+	}
+
+	m.Body = body
+
+	// Record the effective mime only once the body exists. The JSON and
+	// msgpack paths used to return early with Mime left at zero (Raw), so
+	// Scan on the receiving side silently skipped decoding.
 	m.Mime = tm
 
-	return err
+	return nil
 }
 
 // Raw is part of the public API.
