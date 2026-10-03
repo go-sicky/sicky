@@ -284,24 +284,20 @@ func (rg *Redis) Load() (instances []*registry.Instance, err error) {
 		return nil, err
 	}
 
-	for _, v := range res {
-		var ins registry.Instance
-		err = json.Unmarshal([]byte(v), &ins)
-		if err != nil {
-			rg.options.Logger.ErrorContext(
-				rg.ctx,
-				"unmarshal instance failed",
-				"registry", rg.String(),
-				"id", rg.options.ID,
-				"name", rg.options.Name,
-				"error", err.Error(),
-			)
-
-			continue
-		}
-
-		instances = append(instances, &ins)
-	}
+	// The decode cannot touch the named err: see decode.go. One unreadable
+	// value must not turn every later Load into a recorded failure and stop
+	// the instance gauge.
+	instances = decodeInstances(res, func(field string, derr error) {
+		rg.options.Logger.ErrorContext(
+			rg.ctx,
+			"unmarshal instance failed",
+			"registry", rg.String(),
+			"id", rg.options.ID,
+			"name", rg.options.Name,
+			"instance_field", field,
+			"error", derr.Error(),
+		)
+	})
 
 	return instances, nil
 }

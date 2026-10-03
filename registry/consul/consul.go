@@ -305,8 +305,12 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 	}
 
 	for _, svc := range svcs {
-		id, err := uuid.Parse(svc.ID)
-		if err != nil {
+		// Per-entry failures get their own variable. Load's named err is
+		// read by the metrics defer, and a single unparseable entry used to
+		// leave it non-nil, recording every later Load as a failure and
+		// stopping the instance gauge, while Load returned nil.
+		id, derr := uuid.Parse(svc.ID)
+		if derr != nil {
 			rg.options.Logger.WarnContext(
 				rg.ctx,
 				"parse service ID failed",
@@ -314,7 +318,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 				"id", rg.options.ID,
 				"name", rg.options.Name,
 				"service_id", svc.ID,
-				"error", err.Error(),
+				"error", derr.Error(),
 			)
 
 			continue
@@ -333,8 +337,8 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 
 		for _, v := range svc.Tags {
 			var server registry.Server
-			err = json.Unmarshal([]byte(v), &server)
-			if err != nil {
+
+			if derr := json.Unmarshal([]byte(v), &server); derr != nil {
 				rg.options.Logger.WarnContext(
 					rg.ctx,
 					"parse service server failed",
@@ -342,7 +346,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 					"id", rg.options.ID,
 					"name", rg.options.Name,
 					"service_id", svc.ID,
-					"error", err.Error(),
+					"error", derr.Error(),
 				)
 
 				continue
@@ -359,9 +363,10 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 
 			if after, ok := strings.CutPrefix(k, "topic-"); ok {
 				key := after
+
 				var topic registry.Topic
-				err = json.Unmarshal([]byte(v), &topic)
-				if err != nil {
+
+				if derr := json.Unmarshal([]byte(v), &topic); derr != nil {
 					rg.options.Logger.WarnContext(
 						rg.ctx,
 						"parse service topic failed",
@@ -369,7 +374,7 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 						"id", rg.options.ID,
 						"name", rg.options.Name,
 						"service_id", svc.ID,
-						"error", err.Error(),
+						"error", derr.Error(),
 					)
 
 					continue
