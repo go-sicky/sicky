@@ -35,12 +35,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-sicky/sicky/server"
 	"github.com/go-sicky/sicky/utils"
 )
 
 // ErrIncompleteTLSConfig is returned when only one half of the client
 // certificate is configured.
-var ErrIncompleteTLSConfig = errors.New("grpc client: tls_cert_pem and tls_key_pem must both be set or both empty")
+//
+// Alias of server.ErrIncompleteTLSConfig: the condition is identical, and
+// errors.New per call site meant a caller holding a client.Client could not
+// match the same error a server implementation returns.
+var ErrIncompleteTLSConfig = server.ErrIncompleteTLSConfig
 
 // ErrInvalidTLSCA is returned when tls_ca_pem contains no usable
 // certificate: trusting nothing would fail every connection anyway, and

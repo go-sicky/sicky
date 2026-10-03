@@ -52,7 +52,10 @@ import (
 // ErrIncompleteTLSConfig is returned when only one of TLSCertPEM/TLSKeyPEM
 // is set. Falling back to plaintext silently would be a security hole, so
 // startup fails fast instead.
-var ErrIncompleteTLSConfig = errors.New("incomplete TLS configuration: both tls_cert_pem and tls_key_pem must be set")
+//
+// Alias of server.ErrIncompleteTLSConfig, so a caller matching the condition
+// with one errors.Is works across every implementation.
+var ErrIncompleteTLSConfig = server.ErrIncompleteTLSConfig
 
 // ErrShutdownTimeout is returned when GracefulStop exceeds
 // ShutdownTimeout and the server is force-stopped instead.

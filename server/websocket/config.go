@@ -30,7 +30,7 @@
 
 package websocket
 
-import "errors"
+import "github.com/go-sicky/sicky/server"
 
 const (
 	// DefaultNetwork is a websocket constant.
@@ -57,7 +57,10 @@ const (
 // ErrIncompleteTLSConfig is returned when only one of tls_cert_pem and
 // tls_key_pem is set. Serving plaintext with a half TLS configuration is
 // never intended.
-var ErrIncompleteTLSConfig = errors.New("websocket: tls_cert_pem and tls_key_pem must both be set or both empty")
+//
+// Alias of server.ErrIncompleteTLSConfig, so a caller matching the condition
+// with one errors.Is works across every implementation.
+var ErrIncompleteTLSConfig = server.ErrIncompleteTLSConfig
 
 // Config is a websocket component.
 type Config struct {
