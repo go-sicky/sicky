@@ -2,10 +2,21 @@ module github.com/go-sicky/sicky
 
 go 1.26.7
 
-// The replace below intentionally targets v0.6.1 — the exact version the
-// exclude rejects. That pair is how this pin is expressed, not a typo.
-// cli/new.go reads the replace out of the CLI build info and injects it
-// into every scaffolded go.mod, so removing it silently rewrites generated
+// go-metrics pin. Three modules require the old path at v0.4.1
+// (hashicorp/consul/api, spf13/viper/remote, sagikazarmark/crypt).
+//
+// This is a reject-and-fall-through, not a pin at v0.6.1:
+//   replace — makes armon/go-metrics resolve to hashicorp v0.6.1
+//   exclude — removes v0.6.1 from the candidate set
+//   require — MVS then lands on hashicorp/go-metrics v0.7.0 (indirect)
+//
+// v0.7.0 is the newest published version and is what `go list -m` reports.
+// Do NOT put the newest version in the exclude above: it is the only one
+// published, so excluding it drops the requirement entirely and `go mod
+// tidy` fails. Verified 2026-10-03.
+//
+// cli/new.go reads this replace out of the CLI build info and injects it
+// into every scaffolded go.mod, so editing it also rewrites generated
 // projects. Do not "fix" this.
 replace github.com/armon/go-metrics => github.com/hashicorp/go-metrics v0.6.1
 
