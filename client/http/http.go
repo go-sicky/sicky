@@ -118,11 +118,11 @@ func (clt *HTTPClient) Disconnect() error {
 	return nil
 }
 
-// Call executes a call (placeholder: no transport happens here).
+// Call implements client.Client and always fails: the signature carries no
+// target, so it cannot perform a call. It used to return nil, reporting a
+// delivery that never happened. Use Invoke/NewStream (gRPC) or Do (HTTP).
 func (clt *HTTPClient) Call() error {
-	metrics.ClientRequestsTotal.WithLabelValues("http", "noop", "noop", "noop").Inc()
-
-	return nil
+	return client.ErrClientNotImplemented
 }
 
 // StartSpan starts a client span for an outbound request. The caller must

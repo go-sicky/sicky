@@ -407,12 +407,11 @@ func (clt *GRPCClient) Disconnect() error {
 	return clt.conn.Close()
 }
 
-// Call implements client.Client. It only bumps the placeholder counter;
-// real RPCs go through Invoke (unary) or NewStream (streaming).
+// Call implements client.Client and always fails: the signature carries no
+// target, so it cannot perform a call. It used to return nil, reporting a
+// delivery that never happened. Use Invoke/NewStream (gRPC) or Do (HTTP).
 func (clt *GRPCClient) Call() error {
-	metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop").Inc()
-
-	return nil
+	return client.ErrClientNotImplemented
 }
 
 // String returns a human-readable name.

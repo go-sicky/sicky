@@ -59,7 +59,9 @@ func TestNewBogusPEMmaterialFailsFast(t *testing.T) {
 	}
 }
 
-func TestCallIncrementsCounter(t *testing.T) {
+// Call has no target in its signature, so it cannot carry an RPC and must not
+// report success or mint a metric. Real unary counting lives in Invoke.
+func TestCallReportsNotImplemented(t *testing.T) {
 	before := counterValue(metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop"))
 	opts := &client.Options{ID: uuid.New(), Name: "call-test"}
 	clt := New(opts, &Config{Addr: "127.0.0.1:1"})
@@ -69,12 +71,13 @@ func TestCallIncrementsCounter(t *testing.T) {
 
 	defer func() { _ = clt.Disconnect() }()
 
-	if err := clt.Call(); err != nil {
-		t.Fatalf("Call: %v", err)
+	err := clt.Call()
+	if !errors.Is(err, client.ErrClientNotImplemented) {
+		t.Fatalf("Call = %v, want ErrClientNotImplemented", err)
 	}
 
-	if got := counterValue(metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop")); got != before+1 {
-		t.Fatalf("counter = %v, want %v", got, before+1)
+	if got := counterValue(metrics.ClientRequestsTotal.WithLabelValues("grpc", "noop", "noop", "noop")); got != before {
+		t.Fatalf("Call minted a noop metric: %v -> %v", before, got)
 	}
 }
 

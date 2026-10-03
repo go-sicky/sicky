@@ -1,6 +1,7 @@
 package udp
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,8 +15,10 @@ func TestClientResolve(t *testing.T) {
 		t.Fatalf("New valid addr: %v", err)
 	}
 
-	if err := clt.Call(); err != nil {
-		t.Fatalf("Call: %v", err)
+	// Call has no target in its signature, so it cannot carry a request and
+	// must report that rather than a false success.
+	if err := clt.Call(); !errors.Is(err, client.ErrClientNotImplemented) {
+		t.Fatalf("Call = %v, want ErrClientNotImplemented", err)
 	}
 
 	if _, err := New(&client.Options{ID: uuid.New(), Name: "udp-test"}, &Config{Addr: "://bad"}); err == nil {

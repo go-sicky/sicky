@@ -36,7 +36,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/go-sicky/sicky/client"
-	"github.com/go-sicky/sicky/metrics"
 )
 
 // WebsocketClient is a websocket component.
@@ -107,11 +106,11 @@ func (clt *WebsocketClient) Disconnect() error {
 	return nil
 }
 
-// Call executes a call (placeholder: no transport happens here).
+// Call implements client.Client and always fails: the signature carries no
+// target, so it cannot perform a call. It used to return nil, reporting a
+// delivery that never happened. Use Invoke/NewStream (gRPC) or Do (HTTP).
 func (clt *WebsocketClient) Call() error {
-	metrics.ClientRequestsTotal.WithLabelValues("websocket", "noop", "noop", "noop").Inc()
-
-	return nil
+	return client.ErrClientNotImplemented
 }
 
 // String returns a human-readable name.

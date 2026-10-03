@@ -9,6 +9,7 @@ package websocket
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -103,6 +104,14 @@ func TestConnectAndDisconnectAreNoOps(t *testing.T) {
 
 	if err := clt.Disconnect(); err != nil {
 		t.Fatalf("Disconnect: %v", err)
+	}
+
+	// Call differs from Connect: its signature carries no target, so no
+	// transport could ever act on it. Reporting success would be a false
+	// positive, so it must say so — unlike Connect, which genuinely has
+	// nothing to dial yet.
+	if err := clt.Call(); !errors.Is(err, client.ErrClientNotImplemented) {
+		t.Fatalf("Call = %v, want ErrClientNotImplemented", err)
 	}
 }
 

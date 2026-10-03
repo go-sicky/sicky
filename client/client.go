@@ -32,11 +32,18 @@ package client
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"sync"
 
 	"github.com/google/uuid"
 )
+
+// ErrClientNotImplemented is returned by Client.Call in every implementation.
+// The method takes no target and no arguments, so it cannot carry a call; it
+// existed only to satisfy the interface. Returning nil from it reported a
+// delivery that never happened.
+var ErrClientNotImplemented = errors.New("client: Call is not implemented, use the protocol-specific method")
 
 // Client : service callee.
 type Client interface {
@@ -49,6 +56,12 @@ type Client interface {
 	// Disconnect
 	Disconnect() error
 	// Call handle
+	//
+	// Deprecated: no implementation performs an outbound call here, so this
+	// returns ErrClientNotImplemented. Every implementation used to return nil
+	// while doing nothing, which told a caller holding only this interface
+	// that its RPC had been delivered. Use the protocol-specific method
+	// instead: Invoke/NewStream (gRPC) or Do (HTTP).
 	Call() error
 	// Stringify
 	String() string
