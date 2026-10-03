@@ -111,12 +111,33 @@ func GoroutineID() uint64 {
 	return n
 }
 
-// CryptoPassword is a utility helper.
-func CryptoPassword(original, salt string) string {
+// SHA256Digest is a utility helper for a salted SHA-256 digest of two
+// strings, suitable for cache keys and change detection.
+//
+// NOT for passwords. There is no work factor and no memory hardness, so a
+// leaked table cracks at billions of guesses per second on a GPU and a
+// six-digit PIN falls in seconds. Store passwords with bcrypt, scrypt or
+// argon2id.
+//
+// The two arguments are joined with a "@@" separator, which is ambiguous:
+// ("a@@b", "c") and ("a", "b@@c") produce the same digest. Pass values that
+// cannot contain the separator.
+//
+// Deprecated: the name promised password hashing, which this does not do.
+// Use SHA256Digest, or a real password KDF for passwords.
+func SHA256Digest(original, salt string) string {
 	h := sha256.New()
 	h.Write([]byte(original + "@@" + salt))
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// CryptoPassword is a utility helper.
+//
+// Deprecated: use SHA256Digest. Kept as an alias so existing callers keep
+// compiling; see SHA256Digest for why this must not be used for passwords.
+func CryptoPassword(original, salt string) string {
+	return SHA256Digest(original, salt)
 }
 
 // EnsureStatus is a utility helper.
