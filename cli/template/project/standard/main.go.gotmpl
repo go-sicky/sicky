@@ -24,6 +24,8 @@
 package main
 
 import (
+	"errors"
+	"log"
 	"context"
 
 {{if or .WithGRPC .WithFiber .WithHTTP}}	"{{.Module}}/handler"
@@ -48,7 +50,7 @@ func main() {
 	ctx := context.Background()
 
 	// Sicky
-	sicky.Init(
+	if err := sicky.Init(
 		&sicky.Options{
 			AppName:   AppName,
 			Version:   Version,
@@ -57,8 +59,16 @@ func main() {
 			BuildTime: BuildTime,
 			Context:   ctx,
 		},
-	)
-	sicky.ConfigUnmarshal(&config)
+	); err != nil {
+		if errors.Is(err, sicky.ErrVersionShown) {
+			return
+		}
+
+		log.Fatalf("sicky: init: %v", err)
+	}
+	if err := sicky.ConfigUnmarshal(&config); err != nil {
+		log.Fatalf("sicky: config unmarshal: %v", err)
+	}
 
 {{if .WithGRPC}}	// GRPC server
 	grpcSrv := srvGRPC.New(
@@ -106,5 +116,9 @@ func main() {
 {{else}}	// No servers selected: the service runs background jobs only.
 	_ = svc
 {{end}}
-	sicky.Run(config.Sicky)
+	// Run blocks until a signal. A non-nil error is a failed startup or an
+	// incomplete teardown, so it must reach the exit status, not just the log.
+	if err := sicky.Run(config.Sicky); err != nil {
+		log.Fatalf("sicky: run: %v", err)
+	}
 }

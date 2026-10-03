@@ -24,6 +24,8 @@
 package main
 
 import (
+	"errors"
+	"log"
 	"context"
 
 	"{{.Module}}/handler"
@@ -46,7 +48,7 @@ var (
 func main() {
 	ctx := context.Background()
 
-{{if or .WithFiber .WithHTTP}}	sicky.Init(
+{{if or .WithFiber .WithHTTP}}	if err := sicky.Init(
 		&sicky.Options{
 			AppName:   AppName,
 			Version:   Version,
@@ -55,9 +57,17 @@ func main() {
 			BuildTime: BuildTime,
 			Context:   ctx,
 		},
-	)
+	); err != nil {
+		if errors.Is(err, sicky.ErrVersionShown) {
+			return
+		}
 
-	sicky.ConfigUnmarshal(&config)
+		log.Fatalf("sicky: init: %v", err)
+	}
+
+	if err := sicky.ConfigUnmarshal(&config); err != nil {
+		log.Fatalf("sicky: config unmarshal: %v", err)
+	}
 
 {{if .WithFiber}}	fiberSrv := srvFiber.New(
 		&server.Options{
@@ -92,9 +102,13 @@ func main() {
 {{end}}	)
 	svc.Handle(handler.New{{.ExportedName}}())
 
-	sicky.Run(config.Sicky)
+	// Run blocks until a signal. A non-nil error is a failed startup or an
+	// incomplete teardown, so it must reach the exit status, not just the log.
+	if err := sicky.Run(config.Sicky); err != nil {
+		log.Fatalf("sicky: run: %v", err)
+	}
 {{else}}	// Pure stdio transport: no config file, no logs on stdout.
-	sicky.Init(
+	if err := sicky.Init(
 		&sicky.Options{
 			AppName:       AppName,
 			Version:       Version,
@@ -105,7 +119,13 @@ func main() {
 			DisableConfig: true,
 			Silence:       true,
 		},
-	)
+	); err != nil {
+		if errors.Is(err, sicky.ErrVersionShown) {
+			return
+		}
+
+		log.Fatalf("sicky: init: %v", err)
+	}
 
 	svc := mcp.New(
 		&service.Options{
@@ -118,5 +138,9 @@ func main() {
 
 	svc.Handle(handler.New{{.ExportedName}}())
 
-	sicky.Run(config.Sicky)
+	// Run blocks until a signal. A non-nil error is a failed startup or an
+	// incomplete teardown, so it must reach the exit status, not just the log.
+	if err := sicky.Run(config.Sicky); err != nil {
+		log.Fatalf("sicky: run: %v", err)
+	}
 {{end}}}

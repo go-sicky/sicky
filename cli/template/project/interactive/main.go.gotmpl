@@ -24,6 +24,8 @@
 package main
 
 import (
+	"errors"
+	"log"
 	"context"
 
 	"{{.Module}}/handler"
@@ -43,7 +45,7 @@ var (
 func main() {
 	ctx := context.Background()
 
-	sicky.Init(
+	if err := sicky.Init(
 		&sicky.Options{
 			AppName:   AppName,
 			Version:   Version,
@@ -52,9 +54,17 @@ func main() {
 			BuildTime: BuildTime,
 			Context:   ctx,
 		},
-	)
+	); err != nil {
+		if errors.Is(err, sicky.ErrVersionShown) {
+			return
+		}
 
-	sicky.ConfigUnmarshal(&config)
+		log.Fatalf("sicky: init: %v", err)
+	}
+
+	if err := sicky.ConfigUnmarshal(&config); err != nil {
+		log.Fatalf("sicky: config unmarshal: %v", err)
+	}
 
 	svc := interactive.New(
 		&service.Options{
@@ -65,5 +75,9 @@ func main() {
 	)
 	svc.Handle(handler.New{{.ExportedName}}())
 
-	sicky.Run(config.Sicky)
+	// Run blocks until a signal. A non-nil error is a failed startup or an
+	// incomplete teardown, so it must reach the exit status, not just the log.
+	if err := sicky.Run(config.Sicky); err != nil {
+		log.Fatalf("sicky: run: %v", err)
+	}
 }
