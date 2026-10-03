@@ -443,17 +443,71 @@ type pairCache struct {
 	durN   int
 
 	mu sync.RWMutex
-	m  map[labelsKey]metricPair
+	// m is keyed by a fixed-width digest of the labels, not by the labels
+	// themselves. A string-keyed map would keep a reference to every
+	// caller-supplied label value for the process lifetime, which is how an
+	// unbounded-label caller turned into unbounded heap; a digest bounds the
+	// retained bytes and makes the key comparable without hashing the strings
+	// on every lookup.
+	//
+	// max caps the table. The CounterVec/HistogramVec children a pair holds
+	// are permanent once created, so an unbounded table is an unbounded
+	// registry: at the cap, a new label set stops being memoized and its
+	// observation is dropped rather than counted. Every label reaching here is
+	// already normalized (see label.go), so the cap is a backstop against a
+	// caller that bypasses it, not a budget that is routinely reached.
+	max int
+	m   map[uint64]metricPair
 }
 
-// labelsKey is the fixed-width key the caches are indexed by. The four
-// slots cover the widest signature in this file
-// (server, method, route, code); narrower calls leave the rest empty.
-// A struct key keeps the lookup allocation-free, which an interface-key
-// sync.Map could not: boxing a struct into an any would allocate on
-// every observation.
+// pairCacheMax bounds every pairCache table.
+//
+// Sized well above what the normalized label sets can produce (a few hundred
+// in practice), so the cap is never reached through the public API — it exists
+// so that a caller which bypasses the label.go normalizers degrades into
+// dropped observations rather than into unbounded heap.
+const pairCacheMax = 4096
+
+// labelsKey is the fixed-width label tuple the caches are keyed by. The four
+// slots cover the widest signature in this file (server, method, route, code);
+// narrower calls leave the rest empty.
+//
+// A struct of strings would be the natural key, and it is what this type used
+// to be, but a map keyed by it retains every label value for the process
+// lifetime. resolve therefore hashes the tuple once per call with maphash and
+// indexes by the digest, so the map holds a fixed 8-byte key and no reference
+// to caller-supplied bytes.
 type labelsKey struct {
 	a, b, c, d string
+}
+
+// hash reduces the tuple to the cache key. Separator bytes are written around
+// each field so no combination of values can collide by concatenation
+// ("a"+"bc" vs "ab"+"c").
+//
+// It deliberately does not use hash/maphash: a zero maphash.Hash is seeded
+// randomly per process, so the same label set would hash differently across
+// restarts. That is fine for a process-local map but wrong for a metric cache,
+// whose identity must be stable and comparable in tests. FNV-1a is enough for
+// a fixed 4-field key that is looked up far more often than it is grown.
+func (k labelsKey) hash() uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+
+	h := uint64(offset64)
+	for _, s := range [...]string{k.a, k.b, k.c, k.d} {
+		for i := range len(s) {
+			h ^= uint64(s[i])
+			h *= prime64
+		}
+
+		h ^= 0
+		h *= prime64
+	}
+
+	return h
 }
 
 // metricPair is one resolved counter/histogram pair.
@@ -470,7 +524,8 @@ func newPairCache(total *prometheus.CounterVec, dur *prometheus.HistogramVec, to
 		dur:    dur,
 		totalN: totalN,
 		durN:   durN,
-		m:      make(map[labelsKey]metricPair),
+		max:    pairCacheMax,
+		m:      make(map[uint64]metricPair),
 	}
 }
 
@@ -479,7 +534,7 @@ func newPairCache(total *prometheus.CounterVec, dur *prometheus.HistogramVec, to
 // Unused trailing label slots are ignored, so callers may always pass
 // four values.
 func (c *pairCache) resolve(a, b, cc, d string) (prometheus.Counter, prometheus.Observer) {
-	key := labelsKey{a: a, b: b, c: cc, d: d}
+	key := labelsKey{a: a, b: b, c: cc, d: d}.hash()
 
 	c.mu.RLock()
 	pair, ok := c.m[key]
@@ -488,6 +543,32 @@ func (c *pairCache) resolve(a, b, cc, d string) (prometheus.Counter, prometheus.
 	if ok {
 		return pair.counter, pair.observer
 	}
+
+	c.mu.Lock()
+
+	// Re-check under the write lock: two goroutines can miss the fast path
+	// for the same new label set, and resolving it twice would create two
+	// children for one label tuple.
+	pair, ok = c.m[key]
+	if ok {
+		c.mu.Unlock()
+
+		return pair.counter, pair.observer
+	}
+
+	if len(c.m) >= c.max {
+		// The table is full of label sets nobody will ask for again. Dropping
+		// the observation is the right trade: the counter and histogram
+		// children are permanent, so admitting more would grow the registry
+		// without bound, and every label reaching here is normalized anyway.
+		c.mu.Unlock()
+
+		labelSetsDroppedTotal.Inc()
+
+		return labelSetsDroppedTotal, labelSetsDroppedDuration
+	}
+
+	c.mu.Unlock()
 
 	// Miss: this label set has never been observed, so pay for the label
 	// slice once. WithLabelValues still validates the label count, so a
@@ -505,6 +586,25 @@ func (c *pairCache) resolve(a, b, cc, d string) (prometheus.Counter, prometheus.
 
 	return pair.counter, pair.observer
 }
+
+// labelSetsDroppedTotal and labelSetsDroppedDuration stand in for a metric
+// pair once a cache is full. They are real collectors rather than no-ops, so a
+// saturated cache is visible on /metrics instead of silently losing
+// observations — and they keep resolve's signature intact.
+var (
+	labelSetsDroppedTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "sicky_metric_label_sets_dropped_total",
+		Help: "Observations dropped because a metric pair cache reached its size cap. " +
+			"Every label is normalized before it reaches a cache, so a non-zero value " +
+			"means a caller bypassed the normalizers in metrics/label.go.",
+	})
+
+	labelSetsDroppedDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "sicky_metric_label_sets_dropped_duration_seconds",
+		Help:    "Durations of observations dropped because a metric pair cache reached its size cap.",
+		Buckets: prometheus.DefBuckets,
+	})
+)
 
 // The per-pair caches. Go resolves package-level initialization order
 // by dependency, so each one is built after the Vecs it wraps.
@@ -651,6 +751,8 @@ func init() {
 
 	Register("sicky_client_requests_total", ClientRequestsTotal)
 	Register("sicky_client_request_duration_seconds", ClientRequestDuration)
+	Register("sicky_metric_label_sets_dropped_total", labelSetsDroppedTotal)
+	Register("sicky_metric_label_sets_dropped_duration_seconds", labelSetsDroppedDuration)
 	Register("sicky_client_errors_total", ClientErrorsTotal)
 	Register("sicky_client_stream_open_total", ClientStreamOpenTotal)
 

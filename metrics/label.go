@@ -45,6 +45,17 @@ const UnmatchedRoute = "unmatched"
 // "redis"} the same way UnknownMethod bounds the HTTP server series.
 const UnknownCommand = "OTHER"
 
+// OtherHost is the label value for every non-empty outbound destination.
+// The outbound host is caller-supplied, so any per-destination value would
+// let a caller mint an unbounded number of permanent series; see
+// NormalizeClientHost.
+const OtherHost = "other"
+
+// UnknownHost is the label value for an outbound request with no host at
+// all. Kept distinct from OtherHost so a misconfigured client does not share
+// a series with every other one.
+const UnknownHost = "unknown"
+
 // knownRedisCommands is the closed set of commands that keep their own
 // label. Every typed go-redis method issues one of these with a
 // compile-time constant name, so they are already bounded; Do and
@@ -128,6 +139,41 @@ func NormalizeRouteLabel(route string) string {
 	}
 
 	return route
+}
+
+// The host label on outbound client metrics is the one place where the
+// destination had no normalizer while every sibling label did
+// (NormalizeHTTPMethod, NormalizeRouteLabel, NormalizeRedisCommand). Callers
+// of client/http.Do in a gateway or webhook relay supply it, so each distinct
+// host minted a permanent series — a memory allocator paid for by the caller.
+// client/http now routes it through NormalizeClientHost.
+
+// NormalizeClientHost bounds the host label on outbound client metrics.
+//
+// The host is chosen by the caller of client/http.Do, which in a gateway, a
+// webhook relay or any fetch-a-URL feature is attacker-controlled. Without
+// this, one request per distinct host mints a permanent Prometheus series:
+// pairCache memoizes the child, the CounterVec/HistogramVec children are never
+// released, and the process grows a memory allocator and a scrape body that
+// grows with the attacker's request count.
+//
+// It collapses to OtherHost rather than a registrable suffix on purpose. A
+// suffix still lets an attacker buy a series per registered domain, and a
+// host name is the wrong aggregation dimension anyway: it splits the series
+// across instances whose DNS resolves differently. The per-destination signal
+// belongs in the span name (client/http starts one per "<method> <host>"),
+// which is already bounded by the exporter rather than by this process.
+//
+// An empty host is a caller bug rather than an attack, so it is reported as
+// UnknownHost instead of being folded into the same bucket as a real
+// destination — otherwise a broken client silently shares a series with every
+// other broken client.
+func NormalizeClientHost(host string) string {
+	if host == "" {
+		return UnknownHost
+	}
+
+	return OtherHost
 }
 
 // NormalizeRedisCommand bounds a Redis command name before it reaches a

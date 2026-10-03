@@ -8,11 +8,13 @@
 package metrics
 
 import (
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // newTestPairCache builds a cache over fresh Vecs so a test can observe
@@ -41,6 +43,16 @@ func (c *pairCache) size() int {
 	defer c.mu.RUnlock()
 
 	return len(c.m)
+}
+
+// newCappedPairCache is newTestPairCache with a deliberately tiny cap, so the
+// saturation behavior can be exercised without allocating pairCacheMax
+// entries.
+func newCappedPairCache(totalLabels, durLabels, limit int) *pairCache {
+	c := newTestPairCache(totalLabels, durLabels)
+	c.max = limit
+
+	return c
 }
 
 func TestPairCacheReusesChildrenForSameLabels(t *testing.T) {
@@ -141,6 +153,67 @@ func TestPairCacheConcurrentResolveIsRaceFree(t *testing.T) {
 
 	if got := c.size(); got != 8 {
 		t.Fatalf("cached children = %d, want 8: one per distinct label set", got)
+	}
+}
+
+// A saturated cache must drop observations instead of growing the registry:
+// the CounterVec/HistogramVec children a pair holds are permanent once created,
+// so an unbounded table is an unbounded registry. It must also report that it
+// dropped them rather than losing them silently.
+func TestPairCacheStopsGrowingAtCap(t *testing.T) {
+	c := newCappedPairCache(3, 2, 8)
+
+	for i := range 500 {
+		counter, observer := c.resolve("redis", strconv.Itoa(i), "", "")
+		counter.Inc()
+		observer.Observe(0.01)
+	}
+
+	if got := c.size(); got > 8 {
+		t.Fatalf("cached children = %d, want at most the cap of 8", got)
+	}
+
+	before := testutil.ToFloat64(labelSetsDroppedTotal)
+	if before == 0 {
+		t.Fatal("a saturated cache must count the dropped observations")
+	}
+}
+
+// A label set that was already admitted must keep resolving to its own child
+// once the table is full — saturation must not start handing an existing
+// series a different metric object.
+func TestPairCacheServesAdmittedLabelsAfterCap(t *testing.T) {
+	c := newCappedPairCache(3, 2, 4)
+
+	counter, observer := c.resolve("redis", "GET", "", "")
+
+	for i := range 100 {
+		dropped, droppedObs := c.resolve("redis", strconv.Itoa(i), "", "")
+		dropped.Inc()
+		droppedObs.Observe(0.01)
+	}
+
+	got, gotObs := c.resolve("redis", "GET", "", "")
+	if got != counter || gotObs != observer {
+		t.Fatal("an admitted label set must still resolve to its original child after the cache saturates")
+	}
+}
+
+// The cache key is a digest of the label tuple, so field boundaries have to be
+// unambiguous: without a separator these two tuples collide and their
+// observations land in one series.
+func TestPairCacheKeySeparatesFields(t *testing.T) {
+	c := newTestPairCache(3, 2)
+
+	first, _ := c.resolve("a", "bc", "", "")
+	second, _ := c.resolve("ab", "c", "", "")
+
+	if first == second {
+		t.Fatal(`("a","bc") and ("ab","c") must not share a counter`)
+	}
+
+	if got := c.size(); got != 2 {
+		t.Fatalf("cached children = %d, want 2", got)
 	}
 }
 

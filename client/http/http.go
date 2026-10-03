@@ -34,6 +34,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,6 +53,11 @@ type HTTPClient struct {
 	ctx     context.Context
 
 	tracer trace.Tracer
+
+	// rt is the RoundTripper used for every request. It is a
+	// *http.Client wrapping a dial-overriding transport, so a caller-supplied
+	// DialFunc costs nothing extra on the default path.
+	rt atomic.Pointer[http.Client]
 }
 
 // var (
@@ -160,6 +166,65 @@ func InjectHTTP(ctx context.Context, h http.Header) {
 // "<method> <host>", injects propagation headers, records errors, and
 // bumps the client call counter.
 func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
+	return clt.DoWithTransport(req, nil)
+}
+
+// DialFunc resolves a request URL host to an address to connect to. It exists
+// so a caller (or a test) can route a request whose Host header must stay
+// arbitrary — DNS rebinding protection, a fixed upstream, a service mesh.
+type DialFunc func(host string) (address string, err error)
+
+// dialTransport routes every connection through dial.
+type dialTransport struct {
+	dial DialFunc
+	base http.RoundTripper
+}
+
+func (t *dialTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
+
+	addr, err := t.dial(req.URL.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	// The Host header must keep the caller's value — that is the point of a
+	// DialFunc — so only the dial target is swapped.
+	clone := req.Clone(req.Context())
+	clone.URL.Host = addr
+
+	return t.base.RoundTrip(clone)
+}
+
+// roundTripper returns the client to use, building the dial-overriding one at
+// most once per dial function so a hot path does not allocate a transport per
+// request.
+func (clt *HTTPClient) roundTripper(dial DialFunc) *http.Client {
+	if dial == nil {
+		return http.DefaultClient
+	}
+
+	if c := clt.rt.Load(); c != nil {
+		return c
+	}
+
+	built := &http.Client{Transport: &dialTransport{dial: dial}}
+	if clt.rt.CompareAndSwap(nil, built) {
+		return built
+	}
+
+	return clt.rt.Load()
+}
+
+// DoWithTransport is Do with an optional dial override. A nil dialFunc uses
+// the same http.DefaultClient Do uses.
+//
+// The dial override changes nothing about the metric labels: req.URL.Host is
+// still what the caller supplied and is still normalized on its way into the
+// counter, so the cardinality bound does not depend on this path being used.
+func (clt *HTTPClient) DoWithTransport(req *http.Request, dial DialFunc) (*http.Response, error) {
 	start := time.Now()
 	ctx := req.Context()
 	var span trace.Span
@@ -172,8 +237,12 @@ func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 	InjectHTTP(ctx, req.Header)
 
-	//nolint:gosec // G704: outbound client library — the request URL is the caller's explicit input by design
-	resp, err := http.DefaultClient.Do(req)
+	// G704 (SSRF taint) is accepted here by design: the request URL is the
+	// caller's explicit input, and a framework cannot decide for the
+	// application which destinations are reachable. An application that
+	// proxies untrusted URLs must validate the target itself.
+	//nolint:gosec // G704: the request URL is the caller's explicit input by design
+	resp, err := clt.roundTripper(dial).Do(req)
 	if err != nil && span != nil {
 		span.RecordError(err)
 	}
@@ -182,10 +251,20 @@ func (clt *HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	if err == nil && resp != nil {
 		code = strconv.Itoa(resp.StatusCode)
 	} else if err != nil {
-		metrics.ClientErrorsTotal.WithLabelValues("http", req.Method, "do").Inc()
+		metrics.ClientErrorsTotal.WithLabelValues("http", metrics.NormalizeHTTPMethod(req.Method), "do").Inc()
 	}
 
-	metrics.ObserveClientRequest("http", req.Method, req.URL.Host, code, time.Since(start))
+	// Both label values are normalized: the method and the host are supplied
+	// by the caller of Do, so a proxy or fetch-a-URL feature would otherwise
+	// mint one permanent series per request. The host in particular is why
+	// NormalizeClientHost exists — see its doc comment.
+	metrics.ObserveClientRequest(
+		"http",
+		metrics.NormalizeHTTPMethod(req.Method),
+		metrics.NormalizeClientHost(req.URL.Host),
+		code,
+		time.Since(start),
+	)
 
 	return resp, err
 }
