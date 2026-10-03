@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -525,15 +526,22 @@ func TestRunCheckRecoversPanic(t *testing.T) {
 // TestGuardThrottlesRepeatedTokenFailures: the comparison is
 // constant-time (flat cost per attempt), so online brute force has to be
 // limited by attempt count instead.
+//
+// A correct token is never refused. It used to be: the throttle was checked
+// before the comparison and the counter only cleared on success, which is
+// unreachable while blocked — so ten wrong tokens locked every caller out for
+// a full window with no self-recovery. Gating after the comparison costs the
+// attacker nothing (429 and 401 cost the same) and never denies a valid
+// credential.
 func TestGuardThrottlesRepeatedTokenFailures(t *testing.T) {
 	m := NewManager(&ManagerConfig{Address: ":8888", AuthToken: "s3cret"}, "app", "v1")
-	h := m.guardSensitive(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := m.guardSensitive(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	probe := func(auth string) int {
+	probe := func(auth, remote string) int {
 		req := httptest.NewRequest(http.MethodGet, "/config", http.NoBody)
-		req.RemoteAddr = "127.0.0.1:1234"
+		req.RemoteAddr = remote
 		req.Host = "localhost"
 		if auth != "" {
 			req.Header.Set("Authorization", auth)
@@ -545,42 +553,104 @@ func TestGuardThrottlesRepeatedTokenFailures(t *testing.T) {
 		return rec.Code
 	}
 
-	// Wrong tokens are refused until the window is exhausted...
+	const src = "127.0.0.1:1234"
+
+	// Wrong tokens are refused, then throttled...
 	for i := range authMaxFailures {
-		if got := probe("Bearer wrong"); got != http.StatusUnauthorized {
+		if got := probe("Bearer wrong", src); got != http.StatusUnauthorized {
 			t.Fatalf("attempt %d: status = %d, want 401", i, got)
 		}
 	}
 
-	if got := probe("Bearer wrong"); got != http.StatusTooManyRequests {
+	if got := probe("Bearer wrong", src); got != http.StatusTooManyRequests {
 		t.Fatalf("exhausted window: status = %d, want 429", got)
 	}
 
-	// ...and a correct token is refused too while it lasts: the counter
-	// only clears on success or after the window.
-	if got := probe("Bearer s3cret"); got != http.StatusTooManyRequests {
-		t.Fatalf("blocked correct token: status = %d, want 429", got)
+	// ...and a valid token is still served while that lasts.
+	if got := probe("Bearer s3cret", src); got != http.StatusOK {
+		t.Fatalf("throttled source with a correct token: status = %d, want 200", got)
 	}
 
-	// The window expiry restores service without a restart.
+	// The window expiry restores full service without a restart.
 	old := authWindow
 	authWindow = 0
 	t.Cleanup(func() { authWindow = old })
 
-	if got := probe("Bearer s3cret"); got != http.StatusOK {
+	if got := probe("Bearer s3cret", src); got != http.StatusOK {
 		t.Fatalf("after the window: status = %d, want 200", got)
 	}
 
 	// A successful authentication resets the count.
-	m.auth.fail()
-	m.auth.fail()
-	if m.auth.blocked() {
+	m.auth.fail("127.0.0.9:1")
+	m.auth.fail("127.0.0.9:1")
+	if m.auth.blocked("127.0.0.9:1") {
 		t.Fatal("a short count must not block")
 	}
 
-	probe("Bearer s3cret")
-	if m.auth.blocked() {
+	probe("Bearer s3cret", src)
+	if m.auth.blocked("127.0.0.9:1") {
 		t.Fatal("a successful authentication must reset the counter")
+	}
+}
+
+// One misconfigured scraper must not be able to deny /config and /services to
+// the rest of the network. The counter used to be process-global, so any ten
+// failures anywhere locked every source out for the whole window.
+func TestGuardThrottleIsPerSource(t *testing.T) {
+	m := NewManager(&ManagerConfig{Address: ":8888", AuthToken: "s3cret"}, "app", "v1")
+	h := m.guardSensitive(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	probe := func(auth, remote string) int {
+		req := httptest.NewRequest(http.MethodGet, "/config", http.NoBody)
+		req.RemoteAddr = remote
+		req.Host = "localhost"
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		return rec.Code
+	}
+
+	const attacker = "203.0.113.7:4001"
+
+	for range authMaxFailures + 1 {
+		probe("Bearer wrong", attacker)
+	}
+
+	if got := probe("Bearer wrong", attacker); got != http.StatusTooManyRequests {
+		t.Fatalf("attacker is not throttled: status = %d, want 429", got)
+	}
+
+	// A different source still sees plain 401, and a valid token works.
+	if got := probe("Bearer wrong", "198.51.100.4:5000"); got != http.StatusUnauthorized {
+		t.Errorf("innocent source wrong token: status = %d, want 401 (not throttled)", got)
+	}
+
+	if got := probe("Bearer s3cret", "198.51.100.4:5000"); got != http.StatusOK {
+		t.Errorf("innocent source with a valid token: status = %d, want 200", got)
+	}
+
+	if got := probe("Bearer s3cret", attacker); got != http.StatusOK {
+		t.Errorf("attacker holding a valid token: status = %d, want 200", got)
+	}
+}
+
+// The per-source table is keyed by a spoofable-looking RemoteAddr, so it must
+// stay bounded the way server/udp's rate table is.
+func TestAuthThrottleSourceTableIsBounded(t *testing.T) {
+	tbl := &authThrottle{}
+
+	for i := range authMaxSources + 500 {
+		tbl.fail(fmt.Sprintf("10.%d.%d.%d:1", i>>16&0xff, i>>8&0xff, i&0xff))
+	}
+
+	if got := len(tbl.sources); got > authMaxSources {
+		t.Fatalf("source table grew to %d, want at most %d", got, authMaxSources)
 	}
 }
 

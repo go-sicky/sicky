@@ -430,6 +430,29 @@ const authMaxFailures = 10
 // authWindow is the failure window; tests shorten it.
 var authWindow = time.Minute
 
+// authMaxSources caps the per-source throttle table. Bounded because the key
+// is derived from a request attribute a caller controls, so an unauthenticated
+// flood would otherwise grow it without limit — the same reasoning as
+// server/udp's MaxRateLimitSources.
+const authMaxSources = 4096
+
+// authSourceKey returns the throttle key for a request: its remote IP without
+// the ephemeral port, so one NAT-ed client shares a bucket rather than getting a
+// fresh allowance on every reconnect. Returns "unknown" when RemoteAddr cannot
+// be parsed, which lumps those together into one shared bucket.
+func authSourceKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+
+	if ip := net.ParseIP(strings.TrimSpace(host)); ip != nil {
+		return ip.String()
+	}
+
+	return "unknown"
+}
+
 // authThrottle bounds failed bearer attempts on the debug endpoints.
 //
 // The comparison itself is constant-time, which keeps the cost per
@@ -437,50 +460,83 @@ var authWindow = time.Minute
 // timing. It never sleeps: a slow response would tie up a goroutine per
 // attempt, while refusing outright has the same effect on an attacker
 // and none on a legitimate client (which resets the counter on success).
+// authThrottle bounds failed bearer attempts on the debug endpoints.
+//
+// Counters are per source. They used to be a single process-global counter, so
+// ten wrong tokens from anywhere denied /config and /services to every caller
+// for the rest of the window — a misconfigured scraper could take the manager's
+// debug surface down for the whole network. The table is bounded because the
+// key comes from a request attribute an attacker influences.
 type authThrottle struct {
-	mu       sync.Mutex
+	mu      sync.Mutex
+	sources map[string]*authSource
+}
+
+// authSource is one source's consecutive-failure record.
+type authSource struct {
 	failures int
 	window   time.Time
 }
 
-// blocked reports whether attempts are currently exhausted.
-func (t *authThrottle) blocked() bool {
+// blocked reports whether source has exhausted its attempts inside the current
+// window. It does not mutate: guardSensitive calls it only after the token
+// comparison failed, so it never gates a valid credential.
+func (t *authThrottle) blocked(source string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.failures < authMaxFailures {
+	s, ok := t.sources[source]
+	if !ok {
 		return false
 	}
 
-	if time.Since(t.window) >= authWindow {
-		t.failures = 0
-		t.window = time.Time{}
-
+	if time.Since(s.window) >= authWindow {
 		return false
 	}
 
-	return true
+	return s.failures >= authMaxFailures
 }
 
-// fail records a rejected attempt.
-func (t *authThrottle) fail() {
+// fail records a rejected attempt for source.
+func (t *authThrottle) fail(source string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.failures == 0 || time.Since(t.window) >= authWindow {
-		t.window = time.Now()
+	if t.sources == nil {
+		t.sources = make(map[string]*authSource, authMaxSources)
 	}
 
-	t.failures++
+	// Bound the table: drop expired entries first, and if it is still full,
+	// start over. Both paths degrade the throttle rather than the memory bound,
+	// which is the right trade — the comparison stays constant-time, so losing
+	// per-source fidelity only costs a 429-vs-401 distinction.
+	if len(t.sources) >= authMaxSources {
+		for k, v := range t.sources {
+			if time.Since(v.window) >= authWindow {
+				delete(t.sources, k)
+			}
+		}
+
+		if len(t.sources) >= authMaxSources {
+			clear(t.sources)
+		}
+	}
+
+	s, ok := t.sources[source]
+	if !ok || time.Since(s.window) >= authWindow {
+		s = &authSource{window: time.Now()}
+		t.sources[source] = s
+	}
+
+	s.failures++
 }
 
 // reset clears the failure count after a successful authentication.
-func (t *authThrottle) reset() {
+func (t *authThrottle) reset(source string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.failures = 0
-	t.window = time.Time{}
+	delete(t.sources, source)
 }
 
 // guardSensitive enforces Bearer auth on debug/topology endpoints
@@ -501,11 +557,7 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 
 		m.RUnlock()
 		if token != "" {
-			if m.auth.blocked() {
-				w.WriteHeader(http.StatusTooManyRequests)
-
-				return
-			}
+			source := authSourceKey(r)
 
 			got := r.Header.Get("Authorization")
 			want := "Bearer " + token
@@ -514,13 +566,26 @@ func (m *Manager) guardSensitive(next http.Handler) http.Handler {
 			gotSum := sha256.Sum256([]byte(got))
 			wantSum := sha256.Sum256([]byte(want))
 			if subtle.ConstantTimeCompare(gotSum[:], wantSum[:]) != 1 {
-				m.auth.fail()
+				// Throttle *after* the comparison, never before it. It used to
+				// be checked first and the counter only cleared on success —
+				// unreachable while blocked — so ten wrong tokens locked every
+				// caller, valid credentials included, for a whole window with
+				// no self-recovery. The comparison is constant-time and flat,
+				// so gating it behind a counter bought no brute-force
+				// resistance; it only denied service.
+				if m.auth.blocked(source) {
+					w.WriteHeader(http.StatusTooManyRequests)
+
+					return
+				}
+
+				m.auth.fail(source)
 				w.WriteHeader(http.StatusUnauthorized)
 
 				return
 			}
 
-			m.auth.reset()
+			m.auth.reset(source)
 			next.ServeHTTP(w, r)
 
 			return
