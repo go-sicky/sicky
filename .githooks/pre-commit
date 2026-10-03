@@ -1,0 +1,12 @@
+#!/bin/sh
+# Local substitute for CI. There is no workflow runner in this repository and
+# the bus factor is 1, so there is no PR review to catch a regression either —
+# this hook is the gate.
+#
+# Runs the full per-commit gate (~12s warm). The first commit after a cold
+# build cache takes much longer: run `make build race` once to warm it.
+#
+# Bypass with `git commit --no-verify` when a failure is provably unrelated to
+# the staged change.
+set -e
+exec make verify

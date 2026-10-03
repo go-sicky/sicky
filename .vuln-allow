@@ -1,0 +1,20 @@
+# Known advisories that `make vuln` allows through.
+#
+# govulncheck has no ignore flag, so scripts/vuln-allow.sh diffs its findings
+# against this file. Every entry MUST carry a reason — a new advisory fails
+# the script by default, which is what keeps this list from silently growing.
+#
+# One ID per line. Lines starting with '#' and blank lines are ignored.
+
+# google.golang.org/grpc@v1.84.0 — server panic on a request missing
+# :authority. Unreachable: grpc guards this in operateHeaders on the Serve
+# path sicky uses; the panic lives in Server.ServeHTTP, which sicky never
+# wires (no ServeHTTP/Handler reference in server/grpc). Re-check when grpc
+# ships v1.85.0 stable.
+GO-2026-6443
+
+# golang.org/x/crypto@v0.57.0 — openpgp is unmaintained, no upstream fix.
+# Reachable only through viper/remote's PGP signature verification, i.e. only
+# when an operator configures a remote config source, and only to cause a
+# parser panic/OOM on a hostile packet — not a confidentiality break.
+GO-2026-5932
