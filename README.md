@@ -302,6 +302,8 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     // A present section means "enable it": missing required fields abort
     // startup (e.g. empty dsn/url/addr/broker, unknown bun driver).
     "redis":     { "addr": "localhost:6379", "username": "", "password": "", "db": 0, "enable_tls": false, "dial_timeout_sec": 5, "read_timeout_sec": 3, "write_timeout_sec": 3, "pool_size": 0, "min_idle_conns": 0 },
+    // slow_duration is a hook switch, not a millisecond threshold: >0 enables
+    // the query hook, <=0 leaves it off, negative aborts startup (ErrBunSlowInvalid)
     "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false, "verbose": false, "slow_duration": 0, "max_open_conns": 0, "max_idle_conns": 0, "conn_max_lifetime_sec": 0, "conn_max_idle_time_sec": 0 },
     "badger":    { "path": "/tmp/badger" },
     "ristretto": { "num_counters": 10000000, "max_cost": 100000000, "buffer_items": 64 },
@@ -535,6 +537,15 @@ j.Add(&jobCron.Task{
 })
 j.Start()
 ```
+
+A task `Timeout` is a watchdog: on expiry the run is reported as failed and
+`job.ErrTaskTimeout` is returned, but the run itself cannot be killed and keeps
+going in the background. Handlers that panic are recovered and reported as
+`job.ErrTaskPanic`. Both are sentinels, so `errors.Is` distinguishes a watchdog
+verdict from a handler failure — and `job.Classify(err)` maps any error to the
+`sicky_job_runs_total` label (`ok`/`error`/`timeout`/`panic`) by identity
+rather than by message text. A handler whose own error merely mentions "timed
+out" is counted as an error, which is what it is.
 
 ### Task Runner (back-pressure)
 

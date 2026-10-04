@@ -34,14 +34,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/go-sicky/sicky/job"
+	jobpkg "github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/utils"
 )
@@ -50,7 +49,7 @@ import (
 type Ticker struct {
 	config  *Config
 	ctx     context.Context
-	options *job.Options
+	options *jobpkg.Options
 	ticker  *time.Ticker
 	done    chan struct{}
 	counter atomic.Uint64
@@ -65,7 +64,7 @@ type Ticker struct {
 }
 
 // New ticker job schedular.
-func New(opts *job.Options, cfg *Config) *Ticker {
+func New(opts *jobpkg.Options, cfg *Config) *Ticker {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
@@ -85,7 +84,7 @@ func New(opts *job.Options, cfg *Config) *Ticker {
 		"name", j.options.Name,
 	)
 
-	job.Set(j)
+	jobpkg.Set(j)
 
 	return j
 }
@@ -96,7 +95,7 @@ func (job *Ticker) Context() context.Context {
 }
 
 // Options returns the runtime options.
-func (job *Ticker) Options() *job.Options {
+func (job *Ticker) Options() *jobpkg.Options {
 	return job.options
 }
 
@@ -185,10 +184,10 @@ func (job *Ticker) Start() error {
 						func() {
 							start := time.Now()
 							taskID := hdl.ID.String()
-							result := "ok"
+							result := jobpkg.ResultOK
 							defer func() {
 								if rec := recover(); rec != nil {
-									result = "panic"
+									result = jobpkg.ResultPanic
 									job.options.Logger.ErrorContext(
 										job.ctx,
 										"ticker handler panicked",
@@ -203,12 +202,7 @@ func (job *Ticker) Start() error {
 							}()
 							err := job.runWithTimeout(hdl, t, count)
 							if err != nil {
-								result = metrics.ResultOf(err)
-								if strings.Contains(err.Error(), "timed out") {
-									result = "timeout"
-								} else if strings.Contains(err.Error(), "panicked") {
-									result = "panic"
-								}
+								result = jobpkg.Classify(err)
 
 								job.options.Logger.ErrorContext(
 									job.ctx,
@@ -329,7 +323,7 @@ func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
 					"name", job.options.Name,
 					"panic", rec,
 				)
-				done <- fmt.Errorf("ticker task panicked: %v", rec)
+				done <- fmt.Errorf("%w: %v", jobpkg.ErrTaskPanic, rec)
 			}
 		}()
 		done <- hdl.Handler(t, count)
@@ -349,7 +343,7 @@ func (job *Ticker) runWithTimeout(hdl *Task, t time.Time, count uint64) error {
 			"timeout", timeout.String(),
 		)
 
-		return fmt.Errorf("ticker task timed out after %s", timeout.String())
+		return fmt.Errorf("%w after %s", jobpkg.ErrTaskTimeout, timeout.String())
 	}
 }
 

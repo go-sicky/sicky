@@ -115,7 +115,15 @@ func InitPool() *Pool {
 		// from under watchers that captured it via NotifyChan() (the gRPC
 		// client resolver holds one for the process lifetime), while the
 		// previous run's services must not leak into the new one.
+		//
+		// The pool's own mutex is required here too. Every other writer
+		// (PurgePool) and every reader (GetPool, and the exported Pool
+		// methods, which take only p.RWMutex) guards Services with it, so
+		// resetting the map without it raced any in-flight reader holding
+		// p.RLock() — reachable because InitPool hands out the live pool.
+		currentPool.Lock()
 		currentPool.Services = make(map[string]*Service)
+		currentPool.Unlock()
 
 		return currentPool
 	}
@@ -189,7 +197,11 @@ func (p *Pool) RegisterService(svc *Service) {
 	p.Lock()
 	defer p.Unlock()
 
-	p.Services[svc.Service] = svc
+	// Deep copy, like every other pool write. Storing the caller's pointer
+	// let a caller that reused its Service — or the Instance values inside
+	// it — mutate what GetService, GetInstances and GetPool handed out,
+	// concurrently with readers holding p.RLock().
+	p.Services[svc.Service] = cloneService(svc)
 	logger.Debug("Service registered", "service", svc.Service)
 }
 

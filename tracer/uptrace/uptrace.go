@@ -32,6 +32,8 @@ package uptrace
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,6 +45,51 @@ import (
 
 	"github.com/go-sicky/sicky/tracer"
 )
+
+// Two shapes, because the missing one is the common operator mistake.
+//
+// The scheme form keeps its scheme so the rejection reason stays readable.
+var dsnURLUserinfoPattern = regexp.MustCompile(
+	`([a-zA-Z][a-zA-Z0-9+.-]*://)([^/\s"'?#@]+)@`)
+
+// The scheme-less form is what "does not have a scheme" actually reports —
+// an operator who typed "TOKEN@host/1" instead of "https://TOKEN@host/1".
+// Requiring a dotted host after the "@" keeps it from firing on ordinary
+// prose, at the cost of also matching an email address in a diagnostic. That
+// trade is deliberate: over-redacting an address costs nothing, and leaking a
+// token costs a credential.
+var dsnBareUserinfoPattern = regexp.MustCompile(
+	`([^/\s"'?#@]+)@([^/\s"'?#@]*\.[^/\s"'?#@]+)`)
+
+// redactUserinfo strips the credential from every URL in a message while
+// leaving the rest intact.
+//
+// utils.RedactDSN would be the wrong tool here: on a string that looks like it
+// carries a secret it returns the single word "REDACTED", which would throw
+// away the part the operator needs — whether the scheme was missing, the host
+// unparseable, or the token absent.
+func redactUserinfo(msg string) string {
+	msg = dsnURLUserinfoPattern.ReplaceAllString(msg, "${1}REDACTED@")
+
+	return dsnBareUserinfoPattern.ReplaceAllString(msg, "REDACTED@${2}")
+}
+
+// dsnRedactingLogger forwards the dependency's diagnostics into sicky's
+// logger with the DSN credential removed. It exists because uptrace-go offers
+// no other seam: its logger is a package-level variable defaulting to stderr.
+type dsnRedactingLogger struct {
+	ctx     context.Context
+	options *tracer.Options
+}
+
+// Printf implements uptrace-go's internal.ILogger.
+func (l dsnRedactingLogger) Printf(format string, v ...any) {
+	l.options.Logger.WarnContext(
+		l.ctx,
+		"uptrace client",
+		"message", redactUserinfo(fmt.Sprintf(format, v...)),
+	)
+}
 
 // UptraceTracer is a uptrace component.
 type UptraceTracer struct {
@@ -112,6 +159,16 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 		_ = uptrace.Shutdown(shutdownCtx)
 		shutdownCancel()
 	}
+
+	// Take over the dependency's diagnostics before handing it the DSN.
+	//
+	// uptrace-go builds every DSN rejection with the raw input embedded
+	// (dsn.go: fmt.Errorf("DSN=%q does not have a host", dsnStr)) and
+	// prints it through a package logger wired to os.Stderr at init. The
+	// token is the DSN's userinfo, so a typo in the host or the scheme —
+	// an ordinary operator mistake — printed the credential in clear to fd
+	// 2, outside sicky's logger and past every redaction this package does.
+	uptrace.SetLogger(dsnRedactingLogger{ctx: tc.ctx, options: opts})
 
 	// Configure Uptrace (SDK-owned track, independent from standard OTLP).
 	uptrace.ConfigureOpentelemetry(

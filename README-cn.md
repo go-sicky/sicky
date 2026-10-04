@@ -364,6 +364,8 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
 
   "infra": {
     "redis":     { "addr": "localhost:6379", "username": "", "password": "", "db": 0, "enable_tls": false, "tls_skip_verify": false, "dial_timeout_sec": 5, "read_timeout_sec": 3, "write_timeout_sec": 3, "pool_size": 0, "min_idle_conns": 0 },
+    // slow_duration 只是 query hook 的开关，不是毫秒阈值：>0 打开 hook，<=0 关闭，
+    // 负值直接拒绝启动（ErrBunSlowInvalid）
     "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false, "verbose": false, "slow_duration": 0, "max_open_conns": 0, "max_idle_conns": 0, "conn_max_lifetime_sec": 0, "conn_max_idle_time_sec": 0 },
     "badger":    { "path": "/tmp/badger" },
     "ristretto": { "num_counters": 10000000, "max_cost": 100000000, "buffer_items": 64 },
@@ -627,6 +629,15 @@ j.Start()
 ```
 
 Handler 签名没有 ctx（`func() error` / `func(time.Time, uint64) error`），为兼容性保留。
+
+`Timeout` 是看门狗：超时后该次运行被记为失败并返回 `job.ErrTaskTimeout`，但运行本身
+**无法被终止**，会在后台继续。handler panic 会被 recover 并记为 `job.ErrTaskPanic`。
+两者都是 sentinel，用 `errors.Is` 就能区分"看门狗判定"与"handler 自身失败"；
+`job.Classify(err)` 按**错误身份**（而非错误文本）映射到 `sicky_job_runs_total` 的标签
+（`ok`/`error`/`timeout`/`panic`）——handler 自己返回的错误里恰好含 "timed out" 字样时会被
+记为 `error`，因为它本就是。此前两个后端都用 `strings.Contains` 读错误文本判定，于是
+`"upstream request timed out after 30s"` 这类普通 handler 错误被计成看门狗超时，
+而那正是运维唯一用来判断"任务是不是太慢"的那个指标。
 
 ### 任务 Runner（背压）
 

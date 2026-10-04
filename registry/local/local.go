@@ -33,6 +33,7 @@ package local
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -213,7 +214,15 @@ func (rg *Local) Deregister(id uuid.UUID) (err error) {
 
 	file := filepath.Join(rg.config.RegistryFilePath, id.String()+".json")
 	err = os.Remove(file)
-	if err != nil {
+
+	// Already absent is success, not a failure: consul's agent answers 200 for
+	// an unknown service id and redis's HDel on a missing field returns 0, nil.
+	// Returning an error here made the three backends disagree about one
+	// benign event, and sicky.Run joins a Deregister error into its return —
+	// so a double shutdown, or the register-failure cleanup path that calls
+	// Deregister for an instance that may never have been written, turned a
+	// clean shutdown into a failed one.
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		rg.options.Logger.ErrorContext(
 			rg.ctx,
 			"deregister instance from local file failed",
@@ -347,6 +356,12 @@ func (rg *Local) Load() (instances []*registry.Instance, err error) {
 	return instances, nil
 }
 
+// ErrWatchStopped is returned by Watch after Stop. The component context is
+// canceled permanently by Stop and never re-derived, so a watcher rebuilt
+// after it would exit on its first select — reporting a watcher that is not
+// running. Saying so beats the false "started/ok" it used to emit.
+var ErrWatchStopped = errors.New("local registry: stopped, cannot watch again")
+
 // Watch watches for changes.
 func (rg *Local) Watch() error {
 	rg.watchMu.Lock()
@@ -356,6 +371,16 @@ func (rg *Local) Watch() error {
 		// Already watching: a second fsnotify watcher on the same
 		// directory would only leak its goroutine.
 		return nil
+	}
+
+	// Stop canceled rg.ctx for good. Without this check the branch below
+	// built a watcher, logged "local registry watcher started", counted an
+	// ok and returned nil — and its goroutine then returned on the first
+	// select, so discovery was dead while every signal said otherwise.
+	if err := rg.ctx.Err(); err != nil {
+		metrics.RegistryOpsTotal.WithLabelValues("local", "watch", "error").Inc()
+
+		return fmt.Errorf("%w: %w", ErrWatchStopped, err)
 	}
 
 	w, err := newWatcher(rg)

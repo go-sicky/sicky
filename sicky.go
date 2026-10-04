@@ -169,6 +169,31 @@ var (
 	reloadWrappers      []SickyWrapper
 )
 
+// stopTracer stops the process-wide tracer and clears the tracer registry.
+//
+// The Clear is the point, and it is why this is a function rather than an
+// inline pair of calls. tracer.Set is first-wins, so a leftover entry — live
+// or already shut down — permanently blocks the next Run's tracer from
+// becoming the default: the servers and clients resolve tracer.Default() and
+// would keep exporting through a provider that Stop already shut down. That
+// is the same reason broker.Clear and registry.Clear run a few lines above.
+//
+// Clearing happens whether or not Stop succeeded. A tracer that failed to
+// stop is in no better a state to be the process default than one that did,
+// and there is no path that can revive a shut-down provider.
+func stopTracer() error {
+	if tracer.Default() == nil {
+		tracer.Clear()
+
+		return nil
+	}
+
+	err := tracer.Default().Stop()
+	tracer.Clear()
+
+	return err
+}
+
 // Init is part of the public API.
 func Init(opts *Options, switches ...*FlagSwitch) error {
 	initMu.Lock()
@@ -1371,11 +1396,9 @@ shutdown:
 	registry.Clear()
 
 	// Tracer
-	if tracer.Default() != nil {
-		if err := tracer.Default().Stop(); err != nil {
-			logger.Logger.Error("tracer stop failed", "error", err.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("tracer stop: %w", err))
-		}
+	if err := stopTracer(); err != nil {
+		logger.Logger.Error("tracer stop failed", "error", err.Error())
+		runErr = errors.Join(runErr, fmt.Errorf("tracer stop: %w", err))
 	}
 
 	// Stop manager

@@ -34,7 +34,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,7 +41,7 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
 
-	"github.com/go-sicky/sicky/job"
+	jobpkg "github.com/go-sicky/sicky/job"
 	"github.com/go-sicky/sicky/metrics"
 	"github.com/go-sicky/sicky/utils"
 )
@@ -51,7 +50,7 @@ import (
 type Cron struct {
 	config  *Config
 	ctx     context.Context
-	options *job.Options
+	options *jobpkg.Options
 	running bool
 	// draining is set when Stop gave up waiting for the scheduler: Start
 	// must not schedule a second copy of every job over the first.
@@ -63,7 +62,7 @@ type Cron struct {
 }
 
 // New cron job schedular.
-func New(opts *job.Options, cfg *Config) *Cron {
+func New(opts *jobpkg.Options, cfg *Config) *Cron {
 	opts = opts.Ensure()
 	cfg = cfg.Ensure()
 
@@ -83,7 +82,7 @@ func New(opts *job.Options, cfg *Config) *Cron {
 		"name", j.options.Name,
 	)
 
-	job.Set(j)
+	jobpkg.Set(j)
 
 	return j
 }
@@ -94,7 +93,7 @@ func (job *Cron) Context() context.Context {
 }
 
 // Options returns the runtime options.
-func (job *Cron) Options() *job.Options {
+func (job *Cron) Options() *jobpkg.Options {
 	return job.options
 }
 
@@ -283,14 +282,14 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 			start := time.Now()
 			defer func() {
 				if r := recover(); r != nil {
-					metrics.ObserveJobRun("cron", taskID, "panic", time.Since(start))
+					metrics.ObserveJobRun("cron", taskID, jobpkg.ResultPanic, time.Since(start))
 
 					panic(r)
 				}
 			}()
 
 			err = h()
-			metrics.ObserveJobRun("cron", taskID, metrics.ResultOf(err), time.Since(start))
+			metrics.ObserveJobRun("cron", taskID, jobpkg.Classify(err), time.Since(start))
 
 			return err
 		}
@@ -315,7 +314,7 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 						"task_id", task.ID.String(),
 						"panic", rec,
 					)
-					done <- fmt.Errorf("cron task %s panicked: %v", task.ID.String(), rec)
+					done <- fmt.Errorf("%w (task %s): %v", jobpkg.ErrTaskPanic, task.ID.String(), rec)
 				}
 			}()
 
@@ -325,11 +324,7 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 		defer timer.Stop()
 		select {
 		case err := <-done:
-			result := metrics.ResultOf(err)
-			if err != nil && strings.Contains(err.Error(), "panicked") {
-				result = "panic"
-			}
-			metrics.ObserveJobRun("cron", taskID, result, time.Since(start))
+			metrics.ObserveJobRun("cron", taskID, jobpkg.Classify(err), time.Since(start))
 
 			return err
 		case <-timer.C:
@@ -342,9 +337,9 @@ func (job *Cron) runWithTimeout(task *Task, h CronHandler) CronHandler {
 				"task_id", task.ID.String(),
 				"timeout", timeout.String(),
 			)
-			metrics.ObserveJobRun("cron", taskID, "timeout", time.Since(start))
+			metrics.ObserveJobRun("cron", taskID, jobpkg.ResultTimeout, time.Since(start))
 
-			return fmt.Errorf("cron task %s timed out after %s", task.ID.String(), timeout.String())
+			return fmt.Errorf("%w (task %s) after %s", jobpkg.ErrTaskTimeout, task.ID.String(), timeout.String())
 		}
 	}
 }

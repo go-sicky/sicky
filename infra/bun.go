@@ -62,9 +62,15 @@ type BunConfig struct {
 	// Verbose enables full query logging including bound arguments.
 	// Arguments may contain secrets: keep false in production.
 	Verbose bool `json:"verbose" mapstructure:"verbose" yaml:"verbose"`
-	// SlowDuration enables the query hook when >0, in milliseconds.
-	// Reserved for threshold filtering; bundebug v1.2.x exposes no
-	// threshold option, so the value itself only gates the hook.
+	// SlowDuration is a threshold placeholder, not a duration in
+	// milliseconds: it only gates the query hook (>0 enables it, <=0
+	// leaves it off) because bundebug v1.2.x exposes no threshold option.
+	// The number itself is never compared against a query's latency, so
+	// setting it does not make slow-query logging selective.
+	//
+	// Negative aborts startup, matching every other int here — a negative
+	// value used to mean "hook off" silently, which is indistinguishable
+	// from omitting the key.
 	SlowDuration int `json:"slow_duration" mapstructure:"slow_duration" yaml:"slow_duration"`
 	// Connection pool. Zero means driver default (unlimited open
 	// connections); negative aborts startup.
@@ -86,6 +92,7 @@ var (
 	ErrBunDSNEmpty          = errors.New("infra: bun dsn is empty")
 	ErrBunUnsupportedDriver = errors.New("infra: bun unsupported driver")
 	ErrBunPoolInvalid       = errors.New("infra: bun pool setting is negative")
+	ErrBunSlowInvalid       = errors.New("infra: bun slow_duration is negative")
 )
 
 // bunMetricsHook records every query into sicky_infra_ops. It is always
@@ -335,6 +342,10 @@ func (c *BunConfig) Validate() error {
 
 	if strings.TrimSpace(c.DSN) == "" {
 		return ErrBunDSNEmpty
+	}
+
+	if c.SlowDuration < 0 {
+		return ErrBunSlowInvalid
 	}
 
 	switch strings.ToLower(strings.TrimSpace(c.Driver)) {

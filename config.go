@@ -395,9 +395,13 @@ func (c *TracerConfig) Validate() error {
 // A zero SampleRate is the value viper produces for an absent float64 key,
 // so it means "unset" — not "sample nothing". Leaving it at 0 reached
 // sdktrace.TraceIDRatioBased(0), which exports nothing while Run() still
-// logs "tracer initialized". Deliberate 0% sampling is therefore not
-// expressible here; set it on the concrete tracer package Config, which
-// keeps 0 verbatim (see tracer/grpc.Config.Ensure).
+// logs "tracer initialized".
+//
+// Deliberate 0% sampling is therefore not expressible anywhere in the
+// family: the root config and all four concrete configs refill a non-positive
+// rate with DefaultSampleRate. (An earlier version of this comment pointed at
+// the concrete packages as the workaround; they refill 0 the same way, so the
+// advice produced a 100%-sampling tracer instead of the 0% one asked for.)
 func (c *TracerConfig) Ensure() *TracerConfig {
 	if c == nil {
 		c = &TracerConfig{Type: DefaultTracerType}

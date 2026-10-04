@@ -102,3 +102,37 @@ func TestPropagatorRoundTrip(t *testing.T) {
 		t.Fatalf("traceparent not preserved: %q vs %q", got.Get("traceparent"), carrier.Get("traceparent"))
 	}
 }
+
+// BenchmarkPropagatorIsBuiltOnce measures what the per-call rebuild used to
+// cost. Propagator is called once per inbound request (Extract) and once per
+// outbound span (Inject), from five server and client call sites, so the
+// composite was being reconstructed on every one of them.
+//
+// Run with -benchmem to see the allocations the sync.OnceValue removed.
+func BenchmarkPropagatorIsBuiltOnce(b *testing.B) {
+	b.ReportAllocs()
+
+	for range b.N {
+		_ = Propagator()
+	}
+}
+
+// Propagator must not rebuild the composite per call. The identity check that
+// would read most directly cannot be written — compositeTextMapPropagator
+// holds a slice and is therefore uncomparable — so the property is asserted
+// the way it is actually paid for: in allocations.
+//
+// Rebuilding cost 4 allocs / 89 B per call (b3.New's config plus the slice
+// header), on a path reached once per inbound request and once per outbound
+// span. sync.OnceValue drops that to zero, so anything above a couple of
+// allocs means the cache is gone.
+func TestPropagatorIsNotRebuiltPerCall(t *testing.T) {
+	// Warm the OnceValue so its own first-call cost is not measured.
+	_ = Propagator()
+
+	allocs := testing.AllocsPerRun(200, func() { _ = Propagator() })
+	if allocs > 0 {
+		t.Errorf("Propagator() allocates %v times per call, want 0: the composite "+
+			"must be built once, not per inbound request or outbound span", allocs)
+	}
+}
