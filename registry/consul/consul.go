@@ -183,6 +183,13 @@ func (rg *Consul) Register(ins *registry.Instance) (err error) {
 		}
 	}
 
+	// The Instance scalars consul's registration shape has no field for.
+	// Without this they were dropped on the floor: an older record cannot be
+	// recovered, but every one written from here on round-trips.
+	if raw, present := encodeInstanceFields(ins); present {
+		reg.Meta[instanceFieldsKey] = raw
+	}
+
 	if value, present := encodeTags(ins.Tags); present {
 		reg.Meta[metaTagsKey] = value
 	}
@@ -389,6 +396,20 @@ func (rg *Consul) Load() (instances []*registry.Instance, err error) {
 		// the loop ran produced a different order on every call. See
 		// encode.go.
 		instance.Tags = instanceTags(svc.Meta)
+
+		// The scalars consul carries only because Register now writes them.
+		// A record from an older writer simply lacks the key and keeps its
+		// zero values, which is what it always had.
+		if _, present := svc.Meta[instanceFieldsKey]; present && !decodeInstanceFields(svc.Meta, instance) {
+			rg.options.Logger.WarnContext(
+				rg.ctx,
+				"parse service instance fields failed",
+				"registry", rg.String(),
+				"id", rg.options.ID,
+				"name", rg.options.Name,
+				"service_id", svc.ID,
+			)
+		}
 
 		instances = append(instances, instance)
 	}
