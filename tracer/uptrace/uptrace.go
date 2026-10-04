@@ -151,7 +151,10 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 
 	// Shut down any previous Uptrace-owned provider so re-New() calls
 	// (tests, config reload) don't leak the old global provider.
+	var shutDown *sdktrace.TracerProvider
 	if prev, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider); ok && prev != nil {
+		shutDown = prev
+
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = prev.Shutdown(shutdownCtx)
 		// Both shutdowns share a live context: canceling first made the
@@ -177,15 +180,22 @@ func New(opts *tracer.Options, cfg *Config) *UptraceTracer {
 		uptrace.WithServiceVersion(svcVer),
 	)
 
-	// Get the TracerProvider configured by Uptrace
+	// Get the TracerProvider configured by Uptrace.
+	//
+	// ConfigureOpentelemetry returns early on a bad DSN without installing a
+	// provider, so the global still points at the one just shut down above and
+	// the type assertion below would succeed — handing back a tracer that
+	// looks healthy and records nothing. Comparing against what was there
+	// before is what distinguishes "configured" from "left the corpse".
 	provider, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider)
-	if !ok {
+	if !ok || provider == shutDown {
 		tc.options.Logger.ErrorContext(
 			tc.ctx,
 			"failed to get TracerProvider from Uptrace",
 			"tracer", tc.String(),
 			"id", tc.options.ID,
 			"name", tc.options.Name,
+			"dsn", tracer.RedactDSN(cfg.DSN),
 		)
 
 		return nil

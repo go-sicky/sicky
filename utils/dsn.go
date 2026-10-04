@@ -116,8 +116,18 @@ func RedactDSN(raw string) string {
 	// No host component and not a bare address: an opaque or path-only DSN
 	// that merely happens to parse. Unvouched for, so refuse it.
 	if u.Host == "" {
-		if !hadUser && !swept && u.RawQuery == "" {
-			if _, _, err := net.SplitHostPort(raw); err == nil {
+		// A bare host:port is not a DSN, so passing it through is correct —
+		// but only when it plainly is one. Two things disqualify it:
+		//
+		//   - an "@", because a DSN's credential is always the userinfo
+		//     before it. url.Parse puts "https//tok@host:4317/1" entirely in
+		//     Path with User nil, so hadUser is false and this branch used to
+		//     return the whole string, token and all.
+		//   - net.SplitHostPort does not validate that the port is numeric.
+		//     "14317/1" parses as a port just fine, which is what let the
+		//     case above through.
+		if !hadUser && !swept && u.RawQuery == "" && !strings.Contains(raw, "@") {
+			if _, port, err := net.SplitHostPort(raw); err == nil && isNumericPort(port) {
 				return raw
 			}
 		}
@@ -147,4 +157,22 @@ func isDSNSecretQueryKey(key string) bool {
 	}
 
 	return false
+}
+
+// isNumericPort reports whether a SplitHostPort port component is digits only.
+// net.SplitHostPort accepts anything without a colon, so "14317/1" comes back
+// as a port — and a DSN path segment riding along in it is how a malformed
+// scheme used to walk straight through the redaction.
+func isNumericPort(port string) bool {
+	if port == "" {
+		return false
+	}
+
+	for _, r := range port {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
 }
