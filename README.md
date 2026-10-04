@@ -52,7 +52,7 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 - **OpenTelemetry tracing** — OTLP/gRPC, OTLP/HTTP, Stdout exporters; B3 propagation
 - **Uptrace** — Managed tracing via Uptrace SaaS
 - **Prometheus metrics** — `sicky_`-prefixed RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
-- **Structured logging** — slog-based logger with Fiber/gRPC adapters
+- **Structured logging** — slog-based logger with Fiber/gRPC adapters. `logger.Level()` is only effective on a logger this package built, which is `NewGeneral(nil)` / `NewGRPC(nil)`: `NewGeneral()` adopts `slog.Default()` and `NewGeneral(l)` adopts `l`, and both own their own threshold, so `Level()` on those forms is a silent no-op. Configure the level on the logger you supply, and use `Enabled()` to ask what is actually enabled.
 - **Manager endpoints** — 8 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` + `/ready` (10 infra + registered business checkers; only `unhealthy` degrades; backend error text redacted), `/live` (static 200, liveness only), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only. Optional `manager.tls_cert_pem`/`tls_key_pem` serve the manager over HTTPS.
 
 ### Background Jobs & Concurrency
@@ -492,17 +492,29 @@ brk := brkNats.New(&broker.Options{Name: "nats"}, &brkNats.Config{
 brk.Connect()
 
 msg := &broker.Message{Topic: "orders.created"}
-msg.Format(myOrder)
+if err := msg.Format(myOrder); err != nil {
+    return err
+}
+
 brk.Publish("orders.created", msg)
 
 // Subscribe
 brk.Subscribe("orders.created", func(m *broker.Message) error {
     var order Order
-    m.Scan(&order)
+    if err := m.Scan(&order); err != nil {
+        return err
+    }
+
     // process order...
     return nil
 })
 ```
+
+`Message.Format` / `Scan` return a codec error and must be checked. A failed
+`Format` leaves the message exactly as it was — same `Body`, same `Mime` — so
+publishing after ignoring it ships whatever the message already carried rather
+than an empty payload. `Scan` on a `Raw` message is a documented passthrough and
+returns nil without decoding.
 
 ### Background Jobs
 
