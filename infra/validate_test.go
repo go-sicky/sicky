@@ -95,8 +95,14 @@ func TestValidateEmptyConfigsAbort(t *testing.T) {
 			return (&MQTTConfig{Broker: "tcp://localhost:1883", KeepAliveSec: -1}).Ensure().Validate()
 		}, ErrMQTTOptionInvalid},
 		{"mqtt missing ca file", func() error {
-			return (&MQTTConfig{Broker: "tcp://localhost:1883", CAFile: "/nonexistent/ca.pem"}).Ensure().Validate()
+			// EnableTLS matters: a CA pinned without TLS is rejected earlier
+			// with ErrMQTTCAWithoutTLS, which would mask what this case is
+			// here to check.
+			return (&MQTTConfig{Broker: "tcp://localhost:1883", CAFile: "/nonexistent/ca.pem", EnableTLS: true}).Ensure().Validate()
 		}, ErrMQTTCAUnreadable},
+		{"mqtt ca file without tls", func() error {
+			return (&MQTTConfig{Broker: "tcp://localhost:1883", CAFile: "/etc/ssl/certs/ca-certificates.crt"}).Ensure().Validate()
+		}, ErrMQTTCAWithoutTLS},
 		{"nats negative option", func() error {
 			return (&NATSConfig{URL: "nats://localhost:4222", MaxReconnects: -2}).Ensure().Validate()
 		}, ErrNATSOptionInvalid},

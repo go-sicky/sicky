@@ -86,6 +86,7 @@ var (
 	ErrMQTTOptionInvalid  = errors.New("infra: mqtt option invalid")
 	ErrMQTTCAUnreadable   = errors.New("infra: mqtt ca_file unreadable")
 	ErrMQTTPasswordOrphan = errors.New("infra: mqtt password without username is discarded")
+	ErrMQTTCAWithoutTLS   = errors.New("infra: mqtt ca_file requires enable_tls")
 )
 
 // InitMQTT is part of the public API.
@@ -270,6 +271,16 @@ func (c *MQTTConfig) Validate() error {
 	}
 
 	if strings.TrimSpace(c.CAFile) != "" {
+		// InitMQTT only reads the CA inside its `if c.EnableTLS` branch, so a
+		// CA pinned without TLS is stat-checked and then silently discarded:
+		// an operator who pins a private CA and forgets enable_tls gets a
+		// plaintext connection that looks configured. nats already rejects
+		// the same combination (ErrNATSCAWithoutTLS); this closes the
+		// asymmetry rather than leaving one backend quietly forgiving.
+		if !c.EnableTLS {
+			return ErrMQTTCAWithoutTLS
+		}
+
 		if _, err := os.Stat(c.CAFile); err != nil {
 			return fmt.Errorf("%w: %s", ErrMQTTCAUnreadable, c.CAFile)
 		}
