@@ -225,9 +225,17 @@ func (srv *UDPServer) Start() error {
 	running := srv.running
 	stopping := srv.stopping
 	srv.RUnlock()
-	if running || stopping {
-		// running
+
+	if running {
 		return nil
+	}
+
+	// A Stop that timed out leaves `stopping` set until the loop really
+	// drains. Starting now would write srv.conn/srv.addr and call srv.wg.Go
+	// while that loop is still reading them and inside the very WaitGroup
+	// the drain is waiting on. Say so instead of reporting success.
+	if stopping {
+		return utils.ErrStopTimeout
 	}
 
 	// Hooks run unlocked: they may call accessors (Addr/Port/...) which
@@ -235,10 +243,16 @@ func (srv *UDPServer) Start() error {
 	srv.options.RunBeforeStart()
 
 	srv.Lock()
-	if srv.running || srv.stopping {
+	if srv.running {
 		srv.Unlock()
 
 		return nil
+	}
+
+	if srv.stopping {
+		srv.Unlock()
+
+		return utils.ErrStopTimeout
 	}
 
 	srv.metadata.Set(logFieldServer, srv.String())
@@ -359,8 +373,9 @@ func (srv *UDPServer) Start() error {
 
 			backoff.Reset()
 			if n > 0 {
-				// One addrKey per packet: shared by the rate limiter
-				// and the session lookup below.
+				// One addrKey per packet, for the rate limiter. The
+				// session lookup below reuses addr directly rather than
+				// this string — see the comment there.
 				srcKey := addrKey(addr)
 				if !srv.allowPacketKey(srcKey) {
 					metrics.ServerRejectedTotal.WithLabelValues("udp", "rate_limit").Inc()
@@ -368,7 +383,18 @@ func (srv *UDPServer) Start() error {
 					continue
 				}
 
-				sess := srv.pool.GetByKey(srcKey)
+				// GetByAddr, not GetByKey: GetByKey reads p.keys, which
+				// Pool.Put populates only from sess.Key, and nothing in the
+				// framework calls SetKey on a UDP session. Asking for the key
+				// therefore missed on every datagram and minted a fresh
+				// session each time — one OnConnect per packet, the pool
+				// growing at the packet rate, and a single client's own
+				// earlier packets filling MaxSessions so its later ones were
+				// dropped as over-cap.
+				//
+				// Put indexes by address (p.addrs) and the loop already has
+				// the address, so this asks the question Put answered.
+				sess := srv.pool.GetByAddr(addr)
 				if sess == nil {
 					if srv.config.MaxSessions > 0 && srv.pool.Length() >= srv.config.MaxSessions {
 						// Sampled: a cap-drop storm under flood must not log-DoS.
@@ -489,22 +515,37 @@ func (srv *UDPServer) Stop() error {
 	metrics.ServerConnections.WithLabelValues("udp").Set(0)
 
 	// Bound the drain: a blocking handler must never wedge Stop forever.
-	waitDone := make(chan struct{})
-	go func() {
-		srv.wg.Wait()
-		close(waitDone)
-	}()
+	//
+	// onDrained clears `stopping`, and it must run only when the wait
+	// actually returned. Clearing it unconditionally let a Start land while
+	// the old loop was still inside a handler: that Start wrote srv.conn,
+	// srv.addr and called srv.wg.Go — three data races against the live
+	// loop, and a WaitGroup.Add concurrent with a Wait, which the runtime
+	// may throw on. Same class as the guard added to server/websocket.
+	stopTimeout := time.Duration(srv.config.ShutdownTimeout) * time.Second
 
-	select {
-	case <-waitDone:
-	case <-time.After(time.Duration(srv.config.ShutdownTimeout) * time.Second):
-		errs = errors.Join(errs, errors.New("udp server shutdown timed out"))
-	}
+	drained := utils.WaitGroupTimeout(&srv.wg, stopTimeout, func() {
+		srv.Lock()
+		srv.stopping = false
+		srv.Unlock()
+	})
 
 	srv.Lock()
 	srv.running = false
-	srv.stopping = false
 	srv.Unlock()
+
+	if !drained {
+		srv.options.Logger.WarnContext(
+			srv.ctx,
+			"udp packet loop did not stop within shutdown_timeout; continuing",
+			logFieldServer, srv.String(),
+			"id", srv.options.ID,
+			"name", srv.options.Name,
+			"timeout", stopTimeout.String(),
+		)
+
+		errs = errors.Join(errs, utils.ErrStopTimeout)
+	}
 
 	srv.options.Logger.InfoContext(
 		srv.ctx,

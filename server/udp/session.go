@@ -262,8 +262,9 @@ func (p *Pool) GetByID(id uuid.UUID) *Session {
 //
 // Deprecated: every UDP session shares the server's single *net.UDPConn,
 // so a conn index cannot distinguish them - the method can only ever
-// return nil. Use GetByKey (keyed by the remote address, which is what
-// UDP sessions are actually indexed by) instead.
+// return nil. Use GetByAddr, which reads the address index Pool.Put
+// actually maintains; GetByKey reads the separate SetKey affinity index,
+// which nothing populates for a session the packet loop creates.
 func (p *Pool) GetByConn(conn *net.UDPConn) *Session {
 	p.RLock()
 	defer p.RUnlock()
