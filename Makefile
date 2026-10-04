@@ -13,7 +13,7 @@ GOVULNCHECK  ?= govulncheck
 COVERPROFILE ?= coverage.out
 TIMEOUT      ?= 5m
 
-.PHONY: verify full fmt fmt-check vet lint build test race cover vuln tidy-check hook-install clean help
+.PHONY: verify full fmt fmt-check vet lint build bin test race cover vuln tidy-check hook-install clean help
 
 # The per-commit gate. Deliberately excludes vuln (needs network) and
 # tidy-check, so a commit never fails for a reason unrelated to the diff.
@@ -48,6 +48,28 @@ lint:
 ## build: compile every package.
 build:
 	$(GO) build ./...
+
+# cli.Version/Branch/Commit/BuildTime are package-level vars, so -X reaches
+# them. Without this the binary prints "commit:" and "built:" with nothing
+# after them, so a build cannot be traced back to a commit — which matters
+# exactly when there are a lot of commits and one binary.
+#
+# VERSION/BRANCH/COMMIT/BUILD_TIME are overridable so a release pipeline can
+# pin them; the defaults describe the current checkout.
+COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BRANCH     ?= $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VERSION    ?= dev
+LDFLAGS    := -s -w \
+	-X github.com/go-sicky/sicky/cli.Version=$(VERSION) \
+	-X github.com/go-sicky/sicky/cli.Branch=$(BRANCH) \
+	-X github.com/go-sicky/sicky/cli.Commit=$(COMMIT) \
+	-X github.com/go-sicky/sicky/cli.BuildTime=$(BUILD_TIME)
+
+## bin: build bin/sicky with version, branch, commit and build time stamped in.
+bin:
+	$(GO) build -ldflags "$(LDFLAGS)" -o bin/sicky ./cmd/sicky
+	@./bin/sicky version
 
 ## test: unit tests (cached).
 test:
