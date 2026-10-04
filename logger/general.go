@@ -41,7 +41,18 @@ import (
 type GeneralLogger interface {
 	// String returns the name of logger
 	String() string
-	// Level set log level
+	// Level set log level.
+	//
+	// Only effective on a logger whose handler this package built, which
+	// means only NewGeneral(nil): the level var is wired into the handler
+	// there and nowhere else. NewGeneral() adopts slog.Default() and
+	// NewGeneral(l) adopts l, both of which own their own threshold, so on
+	// those two paths this call writes a var nothing reads and the level is
+	// unchanged — silently, with no error.
+	//
+	// Configure the threshold on the logger you supply, or construct with an
+	// explicit nil argument. Enabled is the reliable way to ask what is
+	// actually enabled, on every construction form.
 	Level(level Level)
 	// Log writes log entry
 	Log(level Level, msg string, args ...any)
@@ -114,6 +125,18 @@ type generalLogger struct {
 }
 
 // NewGeneral creates a new General.
+//
+// The three call forms are not interchangeable:
+//
+//	NewGeneral(nil)      builds a JSON handler on stdout wired to its own
+//	                     level, so Level is effective
+//	NewGeneral()         adopts slog.Default(), so the process default owns
+//	                     the level and Level cannot reach it
+//	NewGeneral(supplied) adopts supplied, which likewise owns its own level
+//
+// Only the first honors Level; see the interface method for why, and
+// logger/level_test.go for the matrix pinned by test. A nil argument is the
+// one form that behaves the same regardless of what the process default is.
 func NewGeneral(l ...*slog.Logger) GeneralLogger {
 	var ins *slog.Logger
 	level := new(slog.LevelVar)

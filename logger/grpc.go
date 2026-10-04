@@ -35,13 +35,21 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 )
 
 // GRPCLogger is a logger component.
 type GRPCLogger interface {
 	// String returns the name of logger
 	String() string
-	// Level set log level
+	// Level set log level.
+	//
+	// Only effective on a logger whose handler this package built, which
+	// means only NewGRPC(nil). NewGRPC() adopts slog.Default() and
+	// NewGRPC(l) adopts l, both of which own their own threshold, so on
+	// those two paths this call writes a var nothing reads and the level is
+	// unchanged — silently, with no error. This interface has no Enabled
+	// method, so on those paths the threshold cannot be read back at all.
 	Level(level Level)
 
 	Info(args ...any)
@@ -72,7 +80,25 @@ type grpcLogger struct {
 	level *slog.LevelVar
 }
 
+// spaced renders operands the way log.Println does — separated by a space —
+// without the newline stdlib needs.
+//
+// A slog handler terminates the record itself, so that newline used to land
+// inside the message instead: every ln call emitted {"msg":"text\n"} and
+// then the record's own terminator, so the value carried a stray control
+// character that broke any consumer comparing it against the intended text.
+// Sprintln appends exactly one newline, so trimming one leaves a newline the
+// caller supplied inside an operand intact.
+func spaced(args ...any) string {
+	return strings.TrimSuffix(fmt.Sprintln(args...), "\n")
+}
+
 // NewGRPC creates a new GRPC.
+//
+// As with NewGeneral, the three call forms are not interchangeable:
+// NewGRPC(nil) builds a handler wired to its own level and honors Level,
+// while NewGRPC() and NewGRPC(l) adopt a handler that owns the threshold.
+// See the interface method and logger/level_test.go.
 func NewGRPC(l ...*slog.Logger) GRPCLogger {
 	var ins *slog.Logger
 	level := new(slog.LevelVar)
@@ -132,7 +158,7 @@ func (gl *grpcLogger) Info(args ...any) {
 
 // Infoln is part of the public API.
 func (gl *grpcLogger) Infoln(args ...any) {
-	gl.ins.Info(fmt.Sprintln(args...))
+	gl.ins.Info(spaced(args...))
 }
 
 // Infof logs at info level.
@@ -147,7 +173,7 @@ func (gl *grpcLogger) Warning(args ...any) {
 
 // Warningln is part of the public API.
 func (gl *grpcLogger) Warningln(args ...any) {
-	gl.ins.Warn(fmt.Sprintln(args...))
+	gl.ins.Warn(spaced(args...))
 }
 
 // Warningf is part of the public API.
@@ -162,7 +188,7 @@ func (gl *grpcLogger) Error(args ...any) {
 
 // Errorln is part of the public API.
 func (gl *grpcLogger) Errorln(args ...any) {
-	gl.ins.Error(fmt.Sprintln(args...))
+	gl.ins.Error(spaced(args...))
 }
 
 // Errorf logs at error level.
@@ -178,7 +204,7 @@ func (gl *grpcLogger) Fatal(args ...any) {
 
 // Fatalln is part of the public API.
 func (gl *grpcLogger) Fatalln(args ...any) {
-	gl.ins.Log(context.Background(), level2slog(FatalLevel), fmt.Sprintln(args...))
+	gl.ins.Log(context.Background(), level2slog(FatalLevel), spaced(args...))
 	os.Exit(-1)
 }
 
