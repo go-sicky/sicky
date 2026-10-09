@@ -39,6 +39,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"text/template"
 	"unicode"
@@ -46,7 +47,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-//go:embed template/project/**/*.gotmpl
+//go:embed template/project/**/*.gotmpl template/license/*.gotmpl
 var projectTemplates embed.FS
 
 type newContext struct {
@@ -72,6 +73,21 @@ type newContext struct {
 	// GoMetricsVersion pins the armon/go-metrics workaround in the generated
 	// go.mod (see resolveGoMetricsVersion). Empty omits the workaround.
 	GoMetricsVersion string
+	// License is the canonical license key (one of licenseChoices) written
+	// into the generated LICENSE file and into every file header. It is
+	// resolved by resolveLicense before scaffolding, so it never stays
+	// unrecognized; empty means "do not write a LICENSE file".
+	License string
+	// SPDX is the identifier stamped on generated file headers, derived
+	// from License. Kept separately because it differs from the key for
+	// GPL-3.0, which is written as the unambiguous GPL-3.0-only.
+	SPDX string
+	// Holder is the copyright holder. Author is the "Name <email>" on the
+	// @author line. Both come from git, are confirmed interactively, can be
+	// overridden by --copyright/--author, and fall back to a visible
+	// ${HOLDER}/${AUTHOR} placeholder when nothing is known.
+	Holder string
+	Author string
 }
 
 // normalizeNewContext fills defaults for scaffolding contexts.
@@ -95,6 +111,9 @@ func newRun(args []string) int {
 	fiberFlag := fs.Bool("fiber", true, "Add Fiber server (use --fiber=false to skip)")
 	httpFlag := fs.Bool("http", false, "Add net/http (bunrouter) server")
 	forceFlag := fs.Bool("force", false, "Overwrite an existing non-empty project directory")
+	licenseFlag := fs.String("license", "", "License: MIT, Apache-2.0, GPL-3.0, BSD-3-Clause, Commercial")
+	authorFlag := fs.String("author", "", `Author stamped on file headers, e.g. "Jane Doe <jane@example.com>"`)
+	copyrightFlag := fs.String("copyright", "", "Copyright holder for the LICENSE file and file headers")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky new: %s\n", err.Error())
 
@@ -116,6 +135,9 @@ func newRun(args []string) int {
 		WithGRPC:  !*noGrpcFlag,
 		WithFiber: *fiberFlag,
 		WithHTTP:  *httpFlag,
+		License:   *licenseFlag,
+		Author:    *authorFlag,
+		Holder:    *copyrightFlag,
 	}
 
 	if nc.Name == "" {
@@ -125,6 +147,13 @@ func newRun(args []string) int {
 	}
 
 	interactivePrompt(fs, nc)
+
+	// An unrecognized license — from the flag or from the prompt — is a
+	// warning and a default rather than a failed run: it names nothing but
+	// this project's own file, so a typo must not cost the user a scaffold.
+	license := resolveLicense(nc.License)
+	nc.License = license.key
+	nc.SPDX = license.spdx
 
 	// Everything below interpolates these values into a Makefile, a
 	// Dockerfile, go.mod and Go sources, and uses the name to build a
@@ -278,6 +307,69 @@ func interactivePrompt(fs *pflag.FlagSet, nc *newContext) {
 	} else {
 		nc.WithProto = false
 	}
+
+	if !fs.Changed("license") {
+		fmt.Println("  ? License:")
+		for i, choice := range licenseChoices {
+			fmt.Printf("    %d. %s\n", i+1, choice.display)
+		}
+		fmt.Print("    [1]: ")
+
+		input, _ := reader.ReadString('\n')
+		nc.License = licenseInput(strings.TrimSpace(input))
+	}
+
+	if !fs.Changed("author") {
+		detected := detectAuthor()
+		if detected != "" {
+			fmt.Printf("  ? Author [%s]: ", detected)
+		} else {
+			fmt.Print("  ? Author [Name <email>]: ")
+		}
+
+		input, _ := reader.ReadString('\n')
+		if input = strings.TrimSpace(input); input != "" {
+			nc.Author = input
+		} else {
+			nc.Author = detected
+		}
+	}
+
+	if !fs.Changed("copyright") {
+		detected := detectHolder()
+		if detected != "" {
+			fmt.Printf("  ? Copyright holder [%s]: ", detected)
+		} else {
+			fmt.Print("  ? Copyright holder: ")
+		}
+
+		input, _ := reader.ReadString('\n')
+		if input = strings.TrimSpace(input); input != "" {
+			nc.Holder = input
+		} else {
+			nc.Holder = detected
+		}
+	}
+}
+
+// licenseInput accepts both the interactive menu number and any spelling
+// the --license flag would take. An unrecognized answer is returned
+// verbatim so resolveLicense can warn using the words the user actually
+// typed, rather than a normalized form of them.
+func licenseInput(input string) string {
+	if input == "" {
+		return defaultLicense().key
+	}
+
+	if n, err := strconv.Atoi(input); err == nil && n >= 1 && n <= len(licenseChoices) {
+		return licenseChoices[n-1].key
+	}
+
+	if c, ok := lookupLicense(input); ok {
+		return c.key
+	}
+
+	return input
 }
 
 // gitInit initializes a git repository in dir. It is best-effort: a missing
@@ -360,6 +452,20 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		}
 	}
 
+	// The license file is the one generated file carrying no header of its
+	// own: it *is* the license, and prepending anything would corrupt the
+	// standard text every downstream tool recognizes.
+	if nc.License != "" {
+		body, err := renderProjectTemplate("template/license/"+nc.License+".gotmpl", newFileMeta(nc.Name, nc.SPDX, nc.Holder, nc.Author))
+		if err != nil {
+			return fmt.Errorf("license %s: %w", nc.License, err)
+		}
+
+		if err := os.WriteFile(filepath.Join(dir, "LICENSE"), []byte(body), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", filepath.Join(dir, "LICENSE"), err)
+		}
+	}
+
 	files := []struct {
 		path     string
 		template string
@@ -381,6 +487,11 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		{filepath.Join(dir, "go.mod"), "template/project/shared/go.mod.gotmpl", nil},
 	}
 
+	// Identity and date are fixed for the whole scaffold so every file in
+	// the project agrees on its copyright line, even across a run that
+	// straddles midnight.
+	baseMeta := newFileMeta(nc.Name, nc.SPDX, nc.Holder, nc.Author)
+
 	for _, f := range files {
 		if f.skip != nil && f.skip(nc) {
 			continue
@@ -396,6 +507,20 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 
 			return fmt.Errorf("template %s: %w", f.template, err)
 		}
+
+		// The header is injected after rendering, not kept in the template:
+		// @file and @package must describe the file that exists on disk
+		// (which depends on the selected servers), and one policy applied
+		// in code cannot drift across 27 templates.
+		fm := baseMeta
+		fm.File = relativeFile(dir, f.path)
+
+		if isGoFile(f.path) {
+			fm.Package = packageOf(content)
+		}
+
+		content = injectFileHeader(f.path, content, &fm)
+		content = injectFileFooter(f.path, content)
 
 		// Normalize rendered Go sources so every server combination is
 		// gofmt-clean (conditional blocks defeat static alignment).
@@ -427,14 +552,22 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 			return fmt.Errorf("template %s: %w", "template/project/"+nc.Type+"/handler.go.gotmpl", err)
 		}
 
+		handlerPath := filepath.Join(dir, "handler", "handler.go")
+		fm := baseMeta
+		fm.File = relativeFile(dir, handlerPath)
+		fm.Package = packageOf(content)
+
+		content = injectFileHeader(handlerPath, content, &fm)
+		content = injectFileFooter(handlerPath, content)
+
 		if formatted, ferr := format.Source([]byte(content)); ferr != nil {
 			return fmt.Errorf("template %s: format: %w", "template/project/"+nc.Type+"/handler.go.gotmpl", ferr)
 		} else {
 			content = string(formatted)
 		}
 
-		if err := os.WriteFile(filepath.Join(dir, "handler", "handler.go"), []byte(content), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", filepath.Join(dir, "handler", "handler.go"), err)
+		if err := os.WriteFile(handlerPath, []byte(content), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", handlerPath, err)
 		}
 	}
 

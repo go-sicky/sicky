@@ -178,6 +178,17 @@ func validateNewContext(nc *newContext) error {
 	}
 
 	if slices.Contains(serviceTypes, nc.Type) {
+		// An author or holder that breaks out of its comment block would
+		// become source code in every generated file, so unlike an unknown
+		// license this fails the run instead of falling back.
+		if err := validateHeaderText("author", nc.Author); err != nil {
+			return err
+		}
+
+		if err := validateHeaderText("copyright holder", nc.Holder); err != nil {
+			return err
+		}
+
 		return nil
 	}
 

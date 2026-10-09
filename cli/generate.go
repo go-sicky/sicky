@@ -96,10 +96,17 @@ func generateRun(args []string) int {
 	}
 }
 
+// generateContext is the data every `sicky generate` template renders
+// from. SPDX, Holder and Author are not set by callers: renderGenerateTemplate
+// fills them from the surrounding project, so a file generated inside an
+// existing project joins that project's license instead of contradicting it.
 type generateContext struct {
 	Name         string
 	ExportedName string
 	Module       string
+	SPDX         string
+	Holder       string
+	Author       string
 }
 
 func generateHandler(args []string) int {
@@ -334,6 +341,24 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 	}
 
 	content := buf.String()
+
+	// Header and footer policy lives here rather than in the templates:
+	// one place decides, so a template added later cannot ship without a
+	// header and the four .go templates cannot drift from the project files
+	// `sicky new` writes.
+	if gc, ok := data.(*generateContext); ok {
+		if gc.SPDX == "" {
+			fillGenerateIdentity(gc)
+		}
+
+		fm := newFileMeta(gc.Name, gc.SPDX, gc.Holder, gc.Author)
+		fm.File = filepath.ToSlash(outputPath)
+		fm.Package = packageOf(content)
+
+		content = injectFileHeader(outputPath, content, &fm)
+		content = injectFileFooter(outputPath, content)
+	}
+
 	if strings.HasSuffix(outputPath, ".go") {
 		formatted, ferr := format.Source([]byte(content))
 		if ferr != nil {
@@ -348,6 +373,18 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 	}
 
 	return nil
+}
+
+// fillGenerateIdentity resolves the license a generated file should carry
+// and the identity to stamp on it. Detection reads the working tree, so it
+// runs once per generated file rather than once per process — a generate
+// command writes one file.
+func fillGenerateIdentity(gc *generateContext) {
+	license := detectProjectLicense()
+
+	gc.SPDX = license.spdx
+	gc.Holder = detectHolder()
+	gc.Author = detectAuthor()
 }
 
 func detectModule() string {
