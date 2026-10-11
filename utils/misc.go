@@ -151,10 +151,9 @@ func EnsureStatus(status, bit int64) bool {
 
 // Database query, list filter.
 type ListFilter struct {
-	Offset  int
-	Limit   int
-	OrderBy string
-	Sort    string
+	Offset     int64
+	Limit      int64
+	OrderExprs []string
 }
 
 func (f *ListFilter) Validate() {
@@ -162,12 +161,8 @@ func (f *ListFilter) Validate() {
 		f.Offset = 0
 	}
 
-	if f.Limit <= 0 {
+	if f.Limit < 0 {
 		f.Limit = 10
-	}
-
-	if f.Sort != "asc" && f.Sort != "desc" {
-		f.Sort = "asc"
 	}
 }
 
