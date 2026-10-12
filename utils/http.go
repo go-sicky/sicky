@@ -222,6 +222,19 @@ func BunAutoFormat(w http.ResponseWriter, r bunrouter.Request, data any) error {
 	return err
 }
 
+func BunAutoFormatWithStatus(w http.ResponseWriter, status int, r bunrouter.Request, data any) error {
+	contentType, bytes, err := AutoFormatData(r.Request, data)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	_, err = w.Write(bytes)
+	w.WriteHeader(status)
+
+	return err
+}
+
 // AutoBind decodes the request body into v according to the Content-Type
 // header. It is the request-side inverse of AutoFormatData: negotiation runs
 // on the media type only - parameters (charset) are stripped - and JSON is
