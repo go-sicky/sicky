@@ -304,6 +304,9 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "redis":     { "addr": "localhost:6379", "username": "", "password": "", "db": 0, "enable_tls": false, "dial_timeout_sec": 5, "read_timeout_sec": 3, "write_timeout_sec": 3, "pool_size": 0, "min_idle_conns": 0 },
     // slow_duration is a hook switch, not a millisecond threshold: >0 enables
     // the query hook, <=0 leaves it off, negative aborts startup (ErrBunSlowInvalid)
+    // driver may be omitted when dsn is an unambiguous form: postgres:// postgresql://
+    // unix:// dm:// sqlserver:// or mysql's user:pass@tcp(...); bare paths and
+    // key/value strings still need driver set explicitly (ErrBunDriverMissing).
     "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false, "verbose": false, "slow_duration": 0, "max_open_conns": 0, "max_idle_conns": 0, "conn_max_lifetime_sec": 0, "conn_max_idle_time_sec": 0 },
     "badger":    { "path": "/tmp/badger" },
     "ristretto": { "num_counters": 10000000, "max_cost": 100000000, "buffer_items": 64 },

@@ -366,6 +366,8 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "redis":     { "addr": "localhost:6379", "username": "", "password": "", "db": 0, "enable_tls": false, "tls_skip_verify": false, "dial_timeout_sec": 5, "read_timeout_sec": 3, "write_timeout_sec": 3, "pool_size": 0, "min_idle_conns": 0 },
     // slow_duration 只是 query hook 的开关，不是毫秒阈值：>0 打开 hook，<=0 关闭，
     // 负值直接拒绝启动（ErrBunSlowInvalid）
+    // driver 可省略：dsn 为无歧义形式（postgres:// postgresql:// unix:// dm:// sqlserver://
+    // 或 mysql 的 user:pass@tcp(...)）时自动推断；裸路径与键值串仍须显式写 driver（ErrBunDriverMissing）
     "bun":       { "driver": "pg", "dsn": "postgres://...", "debug": false, "verbose": false, "slow_duration": 0, "max_open_conns": 0, "max_idle_conns": 0, "conn_max_lifetime_sec": 0, "conn_max_idle_time_sec": 0 },
     "badger":    { "path": "/tmp/badger" },
     "ristretto": { "num_counters": 10000000, "max_cost": 100000000, "buffer_items": 64 },
@@ -419,7 +421,7 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
 - `infra.elastic`：`addresses` 与 `cloud_id` 至少其一；`timeout_sec` 只管启动检查，单次请求超时走调用方 ctx。
 - `infra.s3`：`region` 必填，`bucket` 可选（没配 bucket 时健康检查只判 client 非 nil）；
   有 `access_key` 没 `secret_key` 则 abort；`endpoint` 给 MinIO/LocalStack 用。
-- `infra.bun`：未知 driver 直接 abort，不会回落 pg；`debug` 不再隐含 verbose（行为变更，verbose 要单开）；
+- `infra.bun`：driver 留空时从 dsn 推断（仅限无歧义形态，见上），推断不出或拼写错直接 abort，不会回落 pg；`debug` 不再隐含 verbose（行为变更，verbose 要单开）；
   `max_open_conns` 不限会打 Warn。达梦走 `oracledialect` 兼容。
 - `infra.mongo`：库名优先级 显式参数 > `cfg.db` > URI path；健康检查用 `readpref.Primary()` ping。
 - `tracer`：`type: none|grpc|http|stdout|uptrace`（默认示例里写 `none` 即关闭）；

@@ -31,11 +31,16 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/uptrace/bunrouter"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestWrapHTTPResponse(t *testing.T) {
@@ -268,6 +273,87 @@ func TestAutoFormatDataNegotiation(t *testing.T) {
 		t.Fatalf("plain struct: ct = %q err = %v", ct, err)
 	} else if strings.Contains(string(body), "hunter2") {
 		t.Fatalf("text/plain leaked an unexported field: %s", body)
+	}
+}
+
+func TestAutoBind(t *testing.T) {
+	type payload struct {
+		Name string `json:"name" msgpack:"name" yaml:"name"`
+		Age  int    `json:"age"  msgpack:"age"  yaml:"age"`
+	}
+
+	mpBody, err := msgpack.Marshal(payload{Name: "np", Age: 42})
+	if err != nil {
+		t.Fatalf("msgpack marshal: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		contentType string
+		body        []byte
+	}{
+		{"json with charset parameter", "application/json; charset=utf-8", []byte(`{"name":"np","age":42}`)},
+		{"unknown content type defaults to json", "application/octet-stream", []byte(`{"name":"np","age":42}`)},
+		{"empty content type defaults to json", "", []byte(`{"name":"np","age":42}`)},
+		{"yaml", "application/x-yaml", []byte("name: np\nage: 42\n")},
+		{"msgpack", mediaTypeMsgpack, mpBody},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(tt.body))
+			req.Header.Set("Content-Type", tt.contentType)
+
+			var got payload
+			if err := AutoBind(req, &got); err != nil {
+				t.Fatalf("AutoBind: %v", err)
+			}
+
+			if got.Name != "np" || got.Age != 42 {
+				t.Errorf("got %+v, want name=np age=42", got)
+			}
+		})
+	}
+}
+
+func TestAutoBindPlainText(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+
+	var s string
+	if err := AutoBind(req, &s); err != nil {
+		t.Fatalf("AutoBind text/plain: %v", err)
+	}
+
+	if s != "hello" {
+		t.Errorf("got %q, want %q", s, "hello")
+	}
+}
+
+func TestAutoBindPlainTextUnsupportedTarget(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain")
+
+	var v int
+	if err := AutoBind(req, &v); !errors.Is(err, ErrUnsupportedBindTarget) {
+		t.Errorf("got err %v, want ErrUnsupportedBindTarget", err)
+	}
+}
+
+func TestBunAutoBind(t *testing.T) {
+	r := bunrouter.NewRequest(httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"np"}`)))
+	r.Header.Set("Content-Type", "application/json")
+
+	var got struct {
+		Name string `json:"name"`
+	}
+
+	if err := BunAutoBind(r, &got); err != nil {
+		t.Fatalf("BunAutoBind: %v", err)
+	}
+
+	if got.Name != "np" {
+		t.Errorf("got %q, want %q", got.Name, "np")
 	}
 }
 

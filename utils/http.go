@@ -33,11 +33,15 @@ package utils
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/uptrace/bunrouter"
+	"github.com/vmihailenco/msgpack/v5"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -119,12 +123,18 @@ type Pagination struct {
 const (
 	// mediaTypeJSON is both the negotiated default and the fallback for
 	// an unknown Accept header.
-	mediaTypeJSON = "application/json"
-	mediaTypeXML  = "application/xml"
-	mediaTypeYAML = "application/x-yaml"
+	mediaTypeJSON    = "application/json"
+	mediaTypeXML     = "application/xml"
+	mediaTypeYAML    = "application/x-yaml"
+	mediaTypeMsgpack = "application/x-msgpack"
 	// mediaTypePlainText keeps scalar payloads verbatim.
 	mediaTypePlainText = "text/plain; charset=utf-8"
 )
+
+// ErrUnsupportedBindTarget signals AutoBind was handed a target the media
+// type cannot decode into: a text/plain body with anything but a *string or
+// *[]byte destination. Match with errors.Is.
+var ErrUnsupportedBindTarget = errors.New("utils: auto bind target unsupported for media type")
 
 // AutoFormatData renders data for the request's Accept header.
 //
@@ -210,6 +220,74 @@ func BunAutoFormat(w http.ResponseWriter, r bunrouter.Request, data any) error {
 	_, err = w.Write(bytes)
 
 	return err
+}
+
+// AutoBind decodes the request body into v according to the Content-Type
+// header. It is the request-side inverse of AutoFormatData: negotiation runs
+// on the media type only - parameters (charset) are stripped - and JSON is
+// the fallback for an empty or unknown Content-Type, matching the response
+// side's default. Supported codecs are JSON, XML, YAML and msgpack; a
+// text/plain body is verbatim and decodes only into *string or *[]byte -
+// any other target reports ErrUnsupportedBindTarget.
+//
+// The body is read once with io.ReadAll and is not size-limited here: the
+// server BodyLimit middleware owns request caps.
+func AutoBind(req *http.Request, v any) error {
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return fmt.Errorf("utils: auto bind read body: %w", err)
+	}
+
+	switch mediaTypeOf(req.Header.Get("Content-Type")) {
+	case mediaTypeXML, "text/xml":
+		if err := xml.Unmarshal(body, v); err != nil {
+			return fmt.Errorf("utils: auto bind xml: %w", err)
+		}
+
+	case mediaTypeYAML, "text/yaml":
+		if err := yaml.Unmarshal(body, v); err != nil {
+			return fmt.Errorf("utils: auto bind yaml: %w", err)
+		}
+
+	case mediaTypeMsgpack:
+		if err := msgpack.Unmarshal(body, v); err != nil {
+			return fmt.Errorf("utils: auto bind msgpack: %w", err)
+		}
+
+	case "text/plain":
+		// No codec to run: the payload stays exactly as sent.
+		switch dst := v.(type) {
+		case *string:
+			*dst = string(body)
+
+		case *[]byte:
+			*dst = body
+
+		default:
+			return fmt.Errorf("utils: auto bind text/plain: %w", ErrUnsupportedBindTarget)
+		}
+
+	default:
+		// JSON: the negotiated default and unknown-header fallback.
+		if err := json.Unmarshal(body, v); err != nil {
+			return fmt.Errorf("utils: auto bind json: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// mediaTypeOf returns the lower-cased media type of a Content-Type header
+// value with its parameters (charset etc.) removed. Content-Type is a single
+// value, so unlike negotiateAccept there is no list or q-value handling.
+func mediaTypeOf(contentType string) string {
+	return strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+}
+
+// BunAutoBind decodes the bunrouter request body into v per its
+// Content-Type, mirroring BunAutoFormat on the request side.
+func BunAutoBind(r bunrouter.Request, v any) error {
+	return AutoBind(r.Request, v)
 }
 
 /*

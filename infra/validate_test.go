@@ -67,6 +67,9 @@ func TestValidateEmptyConfigsAbort(t *testing.T) {
 	}{
 		{"badger", func() error { return (&BadgerConfig{}).Ensure().Validate() }, ErrBadgerPathEmpty},
 		{"bun", func() error { return (&BunConfig{}).Ensure().Validate() }, ErrBunDSNEmpty},
+		{"bun underivable driver", func() error {
+			return (&BunConfig{DSN: "/var/lib/mysql/app"}).Ensure().Validate()
+		}, ErrBunDriverMissing},
 		{"clickhouse", func() error { return (&ClickHouseConfig{}).Ensure().Validate() }, ErrClickHouseDSNEmpty},
 		{"elastic", func() error { return (&ElasticConfig{}).Ensure().Validate() }, ErrElasticNoEndpoint},
 		{"elastic blank addr", func() error {
@@ -132,12 +135,10 @@ func TestValidateGoodConfigs(t *testing.T) {
 		{"bun pg", func() error {
 			return (&BunConfig{Driver: "postgres", DSN: "postgres://u:p@localhost:5432/db?sslmode=disable"}).Ensure().Validate()
 		}},
-		{"bun empty driver aborts (BREAKING: must be explicit)", func() error {
-			if err := (&BunConfig{DSN: "postgres://localhost/db"}).Ensure().Validate(); err == nil {
-				return errors.New("want error for empty driver")
-			}
-
-			return nil
+		// The whole point of the driver-derivation change: a dsn-only config
+		// must now validate (it used to abort with ErrBunUnsupportedDriver).
+		{"bun driver derived from dsn", func() error {
+			return (&BunConfig{DSN: "postgres://localhost/db"}).Ensure().Validate()
 		}},
 		{"bun sqlite memory", func() error {
 			return (&BunConfig{Driver: "sqlite", DSN: ":memory:"}).Ensure().Validate()

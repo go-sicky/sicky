@@ -87,13 +87,70 @@ var Bun *bun.DB
 // and an empty DSN would otherwise dial nowhere and fail late.
 // ErrBunUnsupportedDriver aborts startup instead of silently falling back
 // to PostgreSQL on a typo'd driver name.
+// ErrBunDriverMissing aborts startup when driver was left empty and the DSN
+// carries no unambiguous signal to derive it from — a distinct failure from
+// a misspelled driver, so the operator knows to write driver explicitly.
 // ErrBunPoolInvalid aborts startup on negative pool/lifetime settings.
 var (
 	ErrBunDSNEmpty          = errors.New("infra: bun dsn is empty")
 	ErrBunUnsupportedDriver = errors.New("infra: bun unsupported driver")
+	ErrBunDriverMissing     = errors.New("infra: bun driver missing")
 	ErrBunPoolInvalid       = errors.New("infra: bun pool setting is negative")
 	ErrBunSlowInvalid       = errors.New("infra: bun slow_duration is negative")
 )
+
+// Driver names as written in config, matched case-insensitively. "postgresql"
+// and "pg" are accepted aliases of "postgres"; detectBunDriver always derives
+// the canonical name.
+const (
+	driverPostgres   = "postgres"
+	driverPostgresql = "postgresql"
+	driverMySQL      = "mysql"
+	driverMSSQL      = "mssql"
+	driverSQLite     = "sqlite"
+	driverDM         = "dm"
+)
+
+// detectBunDriver derives the driver name from an unambiguous DSN form and
+// returns "" when the DSN carries no signal. It only recognizes shapes that
+// cannot mean two databases at once — a URL scheme, or mysql's scheme-less
+// user:pass@tcp(...) form — and deliberately refuses bare paths and key/value
+// strings, which is why an operator may still have to set driver explicitly.
+//
+//	postgres:// postgresql:// unix://  -> postgres  (pgdriver accepts no other scheme)
+//	dm://                            -> dm        (the driver rejects anything else)
+//	sqlserver://                     -> mssql
+//	user:pass@tcp(...) user:pass@unix(...) -> mysql (go-sql-driver/mysql has no scheme)
+//	:memory: file:                   -> sqlite
+func detectBunDriver(dsn string) string {
+	s := strings.TrimSpace(dsn)
+	if s == "" {
+		return ""
+	}
+
+	if s == ":memory:" || strings.HasPrefix(strings.ToLower(s), "file:") {
+		return driverSQLite
+	}
+
+	if scheme, _, ok := strings.Cut(s, "://"); ok {
+		switch strings.ToLower(scheme) {
+		case driverPostgres, driverPostgresql, "unix":
+			return driverPostgres
+		case driverDM:
+			return driverDM
+		case "sqlserver":
+			return driverMSSQL
+		}
+	}
+
+	// go-sql-driver/mysql DSNs carry no scheme: user:pass@tcp(host:3306)/db.
+	lower := strings.ToLower(s)
+	if strings.Contains(lower, "@tcp(") || strings.Contains(lower, "@unix(") {
+		return driverMySQL
+	}
+
+	return ""
+}
 
 // bunMetricsHook records every query into sicky_infra_ops. It is always
 // attached (unlike the debug-only bundebug hook) so SQL latency/error is
@@ -148,7 +205,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	}
 
 	switch strings.ToLower(cfg.Driver) {
-	case "mysql":
+	case driverMySQL:
 		// MySQL
 		sqldb, err = sql.Open("mysql", cfg.DSN)
 		if err != nil {
@@ -162,7 +219,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		}
 
 		db = bun.NewDB(sqldb, mysqldialect.New())
-	case "mssql":
+	case driverMSSQL:
 		// MS-SQLServer
 		sqldb, err = sql.Open("sqlserver", cfg.DSN)
 		if err != nil {
@@ -176,7 +233,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		}
 
 		db = bun.NewDB(sqldb, mssqldialect.New())
-	case "sqlite":
+	case driverSQLite:
 		// SQLite
 		sqldb, err = sql.Open("sqlite3", cfg.DSN)
 		if err != nil {
@@ -190,7 +247,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		}
 
 		db = bun.NewDB(sqldb, sqlitedialect.New())
-	case "dm":
+	case driverDM:
 		// DaMeng (uses Oracle dialect as fallback)
 		sqldb, err = sql.Open("dm", cfg.DSN)
 		if err != nil {
@@ -204,7 +261,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		}
 
 		db = bun.NewDB(sqldb, oracledialect.New())
-	case "postgres", "postgresql", "pg":
+	case driverPostgres, driverPostgresql, "pg":
 		// PostgreSQL
 		sqldb = sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(cfg.DSN)))
 		db = bun.NewDB(sqldb, pgdialect.New())
@@ -326,9 +383,17 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
+// A blank Driver is derived from the DSN when the DSN carries an unambiguous
+// signal — the operator may then configure only dsn. The derived name is written
+// back so logs, /config and initBun all see the same driver; an underivable one
+// stays empty and Validate rejects it.
 func (c *BunConfig) Ensure() *BunConfig {
 	if c == nil {
 		c = new(BunConfig)
+	}
+
+	if strings.TrimSpace(c.Driver) == "" {
+		c.Driver = detectBunDriver(c.DSN)
 	}
 
 	return c
@@ -348,8 +413,19 @@ func (c *BunConfig) Validate() error {
 		return ErrBunSlowInvalid
 	}
 
-	switch strings.ToLower(strings.TrimSpace(c.Driver)) {
-	case "postgres", "postgresql", "pg", "mysql", "mssql", "sqlite", "dm":
+	// Resolve the same way Ensure does, without mutating: Validate must
+	// agree with initBun even when a caller validates a raw config.
+	driver := strings.TrimSpace(c.Driver)
+	if driver == "" {
+		driver = detectBunDriver(c.DSN)
+	}
+
+	if driver == "" {
+		return ErrBunDriverMissing
+	}
+
+	switch strings.ToLower(driver) {
+	case driverPostgres, driverPostgresql, "pg", driverMySQL, driverMSSQL, driverSQLite, driverDM:
 		// Pool/lifetime settings: negative aborts, zero keeps driver default.
 		if c.MaxOpenConns < 0 || c.MaxIdleConns < 0 ||
 			c.ConnMaxLifetimeSec < 0 || c.ConnMaxIdleTimeSec < 0 {
