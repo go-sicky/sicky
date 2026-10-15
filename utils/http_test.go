@@ -357,6 +357,51 @@ func TestBunAutoBind(t *testing.T) {
 	}
 }
 
+func TestBunAutoFormatWithStatusWritesStatusBeforeBody(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := bunrouter.NewRequest(httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	data := WrapHTTPResponse(map[string]string{"reason": "rate limited"})
+	data.SetCode(1005).SetMessage("verification code requested too frequently")
+
+	if err := BunAutoFormatWithStatus(w, http.StatusTooManyRequests, r, data); err != nil {
+		t.Fatalf("BunAutoFormatWithStatus: %v", err)
+	}
+
+	// A Write before WriteHeader used to leave the recorder at 200 with the
+	// status silently dropped.
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("content type = %q, want application/json", ct)
+	}
+
+	var got Envelope
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+
+	if got.Code != 1005 {
+		t.Errorf("code = %d, want 1005", got.Code)
+	}
+}
+
+func TestBunAutoFormatWithStatusClampsInvalidStatus(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := bunrouter.NewRequest(httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+
+	// WriteHeader panics outside 100..999; invalid input must collapse to
+	// 200 instead of crashing the handler chain.
+	if err := BunAutoFormatWithStatus(w, 0, r, WrapHTTPResponse(nil)); err != nil {
+		t.Fatalf("BunAutoFormatWithStatus: %v", err)
+	}
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 /*
  * Local variables:
  * tab-width: 4

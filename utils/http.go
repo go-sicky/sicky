@@ -228,9 +228,17 @@ func BunAutoFormatWithStatus(w http.ResponseWriter, status int, r bunrouter.Requ
 		return err
 	}
 
+	// net/http drops a WriteHeader that follows a Write (logging it as
+	// superfluous and answering 200), so the status must be written before
+	// the body. Codes outside 100..999 would panic WriteHeader, so they
+	// collapse to 200 like an untouched recorder.
+	if status < 100 || status > 999 {
+		status = http.StatusOK
+	}
+
 	w.Header().Set("Content-Type", contentType)
-	_, err = w.Write(bytes)
 	w.WriteHeader(status)
+	_, err = w.Write(bytes)
 
 	return err
 }
