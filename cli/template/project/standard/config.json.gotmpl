@@ -66,7 +66,13 @@
             "local": {
                 "registry_file_path": "/tmp/sicky/registry/"
             }
-        }
+        }{{if .Models}},
+        "infra": {
+            "bun": {
+                "driver": "postgres",
+                "dsn": "postgres://postgres:postgres@localhost:5432/{{.Name}}?sslmode=disable"
+            }
+        }{{end}}
     },
     "service": {
         "disable_jobs": true

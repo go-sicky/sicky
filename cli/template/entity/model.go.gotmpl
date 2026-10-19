@@ -1,0 +1,252 @@
+package model
+
+import (
+	"context"
+	"fmt"
+	"time"
+	"uuid"
+
+	"github.com/go-sicky/sicky/infra"
+	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/utils"
+	"github.com/uptrace/bun"
+)
+
+// {{.ExportedName}} is the {{.Name}} resource.
+type {{.ExportedName}} struct {
+	bun.BaseModel `bun:"table:{{.Table}}"`
+
+	ID uuid.UUID `bun:"id,pk,default:uuid_generate_v4()" json:"id"`
+	// TODO: replace with real fields.
+	Name string `bun:"name,notnull" json:"name"`
+
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+}
+
+// TableName returns the PostgreSQL table backing the model.
+func (m *{{.ExportedName}}) TableName() string {
+	return "{{.Table}}"
+}
+
+// String renders the model for logs.
+func (m *{{.ExportedName}}) String() string {
+	return "{{.ExportedName}}{" +
+		"ID: " + m.ID.String() +
+		", Name: " + m.Name +
+		", CreatedAt: " + m.CreatedAt.String() +
+		", UpdatedAt: " + m.UpdatedAt.String() +
+		"}"
+}
+
+// Validate rejects a record that cannot be stored.
+func (m *{{.ExportedName}}) Validate() error {
+	if m.Name == "" {
+		return fmt.Errorf("{{.Name}} name is required")
+	}
+
+	return nil
+}
+
+/* ===== [Database queries] ===== */
+
+// where : Shared WHERE clauses of List and Count, keep them consistent.
+// Columns are table-qualified because an unqualified id/created_at would be
+// ambiguous as soon as a relation joins another table.
+func (m *{{.ExportedName}}) where(sq *bun.SelectQuery) *bun.SelectQuery {
+	if m.Name != "" {
+		sq = sq.Where("\"{{.Table}}\".\"name\" = ?", m.Name)
+	}
+
+	return sq
+}
+
+// Create inserts a new {{.Name}} record.
+func (m *{{.ExportedName}}) Create(ctx context.Context) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+
+	if m.ID == uuid.Nil() {
+		m.ID = uuid.New()
+	}
+
+	m.CreatedAt = time.Now()
+	m.UpdatedAt = time.Now()
+
+	r, err := infra.Bun.NewInsert().Model(m).Returning("*").Exec(ctx)
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
+	n, _ := r.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("no rows affected")
+	}
+
+	return nil
+}
+
+// Update rewrites the mutable fields of an existing {{.Name}} record.
+func (m *{{.ExportedName}}) Update(ctx context.Context) error {
+	if m.ID == uuid.Nil() {
+		return fmt.Errorf("{{.Name}} ID is required for update")
+	}
+
+	uq := infra.Bun.NewUpdate().Model((*{{.ExportedName}})(nil)).Where("id = ?", m.ID)
+	if m.Name != "" {
+		uq = uq.Set("name = ?", m.Name)
+	}
+
+	m.UpdatedAt = time.Now()
+	uq = uq.Set("updated_at = ?", m.UpdatedAt)
+
+	r, err := uq.Exec(ctx)
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
+	n, _ := r.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("no rows affected")
+	}
+
+	return nil
+}
+
+// Delete removes a {{.Name}} record by ID.
+func (m *{{.ExportedName}}) Delete(ctx context.Context) error {
+	if m.ID == uuid.Nil() {
+		return fmt.Errorf("{{.Name}} ID is required for delete")
+	}
+
+	r, err := infra.Bun.NewDelete().Model((*{{.ExportedName}})(nil)).Where("id = ?", m.ID).Exec(ctx)
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
+	n, _ := r.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("no rows affected")
+	}
+
+	return nil
+}
+
+// Get loads a {{.Name}} record by ID or name.
+func (m *{{.ExportedName}}) Get(ctx context.Context) error {
+	if m.ID == uuid.Nil() && m.Name == "" {
+		return fmt.Errorf("{{.Name}} ID or name is required for get")
+	}
+
+	sq := infra.Bun.NewSelect().Model(m).Limit(1)
+	if m.ID != uuid.Nil() {
+		sq = sq.Where("\"{{.Table}}\".\"id\" = ?", m.ID)
+	} else {
+		sq = sq.Where("\"{{.Table}}\".\"name\" = ?", m.Name)
+	}
+
+	if err := sq.Scan(ctx); err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
+	return nil
+}
+
+// List returns {{.Name}} records with optional filters.
+func (m *{{.ExportedName}}) List(ctx context.Context, filter *utils.ListFilter) ([]*{{.ExportedName}}, error) {
+	sq := m.where(infra.Bun.NewSelect().Model((*{{.ExportedName}})(nil)))
+	if filter != nil {
+		if filter.Limit > 0 {
+			sq = sq.Limit(filter.Limit)
+		}
+
+		if filter.Offset > 0 {
+			sq = sq.Offset(filter.Offset)
+		}
+
+		for _, orderExpr := range filter.OrderExprs {
+			sq = sq.OrderExpr(orderExpr)
+		}
+	}
+
+	// Stable pagination: caller-sorted lists win, otherwise sort by creation
+	// time.
+	if filter == nil || len(filter.OrderExprs) == 0 {
+		sq = sq.OrderExpr("\"{{.Table}}\".\"created_at\" DESC")
+	}
+
+	list := make([]*{{.ExportedName}}, 0)
+	if err := sq.Scan(ctx, &list); err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return nil, err
+	}
+
+	return list, nil
+}
+
+// Count returns the number of {{.Name}} records matching List's filters.
+func (m *{{.ExportedName}}) Count(ctx context.Context) (int64, error) {
+	count, err := m.where(infra.Bun.NewSelect().Model((*{{.ExportedName}})(nil))).Count(ctx)
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return 0, err
+	}
+
+	return count, nil
+}
+
+/* ===== [/Database queries] ===== */
+
+// InitDB creates the {{.Name}} table and its indexes. dropTable asks for the
+// existing table to be removed first, which is why it is never the default.
+func (m {{.ExportedName}}) InitDB(ctx context.Context, dropTable bool) error {
+	if dropTable {
+		if _, err := infra.Bun.NewDropTable().Model((*{{.ExportedName}})(nil)).IfExists().Exec(ctx); err != nil {
+			logger.Logger.ErrorContext(ctx, err.Error())
+
+			return err
+		}
+	}
+
+	if _, err := infra.Bun.NewCreateTable().Model((*{{.ExportedName}})(nil)).IfNotExists().Exec(ctx); err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
+	// Indexes
+	for _, index := range []struct {
+		name   string
+		column string
+	}{
+		{"idx_{{.Table}}_name", "name"},
+		{"idx_{{.Table}}_created_at", "created_at"},
+		{"idx_{{.Table}}_updated_at", "updated_at"},
+	} {
+		_, err := infra.Bun.NewCreateIndex().Model((*{{.ExportedName}})(nil)).
+			Index(index.name).
+			Column(index.column).
+			IfNotExists().
+			Exec(ctx)
+		if err != nil {
+			logger.Logger.ErrorContext(ctx, err.Error())
+
+			return err
+		}
+	}
+
+	logger.Logger.InfoContext(ctx, "table <{{.Table}}> created")
+
+	return nil
+}

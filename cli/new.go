@@ -47,7 +47,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-//go:embed template/project template/license/*.gotmpl
+//go:embed template/project template/entity template/license/*.gotmpl
 var projectTemplates embed.FS
 
 type newContext struct {
@@ -63,7 +63,11 @@ type newContext struct {
 	// WithAuth gates the auth/session example (app/session.go,
 	// handler/auth.http.go, service/auth.go and the validateSession
 	// middleware). It is on unless --no-auth is given.
-	WithAuth  bool
+	WithAuth bool
+	// Models is the resource list --model asked for. A non-empty list is
+	// what enables bun: config infra, MustInfra and the --initdb flag are
+	// all conditional on it.
+	Models    []modelSpec
 	OutputDir string
 	// Optional scaffolding hints used by `sicky config init` and
 	// `sicky generate config/docker`. Kept for compat; templates
@@ -115,6 +119,7 @@ func newRun(args []string) int {
 	fiberFlag := fs.Bool("fiber", true, "Add Fiber server (use --fiber=false to skip)")
 	httpFlag := fs.Bool("http", false, "Add net/http (bunrouter) server")
 	noAuthFlag := fs.Bool("no-auth", false, "Skip the auth/session example")
+	modelFlag := fs.StringSlice("model", nil, "Generate bun models (comma separated)")
 	forceFlag := fs.Bool("force", false, "Overwrite an existing non-empty project directory")
 	licenseFlag := fs.String("license", "", "License: MIT, Apache-2.0, GPL-3.0, BSD-3-Clause, Commercial")
 	authorFlag := fs.String("author", "", `Author stamped on file headers, e.g. "Jane Doe <jane@example.com>"`)
@@ -153,6 +158,25 @@ func newRun(args []string) int {
 	}
 
 	interactivePrompt(fs, nc)
+
+	models, err := modelSpecs(*modelFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sicky new: %s\n", err.Error())
+
+		return 1
+	}
+
+	nc.Models = models
+
+	// A model is an HTTP resource: its handler, DTOs and the request/response
+	// aggregation files only exist for the bunrouter stack. Rejecting the
+	// combination before scaffoldProject writes anything keeps a failed run
+	// from leaving a half-built project behind.
+	if len(nc.Models) > 0 && !nc.WithHTTP {
+		fmt.Fprintln(os.Stderr, "sicky new: --model requires an HTTP server (--http)")
+
+		return 1
+	}
 
 	// An unrecognized license — from the flag or from the prompt — is a
 	// warning and a default rather than a failed run: it names nothing but
@@ -265,13 +289,13 @@ func interactivePrompt(fs *pflag.FlagSet, nc *newContext) {
 		}
 
 		if askHTTP {
-			fmt.Print("  ? Add net/http server? (bunrouter, :9980) [Y/n]: ")
+			fmt.Print("  ? Add net/http server? (bunrouter, :9980) [y/N]: ")
 			input, _ := reader.ReadString('\n')
 			input = strings.TrimSpace(input)
-			if strings.EqualFold(input, "n") || strings.EqualFold(input, "no") {
-				nc.WithHTTP = false
-			} else {
+			if strings.EqualFold(input, "y") || strings.EqualFold(input, "yes") {
 				nc.WithHTTP = true
+			} else {
+				nc.WithHTTP = false
 			}
 		}
 	case "mcp":
@@ -433,6 +457,19 @@ func resolveGoMetricsVersion() string {
 	return ""
 }
 
+// scaffoldFile is one file scaffoldProject writes. data defaults to the
+// scaffold context; extra is appended to the rendered template before the
+// header/footer/format pass, which is how per-model DTO declarations join the
+// aggregated request/response files.
+type scaffoldFile struct {
+	path     string
+	template string
+	brief    string
+	skip     func(*newContext) bool
+	data     any
+	extra    string
+}
+
 func scaffoldProject(dir string, nc *newContext, force bool) error {
 	// Scaffolding overwrites by name (Makefile, go.mod, main.go, ...).
 	// Refuse to touch a populated directory unless --force says so.
@@ -480,6 +517,17 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		}
 	}
 
+	// Models write one service file each even when --no-auth removed the
+	// auth service, so these directories follow the model list rather than
+	// the auth block.
+	if len(nc.Models) > 0 {
+		for _, sub := range []string{"model", "service"} {
+			if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+				return err
+			}
+		}
+	}
+
 	// The license file is the one generated file carrying no header of its
 	// own: it *is* the license, and prepending anything would corrupt the
 	// standard text every downstream tool recognizes.
@@ -494,40 +542,70 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		}
 	}
 
+	// Per-model DTO fragments are rendered once and appended to the base
+	// request/response files before their single header/format pass, so the
+	// aggregated files stay gofmt-clean no matter how many models there are.
+	requestDecls, responseDecls, err := modelDeclarations(nc)
+	if err != nil {
+		return err
+	}
+
 	// The brief column feeds the @brief line of a .go header. Build scripts
 	// get the shorter two-line head and files outside the header policy get
 	// no comment at all, so their entry stays empty.
-	files := []struct {
-		path     string
-		template string
-		brief    string
-		skip     func(*newContext) bool
-	}{
-		{filepath.Join(dir, "main.go"), "template/project/" + nc.Type + "/main.go.gotmpl", "This file contains the main entry point for the service.", nil},
-		{filepath.Join(dir, "config.go"), "template/project/" + nc.Type + "/config.go.gotmpl", "This file contains the application configuration.", nil},
-		{filepath.Join(dir, "config.json"), "template/project/" + nc.Type + "/config.json.gotmpl", "", nil},
-		{filepath.Join(dir, "handler", "fiber.go"), "template/project/" + nc.Type + "/handler/fiber.go.gotmpl", "This file defines the Fiber HTTP handlers.", func(nc *newContext) bool { return !nc.WithFiber }},
-		{filepath.Join(dir, "handler", "http.go"), "template/project/" + nc.Type + "/handler/http.go.gotmpl", "This file defines the net/http handlers.", func(nc *newContext) bool { return !nc.WithHTTP }},
-		{filepath.Join(dir, "handler", "grpc.go"), "template/project/" + nc.Type + "/handler/grpc.go.gotmpl", "This file defines the gRPC handlers.", func(nc *newContext) bool { return !nc.WithGRPC }},
+	files := []scaffoldFile{
+		{path: filepath.Join(dir, "main.go"), template: "template/project/" + nc.Type + "/main.go.gotmpl", brief: "This file contains the main entry point for the service."},
+		{path: filepath.Join(dir, "config.go"), template: "template/project/" + nc.Type + "/config.go.gotmpl", brief: "This file contains the application configuration."},
+		{path: filepath.Join(dir, "config.json"), template: "template/project/" + nc.Type + "/config.json.gotmpl"},
+		{path: filepath.Join(dir, "handler", "fiber.go"), template: "template/project/" + nc.Type + "/handler/fiber.go.gotmpl", brief: "This file defines the Fiber HTTP handlers.", skip: func(nc *newContext) bool { return !nc.WithFiber }},
+		{path: filepath.Join(dir, "handler", "http.go"), template: "template/project/" + nc.Type + "/handler/http.go.gotmpl", brief: "This file defines the net/http handlers.", skip: func(nc *newContext) bool { return !nc.WithHTTP }},
+		{path: filepath.Join(dir, "handler", "grpc.go"), template: "template/project/" + nc.Type + "/handler/grpc.go.gotmpl", brief: "This file defines the gRPC handlers.", skip: func(nc *newContext) bool { return !nc.WithGRPC }},
 		// Application layering (standard only). app/config.go is the
 		// application's own configuration; session, auth handler, service
 		// and the middleware they feed are the auth example, which
 		// --no-auth removes. The request/response aggregation files stay
 		// without auth: `sicky generate model` appends to them.
-		{filepath.Join(dir, "app", "config.go"), "template/project/standard/app/config.go.gotmpl", "This file contains the application configuration.", func(nc *newContext) bool { return nc.Type != "standard" }},
-		{filepath.Join(dir, "app", "session.go"), "template/project/standard/app/session.go.gotmpl", "This file manages in-memory access tokens.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithAuth }},
-		{filepath.Join(dir, "handler", "auth.http.go"), "template/project/standard/handler/auth.http.go.gotmpl", "This file defines the authentication HTTP handlers.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP || !nc.WithAuth }},
-		{filepath.Join(dir, "handler", "request", "http.go"), "template/project/standard/handler/request/http.go.gotmpl", "This file contains the HTTP request payloads.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP }},
-		{filepath.Join(dir, "handler", "response", "http.go"), "template/project/standard/handler/response/http.go.gotmpl", "This file contains the HTTP response codes and payloads.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP }},
-		{filepath.Join(dir, "service", "auth.go"), "template/project/standard/service/auth.go.gotmpl", "This file defines the authentication service.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP || !nc.WithAuth }},
+		{path: filepath.Join(dir, "app", "config.go"), template: "template/project/standard/app/config.go.gotmpl", brief: "This file contains the application configuration.", skip: func(nc *newContext) bool { return nc.Type != "standard" }},
+		{path: filepath.Join(dir, "app", "session.go"), template: "template/project/standard/app/session.go.gotmpl", brief: "This file manages in-memory access tokens.", skip: func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithAuth }},
+		{path: filepath.Join(dir, "handler", "auth.http.go"), template: "template/project/standard/handler/auth.http.go.gotmpl", brief: "This file defines the authentication HTTP handlers.", skip: func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP || !nc.WithAuth }},
+		{path: filepath.Join(dir, "handler", "request", "http.go"), template: "template/project/standard/handler/request/http.go.gotmpl", brief: "This file contains the HTTP request payloads.", skip: func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP }, extra: requestDecls},
+		{path: filepath.Join(dir, "handler", "response", "http.go"), template: "template/project/standard/handler/response/http.go.gotmpl", brief: "This file contains the HTTP response codes and payloads.", skip: func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP }, extra: responseDecls},
+		{path: filepath.Join(dir, "service", "auth.go"), template: "template/project/standard/service/auth.go.gotmpl", brief: "This file defines the authentication service.", skip: func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP || !nc.WithAuth }},
 		// MCP service handler (Tools/Resources/Prompts) is independent of
 		// the SSE transport servers and always rendered for mcp projects.
-		{filepath.Join(dir, "handler", "handler.go"), "template/project/mcp/handler/handler.go.gotmpl", "This file defines the MCP tool, resource and prompt handlers.", func(nc *newContext) bool { return nc.Type != "mcp" }},
-		{filepath.Join(dir, "Makefile"), "template/project/shared/Makefile.gotmpl", "", nil},
-		{filepath.Join(dir, "Dockerfile"), "template/project/shared/Dockerfile.gotmpl", "", nil},
-		{filepath.Join(dir, ".dockerignore"), "template/project/shared/dockerignore.gotmpl", "", nil},
-		{filepath.Join(dir, ".gitignore"), "template/project/shared/gitignore.gotmpl", "", nil},
-		{filepath.Join(dir, "go.mod"), "template/project/shared/go.mod.gotmpl", "", nil},
+		{path: filepath.Join(dir, "handler", "handler.go"), template: "template/project/mcp/handler/handler.go.gotmpl", brief: "This file defines the MCP tool, resource and prompt handlers.", skip: func(nc *newContext) bool { return nc.Type != "mcp" }},
+		{path: filepath.Join(dir, "Makefile"), template: "template/project/shared/Makefile.gotmpl"},
+		{path: filepath.Join(dir, "Dockerfile"), template: "template/project/shared/Dockerfile.gotmpl"},
+		{path: filepath.Join(dir, ".dockerignore"), template: "template/project/shared/dockerignore.gotmpl"},
+		{path: filepath.Join(dir, ".gitignore"), template: "template/project/shared/gitignore.gotmpl"},
+		{path: filepath.Join(dir, "go.mod"), template: "template/project/shared/go.mod.gotmpl"},
+	}
+
+	// One full resource per model: model, service and HTTP handler. The DTO
+	// declarations were folded into the aggregated files above; every file
+	// still takes the same header/footer/format path.
+	for _, m := range nc.Models {
+		data := modelTemplateData{modelSpec: m, Module: nc.Module, WithAuth: nc.WithAuth}
+		files = append(files,
+			scaffoldFile{
+				path:     filepath.Join(dir, "model", m.Name+".go"),
+				template: "template/entity/model.go.gotmpl",
+				brief:    "This file defines the " + m.ExportedName + " bun model.",
+				data:     data,
+			},
+			scaffoldFile{
+				path:     filepath.Join(dir, "service", m.Name+".go"),
+				template: "template/entity/service.go.gotmpl",
+				brief:    "This file defines the " + m.ExportedName + " service.",
+				data:     data,
+			},
+			scaffoldFile{
+				path:     filepath.Join(dir, "handler", m.Name+".http.go"),
+				template: "template/entity/handler.http.go.gotmpl",
+				brief:    "This file defines the HTTP handlers for the " + m.Name + " resource.",
+				data:     data,
+			},
+		)
 	}
 
 	// Identity and date are fixed for the whole scaffold so every file in
@@ -540,7 +618,12 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 			continue
 		}
 
-		content, err := renderProjectTemplate(f.template, nc)
+		data := f.data
+		if data == nil {
+			data = nc
+		}
+
+		content, err := renderProjectTemplate(f.template, data)
 		if err != nil {
 			// Per-protocol handler templates are optional for project types
 			// without split files (e.g. interactive), which fall back to
@@ -557,6 +640,10 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 			}
 
 			return fmt.Errorf("template %s: %w", f.template, err)
+		}
+
+		if f.extra != "" {
+			content = strings.TrimRight(content, "\n") + "\n\n" + strings.TrimLeft(f.extra, "\n")
 		}
 
 		// The header is injected after rendering, not kept in the template:

@@ -1,0 +1,66 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/uptrace/bunrouter"
+)
+
+// HTTP{{.ExportedName}} serves the {{.Name}} resource.
+type HTTP{{.ExportedName}} struct{}
+
+// NewHTTP{{.ExportedName}} creates the {{.Name}} handler.
+func NewHTTP{{.ExportedName}}() *HTTP{{.ExportedName}} {
+	h := &HTTP{{.ExportedName}}{}
+
+	return h
+}
+
+// Name returns the handler name.
+func (h *HTTP{{.ExportedName}}) Name() string {
+	return "{{.Name}}.http"
+}
+
+// Type returns the handler transport.
+func (h *HTTP{{.ExportedName}}) Type() string {
+	return "http"
+}
+
+// Register mounts the {{.Name}} routes.
+func (h *HTTP{{.ExportedName}}) Register(router *bunrouter.Router) {
+	g := router.NewGroup("/{{.Name}}"){{if .WithAuth}}.Use(validateSession){{end}}
+
+	g.GET("/list", h.list)
+	g.POST("/", h.create)
+	g.GET("/:id", h.get)
+	g.PUT("/:id", h.update)
+	g.DELETE("/:id", h.delete)
+}
+
+/* ===== [HTTP handlers] ===== */
+// list returns the {{.Name}} resources. TODO: implement.
+func (h *HTTP{{.ExportedName}}) list(_ http.ResponseWriter, _ bunrouter.Request) error {
+	return nil
+}
+
+// create stores a new {{.Name}}. TODO: implement.
+func (h *HTTP{{.ExportedName}}) create(_ http.ResponseWriter, _ bunrouter.Request) error {
+	return nil
+}
+
+// get returns one {{.Name}} by ID. TODO: implement.
+func (h *HTTP{{.ExportedName}}) get(_ http.ResponseWriter, _ bunrouter.Request) error {
+	return nil
+}
+
+// update rewrites one {{.Name}} by ID. TODO: implement.
+func (h *HTTP{{.ExportedName}}) update(_ http.ResponseWriter, _ bunrouter.Request) error {
+	return nil
+}
+
+// delete removes one {{.Name}} by ID. TODO: implement.
+func (h *HTTP{{.ExportedName}}) delete(_ http.ResponseWriter, _ bunrouter.Request) error {
+	return nil
+}
+
+/* ===== [/HTTP handlers] ===== */

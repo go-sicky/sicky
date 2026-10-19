@@ -1,0 +1,9 @@
+// Http{{.ExportedName}}PostCreate is the {{.Name}} create payload.
+type Http{{.ExportedName}}PostCreate struct {
+	Name string `json:"name" form:"name"`
+}
+
+// Http{{.ExportedName}}PutUpdate is the {{.Name}} update payload.
+type Http{{.ExportedName}}PutUpdate struct {
+	Name string `json:"name" form:"name"`
+}
