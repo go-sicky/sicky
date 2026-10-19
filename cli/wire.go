@@ -82,20 +82,28 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 
 	var edits []sourceEdit
 
-	imports := importPaths(file)
+	imports := importNames(file)
 	missingImports := make([]string, 0, 5)
 
 	wantImport := func(importPath string) {
-		if imports[importPath] {
+		if _, ok := imports[importPath]; ok {
 			return
 		}
 
-		imports[importPath] = true
+		imports[importPath] = ""
 
 		missingImports = append(missingImports, importPath)
 	}
 
-	wantImport(module + "/model")
+	// The generated code refers to the packages by their declared names, so an
+	// alias would turn every reference into an undefined identifier. Reject it
+	// instead of emitting code that cannot compile.
+	modelPath := module + "/model"
+	if alias, ok := imports[modelPath]; ok && alias != "" && alias != "model" {
+		return fmt.Errorf("main.go does not look like a sicky scaffold: %s is imported as %s", modelPath, alias)
+	}
+
+	wantImport(modelPath)
 
 	edits = append(edits, mustInfraEdits(src, fset, options)...)
 
@@ -114,6 +122,12 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 
 		edits = append(edits, insertInitDB(src, fset, file, exportedName))
 	} else if !hasModelInitDB(initdb, exportedName) {
+		// The appended call passes ctx; an initdb without one would be edited
+		// into code that does not compile.
+		if !declaresCtx(file, initdb) {
+			return errors.New("main.go does not look like a sicky scaffold: initdb does not declare ctx")
+		}
+
 		edits = append(edits, insertModelInitDB(src, fset, initdb, exportedName))
 	}
 
@@ -127,7 +141,12 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 				modelName,
 			)
 		} else {
-			wantImport(module + "/handler")
+			handlerPath := module + "/handler"
+			if alias, ok := imports[handlerPath]; ok && alias != "" && alias != "handler" {
+				return fmt.Errorf("main.go does not look like a sicky scaffold: %s is imported as %s", handlerPath, alias)
+			}
+
+			wantImport(handlerPath)
 
 			anchor := ast.Stmt(assign)
 			if lastHandle != nil && lastHandle.Pos() > assign.Pos() {
@@ -385,7 +404,8 @@ func addCompositeField(src []byte, fset *token.FileSet, lit *ast.CompositeLit, f
 // flagSwitchEdit appends the --initdb switch to sicky.Init. The separator
 // region between the last argument and the closing parenthesis is replaced as
 // a whole, which handles both the one-line and the multiline call shape
-// without doubling the trailing comma.
+// without doubling the trailing comma. A comment inside that region is
+// removed with it; scaffold-shaped calls have none.
 func flagSwitchEdit(src []byte, fset *token.FileSet, call *ast.CallExpr) sourceEdit {
 	last := call.Args[len(call.Args)-1]
 
@@ -522,6 +542,105 @@ func hasModelInitDB(fn *ast.FuncDecl, exportedName string) bool {
 	return found
 }
 
+// declaresCtx reports whether ctx resolves where the appended InitDB call is
+// inserted: a parameter, a top-level declaration in the function body, or a
+// package-level declaration. A declaration inside a nested block does not
+// count, because the call is appended at the end of the body.
+func declaresCtx(file *ast.File, fn *ast.FuncDecl) bool {
+	if fn.Body == nil {
+		return false
+	}
+
+	if fn.Type.Params != nil {
+		for _, field := range fn.Type.Params.List {
+			for _, name := range field.Names {
+				if name.Name == "ctx" {
+					return true
+				}
+			}
+		}
+	}
+
+	for _, stmt := range fn.Body.List {
+		switch typed := stmt.(type) {
+		case *ast.AssignStmt:
+			if typed.Tok != token.DEFINE {
+				continue
+			}
+
+			for _, lhs := range typed.Lhs {
+				if ident, ok := lhs.(*ast.Ident); ok && ident.Name == "ctx" {
+					return true
+				}
+			}
+		case *ast.DeclStmt:
+			gen, ok := typed.Decl.(*ast.GenDecl)
+			if !ok || (gen.Tok != token.VAR && gen.Tok != token.CONST) {
+				continue
+			}
+
+			for _, spec := range gen.Specs {
+				value, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+
+				for _, name := range value.Names {
+					if name.Name == "ctx" {
+						return true
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			if typed.Tok != token.DEFINE {
+				continue
+			}
+
+			if ident, ok := typed.Key.(*ast.Ident); ok && ident.Name == "ctx" {
+				return true
+			}
+
+			if ident, ok := typed.Value.(*ast.Ident); ok && ident.Name == "ctx" {
+				return true
+			}
+		}
+	}
+
+	return packageDeclaresCtx(file)
+}
+
+// packageDeclaresCtx reports whether the file declares ctx at package scope,
+// where the appended call can still resolve it.
+func packageDeclaresCtx(file *ast.File) bool {
+	for _, decl := range file.Decls {
+		switch typed := decl.(type) {
+		case *ast.GenDecl:
+			if typed.Tok != token.VAR && typed.Tok != token.CONST {
+				continue
+			}
+
+			for _, spec := range typed.Specs {
+				value, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+
+				for _, name := range value.Names {
+					if name.Name == "ctx" {
+						return true
+					}
+				}
+			}
+		case *ast.FuncDecl:
+			if typed.Name.Name == "ctx" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // httpServerStatements locates the `httpSrv := srvHTTP.New(...)` assignment
 // and the last `httpSrv.Handle(...)` call in main.
 func httpServerStatements(fn *ast.FuncDecl) (*ast.AssignStmt, *ast.ExprStmt) {
@@ -600,6 +719,8 @@ func hasHTTPHandler(fn *ast.FuncDecl, exportedName string) bool {
 }
 
 // appendStatement inserts one statement after anchor, at the same indentation.
+// Insertion happens at the anchor's end, so a trailing comment on that line
+// ends up after the inserted statement.
 func appendStatement(src []byte, fset *token.FileSet, anchor ast.Stmt, statement string) sourceEdit {
 	end := fset.Position(anchor.End()).Offset
 	indent := lineIndent(src, fset.Position(anchor.Pos()).Offset)
@@ -1164,9 +1285,10 @@ func stringLiteral(expr ast.Expr) (string, bool) {
 	return value, true
 }
 
-// importPaths collects the paths the file already imports.
-func importPaths(file *ast.File) map[string]bool {
-	paths := make(map[string]bool, len(file.Imports))
+// importNames maps each imported path to its explicit alias, or "" when the
+// import is unaliased and the package name is the path's last segment.
+func importNames(file *ast.File) map[string]string {
+	names := make(map[string]string, len(file.Imports))
 
 	for _, spec := range file.Imports {
 		path, err := strconv.Unquote(spec.Path.Value)
@@ -1174,10 +1296,14 @@ func importPaths(file *ast.File) map[string]bool {
 			continue
 		}
 
-		paths[path] = true
+		names[path] = ""
+
+		if spec.Name != nil {
+			names[path] = spec.Name.Name
+		}
 	}
 
-	return paths
+	return names
 }
 
 // importDeclaration returns the file's first import declaration.

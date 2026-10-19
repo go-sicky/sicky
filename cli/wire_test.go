@@ -9,6 +9,9 @@ package cli
 
 import (
 	"encoding/json"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,6 +44,115 @@ func main() {
 
 func run() {}
 `
+
+// wireMainMultilineFixture mirrors the real scaffold template's call shapes:
+// a multiline sicky.Init with a multiline Options literal, a multiline
+// srvHTTP.New assignment, and a Run call. The one-line fixture above never
+// reaches the multiline branches of the edit helpers.
+const wireMainMultilineFixture = `package main
+
+import (
+	"context"
+	"errors"
+	"log"
+
+	"example.com/demo/handler"
+	"github.com/go-sicky/sicky"
+	"github.com/go-sicky/sicky/server"
+	srvHTTP "github.com/go-sicky/sicky/server/http"
+	"github.com/go-sicky/sicky/service"
+	"github.com/go-sicky/sicky/service/standard"
+)
+
+func main() {
+	ctx := context.Background()
+
+	// Sicky
+	if err := sicky.Init(
+		&sicky.Options{
+			AppName: "demo",
+			Context: ctx,
+		},
+	); err != nil {
+		if errors.Is(err, sicky.ErrVersionShown) {
+			return
+		}
+
+		log.Fatalf("sicky: init: %v", err)
+	}
+
+	// HTTP server
+	httpSrv := srvHTTP.New(
+		&server.Options{
+			Name:    "demo@http",
+			Context: ctx,
+		},
+		nil,
+	)
+	httpSrv.Handle(handler.NewHTTPHttp())
+
+	// Service
+	svc := standard.New(
+		&service.Options{
+			Name:    "demo",
+			Context: ctx,
+		},
+		nil,
+	)
+	svc.Servers(
+		httpSrv,
+	)
+
+	if err := sicky.Run(nil); err != nil {
+		log.Fatalf("sicky: run: %v", err)
+	}
+}
+`
+
+func TestWireMainGoMultilineScaffoldShape(t *testing.T) {
+	path := writeTemp(t, "main.go", wireMainMultilineFixture)
+
+	if err := wireMainGo(path, "example.com/demo", "key", "Key"); err != nil {
+		t.Fatalf("wireMainGo: %v", err)
+	}
+
+	src := readFile(t, path)
+
+	if _, err := parser.ParseFile(token.NewFileSet(), path, []byte(src), 0); err != nil {
+		t.Fatalf("wired main.go does not parse: %v\n%s", err, src)
+	}
+
+	formatted, err := format.Source([]byte(src))
+	if err != nil {
+		t.Fatalf("gofmt: %v", err)
+	}
+
+	if string(formatted) != src {
+		t.Errorf("wired main.go is not gofmt-stable:\n%s", src)
+	}
+
+	for _, once := range []string{
+		`"example.com/demo/model"`,
+		`MustInfra: []string{"bun"}`,
+		`Flag:     "initdb"`,
+		"func initdb() error",
+		"CREATE EXTENSION IF NOT EXISTS",
+		"(model.Key{}).InitDB(ctx, false)",
+		"handler.NewHTTPKey()",
+	} {
+		if got := strings.Count(src, once); got != 1 {
+			t.Errorf("%q appears %d times, want 1:\n%s", once, got, src)
+		}
+	}
+
+	if err := wireMainGo(path, "example.com/demo", "key", "Key"); err != nil {
+		t.Fatalf("second wireMainGo: %v", err)
+	}
+
+	if readFile(t, path) != src {
+		t.Error("wireMainGo is not idempotent on the multiline scaffold shape")
+	}
+}
 
 func TestWireMainGoAddsAllAnchors(t *testing.T) {
 	path := writeTemp(t, "main.go", wireMainFixture)
@@ -104,6 +216,167 @@ func TestWireMainGoMissingAnchorWritesNothing(t *testing.T) {
 
 	if readFile(t, path) != before {
 		t.Error("a failed preflight must not modify main.go")
+	}
+}
+
+// The generated code names the model package `model.`, so an alias on the
+// import would be an undefined identifier. Rejecting it beats emitting code
+// that cannot compile.
+func TestWireMainGoRejectsAliasedModelImport(t *testing.T) {
+	body := `package main
+
+import (
+	"context"
+
+	m "example.com/demo/model"
+	"github.com/go-sicky/sicky"
+)
+
+func main() {
+	ctx := context.Background()
+
+	if err := sicky.Init(&sicky.Options{Context: ctx}); err != nil {
+		return
+	}
+}
+`
+	path := writeTemp(t, "main.go", body)
+
+	err := wireMainGo(path, "example.com/demo", "key", "Key")
+	if err == nil {
+		t.Fatal("an aliased model import must be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "example.com/demo/model is imported as m") {
+		t.Errorf("error does not name the alias: %v", err)
+	}
+
+	if readFile(t, path) != body {
+		t.Error("a rejected main.go must stay byte-identical")
+	}
+}
+
+// The same alias problem applies to the handler package, and the dedupe check
+// cannot see through the alias, so every re-run would stack another broken
+// registration.
+func TestWireMainGoRejectsAliasedHandlerImport(t *testing.T) {
+	body := `package main
+
+import (
+	"context"
+
+	hnd "example.com/demo/handler"
+	"github.com/go-sicky/sicky"
+	srvHTTP "github.com/go-sicky/sicky/server/http"
+)
+
+func main() {
+	ctx := context.Background()
+
+	if err := sicky.Init(&sicky.Options{Context: ctx}); err != nil {
+		return
+	}
+
+	httpSrv := srvHTTP.New(nil, nil)
+}
+`
+	path := writeTemp(t, "main.go", body)
+
+	err := wireMainGo(path, "example.com/demo", "key", "Key")
+	if err == nil {
+		t.Fatal("an aliased handler import must be rejected when a handler is registered")
+	}
+
+	if !strings.Contains(err.Error(), "example.com/demo/handler is imported as hnd") {
+		t.Errorf("error does not name the alias: %v", err)
+	}
+
+	if readFile(t, path) != body {
+		t.Error("a rejected main.go must stay byte-identical")
+	}
+}
+
+// The appended InitDB call passes ctx. A hand-written initdb without one
+// cannot receive that statement without breaking the build.
+func TestWireMainGoRejectsInitDBWithoutCtx(t *testing.T) {
+	body := `package main
+
+import (
+	"context"
+
+	"example.com/demo/handler"
+	"github.com/go-sicky/sicky"
+	srvHTTP "github.com/go-sicky/sicky/server/http"
+)
+
+func main() {
+	ctx := context.Background()
+
+	if err := sicky.Init(&sicky.Options{Context: ctx}); err != nil {
+		return
+	}
+
+	httpSrv := srvHTTP.New(nil, nil)
+	httpSrv.Handle(handler.NewHTTPHttp())
+}
+
+func initdb() error {
+	return nil
+}
+`
+	path := writeTemp(t, "main.go", body)
+
+	err := wireMainGo(path, "example.com/demo", "key", "Key")
+	if err == nil {
+		t.Fatal("an initdb without ctx must be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "initdb does not declare ctx") {
+		t.Errorf("error does not name the missing ctx: %v", err)
+	}
+
+	if readFile(t, path) != body {
+		t.Error("a rejected main.go must stay byte-identical")
+	}
+}
+
+// The rejections above must not fire for the shape the scaffold generates.
+func TestWireMainGoAppendsToExistingInitDB(t *testing.T) {
+	body := `package main
+
+import (
+	"context"
+
+	"example.com/demo/handler"
+	"github.com/go-sicky/sicky"
+	srvHTTP "github.com/go-sicky/sicky/server/http"
+)
+
+func main() {
+	ctx := context.Background()
+
+	if err := sicky.Init(&sicky.Options{Context: ctx}); err != nil {
+		return
+	}
+
+	httpSrv := srvHTTP.New(nil, nil)
+	httpSrv.Handle(handler.NewHTTPHttp())
+}
+
+func initdb() error {
+	ctx := context.Background()
+
+	return nil
+}
+`
+	path := writeTemp(t, "main.go", body)
+
+	if err := wireMainGo(path, "example.com/demo", "key", "Key"); err != nil {
+		t.Fatalf("wireMainGo: %v", err)
+	}
+
+	if !strings.Contains(readFile(t, path), "(model.Key{}).InitDB(ctx, false)") {
+		t.Errorf("the InitDB call was not appended:\n%s", readFile(t, path))
 	}
 }
 
