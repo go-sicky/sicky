@@ -47,7 +47,7 @@ import (
 	"github.com/spf13/pflag"
 )
 
-//go:embed template/project/**/*.gotmpl template/license/*.gotmpl
+//go:embed template/project template/license/*.gotmpl
 var projectTemplates embed.FS
 
 type newContext struct {
@@ -478,12 +478,12 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		{filepath.Join(dir, "main.go"), "template/project/" + nc.Type + "/main.go.gotmpl", "This file contains the main entry point for the service.", nil},
 		{filepath.Join(dir, "config.go"), "template/project/" + nc.Type + "/config.go.gotmpl", "This file contains the application configuration.", nil},
 		{filepath.Join(dir, "config.json"), "template/project/" + nc.Type + "/config.json.gotmpl", "", nil},
-		{filepath.Join(dir, "handler", "fiber.go"), "template/project/" + nc.Type + "/fiber.go.gotmpl", "This file defines the Fiber HTTP handlers.", func(nc *newContext) bool { return !nc.WithFiber }},
-		{filepath.Join(dir, "handler", "http.go"), "template/project/" + nc.Type + "/http.go.gotmpl", "This file defines the net/http handlers.", func(nc *newContext) bool { return !nc.WithHTTP }},
-		{filepath.Join(dir, "handler", "grpc.go"), "template/project/" + nc.Type + "/grpc.go.gotmpl", "This file defines the gRPC handlers.", func(nc *newContext) bool { return !nc.WithGRPC }},
+		{filepath.Join(dir, "handler", "fiber.go"), "template/project/" + nc.Type + "/handler/fiber.go.gotmpl", "This file defines the Fiber HTTP handlers.", func(nc *newContext) bool { return !nc.WithFiber }},
+		{filepath.Join(dir, "handler", "http.go"), "template/project/" + nc.Type + "/handler/http.go.gotmpl", "This file defines the net/http handlers.", func(nc *newContext) bool { return !nc.WithHTTP }},
+		{filepath.Join(dir, "handler", "grpc.go"), "template/project/" + nc.Type + "/handler/grpc.go.gotmpl", "This file defines the gRPC handlers.", func(nc *newContext) bool { return !nc.WithGRPC }},
 		// MCP service handler (Tools/Resources/Prompts) is independent of
 		// the SSE transport servers and always rendered for mcp projects.
-		{filepath.Join(dir, "handler", "handler.go"), "template/project/mcp/handler.go.gotmpl", "This file defines the MCP tool, resource and prompt handlers.", func(nc *newContext) bool { return nc.Type != "mcp" }},
+		{filepath.Join(dir, "handler", "handler.go"), "template/project/mcp/handler/handler.go.gotmpl", "This file defines the MCP tool, resource and prompt handlers.", func(nc *newContext) bool { return nc.Type != "mcp" }},
 		{filepath.Join(dir, "Makefile"), "template/project/shared/Makefile.gotmpl", "", nil},
 		{filepath.Join(dir, "Dockerfile"), "template/project/shared/Dockerfile.gotmpl", "", nil},
 		{filepath.Join(dir, ".dockerignore"), "template/project/shared/dockerignore.gotmpl", "", nil},
@@ -548,13 +548,13 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 	// Selections without servers need no handler at all.
 	entries, _ := os.ReadDir(filepath.Join(dir, "handler"))
 	if len(entries) == 0 {
-		content, err := renderProjectTemplate("template/project/"+nc.Type+"/handler.go.gotmpl", nc)
+		content, err := renderProjectTemplate("template/project/"+nc.Type+"/handler/handler.go.gotmpl", nc)
 		if err != nil {
 			if !nc.WithFiber && !nc.WithHTTP && !nc.WithGRPC {
 				return nil
 			}
 
-			return fmt.Errorf("template %s: %w", "template/project/"+nc.Type+"/handler.go.gotmpl", err)
+			return fmt.Errorf("template %s: %w", "template/project/"+nc.Type+"/handler/handler.go.gotmpl", err)
 		}
 
 		handlerPath := filepath.Join(dir, "handler", "handler.go")
@@ -567,7 +567,7 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		content = injectFileFooter(handlerPath, content)
 
 		if formatted, ferr := format.Source([]byte(content)); ferr != nil {
-			return fmt.Errorf("template %s: format: %w", "template/project/"+nc.Type+"/handler.go.gotmpl", ferr)
+			return fmt.Errorf("template %s: format: %w", "template/project/"+nc.Type+"/handler/handler.go.gotmpl", ferr)
 		} else {
 			content = string(formatted)
 		}
