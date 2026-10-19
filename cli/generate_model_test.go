@@ -227,3 +227,122 @@ func TestGenerateModelRefusesExistingWithoutForce(t *testing.T) {
 		t.Error("a refused run must not rewire config.json")
 	}
 }
+
+// TestGenerateModelMalformedConfigWritesNothing is the preflight contract: a
+// config.json the wiring cannot read must fail before the resource files and
+// DTO declarations are written. The scaffolding order used to write first, so
+// this test fails if the plan step ever moves back after an apply.
+func TestGenerateModelMalformedConfigWritesNothing(t *testing.T) {
+	dir := scaffoldProjectDir(t, "genbadconfig", "--http", "--fiber=false", "--no-grpc")
+	writeFile(t, filepath.Join(dir, "config.json"), "{ not json\n")
+
+	mainBefore := readFile(t, filepath.Join(dir, "main.go"))
+
+	out, code := runGenerateRaw(t, dir, "model", "train")
+	if code == 0 {
+		t.Fatal("generate model must reject a malformed config.json")
+	}
+
+	if !strings.Contains(out, "config.json") {
+		t.Errorf("error does not name config.json:\n%s", out)
+	}
+
+	for _, name := range []string{"model/train.go", "service/train.go", "handler/train.http.go"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err == nil {
+			t.Errorf("a rejected wiring must not write %s", name)
+		}
+	}
+
+	if readFile(t, filepath.Join(dir, "main.go")) != mainBefore {
+		t.Error("a rejected wiring must not touch main.go")
+	}
+}
+
+// TestGenerateModelAliasedImportWritesNothing covers the main.go checks that
+// only wireMainGo can see: a foreign alias on a generated import cannot be
+// safely resolved, so the command must reject it before writing any file.
+func TestGenerateModelAliasedImportWritesNothing(t *testing.T) {
+	dir := scaffoldProjectDir(t, "genalias", "--http", "--fiber=false", "--no-grpc")
+
+	mainPath := filepath.Join(dir, "main.go")
+	mainSrc := strings.Replace(
+		readFile(t, mainPath),
+		`"example.com/genalias/handler"`,
+		`h "example.com/genalias/handler"`,
+		1,
+	)
+	writeFile(t, mainPath, mainSrc)
+
+	out, code := runGenerateRaw(t, dir, "model", "train")
+	if code == 0 {
+		t.Fatal("generate model must reject a foreign-aliased handler import")
+	}
+
+	if !strings.Contains(out, "imported as h") {
+		t.Errorf("error does not name the alias:\n%s", out)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "model", "train.go")); err == nil {
+		t.Error("a rejected wiring must not write resource files")
+	}
+}
+
+// TestGenerateModelRejectsOutputTraversal: -o ../x must be rejected by the
+// same path guard as every generate schematic, before any directory is
+// created.
+func TestGenerateModelRejectsOutputTraversal(t *testing.T) {
+	dir := scaffoldProjectDir(t, "gentraversal", "--http", "--fiber=false", "--no-grpc")
+
+	out, code := runGenerateRaw(t, dir, "model", "train", "--output", "../escaped")
+	if code == 0 {
+		t.Fatal("generate model must reject an output root containing ..")
+	}
+
+	if !strings.Contains(out, "..") {
+		t.Errorf("error does not explain the rejected path:\n%s", out)
+	}
+
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped")); err == nil {
+		t.Error("a rejected output root must not be created")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "model", "train.go")); err == nil {
+		t.Error("a rejected output root must not write into the project")
+	}
+}
+
+// TestGenerateModelUsesTargetProjectIdentity: with --output the generated
+// headers must describe the target project, not the directory the command was
+// run from. Without the root-aware identity lookup, the caller's license and
+// git identity leak into the target's files.
+func TestGenerateModelUsesTargetProjectIdentity(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed; identity detection cannot be exercised")
+	}
+
+	target := scaffoldProjectDir(t, "genidentity", "--http", "--fiber=false", "--no-grpc", "--license", "Apache-2.0")
+
+	for _, kv := range [][2]string{{"user.name", "Target Holder"}, {"user.email", "target@example.com"}} {
+		cmd := exec.Command("git", "-C", target, "config", kv[0], kv[1])
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("set target git config: %v\n%s", err, out)
+		}
+	}
+
+	// A caller directory outside the target repository: its own identity must
+	// not be used for the generated files.
+	caller := t.TempDir()
+	runGenerate(t, caller, "model", "train", "--output", target)
+
+	src := readFile(t, filepath.Join(target, "model", "train.go"))
+	for _, want := range []string{
+		"SPDX-License-Identifier: Apache-2.0",
+		"Copyright (c) ",
+		"Target Holder",
+		"@author Target Holder <target@example.com>",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("generated model does not carry the target identity %q:\n%s", want, src[:400])
+		}
+	}
+}

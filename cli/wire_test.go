@@ -623,16 +623,16 @@ func TestAppendDeclsKeepsModelineLast(t *testing.T) {
 
 func TestMainGoHasValidateSession(t *testing.T) {
 	with := writeTemp(t, "http.go", "package handler\n\nfunc validateSession() {}\n")
-	if !mainGoHasValidateSession(with) {
+	if !handlerHasValidateSession(with) {
 		t.Error("validateSession was not detected")
 	}
 
 	without := writeTemp(t, "http2.go", "package handler\n\nfunc other() {}\n")
-	if mainGoHasValidateSession(without) {
+	if handlerHasValidateSession(without) {
 		t.Error("a handler without validateSession reported true")
 	}
 
-	if mainGoHasValidateSession(filepath.Join(t.TempDir(), "absent.go")) {
+	if handlerHasValidateSession(filepath.Join(t.TempDir(), "absent.go")) {
 		t.Error("a missing handler file reported true")
 	}
 }

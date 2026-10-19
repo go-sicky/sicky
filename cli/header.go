@@ -281,10 +281,27 @@ func packageOf(content string) string {
 
 var spdxPattern = regexp.MustCompile(`SPDX-License-Identifier:[ \t]*([A-Za-z0-9.+_-]+)`)
 
-// gitConfigValue reads one git config key. It is best-effort: no git, no
-// repository and no value all mean "unknown", never an error.
-func gitConfigValue(key string) string {
-	out, err := exec.Command("git", "config", "--get", key).Output() //nolint:gosec // G204: the binary is fixed (git) and key is one of the literal names callers pass
+// projectRoot maps an empty generate root to the working directory, so the
+// root-aware helpers below can be called with either form.
+func projectRoot(root string) string {
+	if root == "" {
+		return "."
+	}
+
+	return root
+}
+
+// gitConfigValueAt reads one git config key from root, which is how a file
+// generated with --output inherits the target project's identity rather than
+// the caller's. It is best-effort: no git, no repository and no value all mean
+// "unknown", never an error.
+func gitConfigValueAt(root, key string) string {
+	args := []string{"config", "--get", key}
+	if root != "" && root != "." {
+		args = append([]string{"-C", root}, args...)
+	}
+
+	out, err := exec.Command("git", args...).Output() //nolint:gosec // G204: the binary is fixed (git) and key is one of the literal names callers pass
 	if err != nil {
 		return ""
 	}
@@ -292,27 +309,38 @@ func gitConfigValue(key string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// detectAuthor derives the @author line from git, as "Name <email>", or
-// "" when git cannot answer.
+// detectAuthor derives the @author line from the working directory's git.
 func detectAuthor() string {
-	name := gitConfigValue("user.name")
+	return detectAuthorAt("")
+}
+
+// detectAuthorAt derives the @author line, as "Name <email>", from root's git
+// config, or "" when git cannot answer.
+func detectAuthorAt(root string) string {
+	name := gitConfigValueAt(root, "user.name")
 	if name == "" {
 		return ""
 	}
 
-	if email := gitConfigValue("user.email"); email != "" {
+	if email := gitConfigValueAt(root, "user.email"); email != "" {
 		return name + " <" + email + ">"
 	}
 
 	return name
 }
 
-// detectHolder derives the suggested copyright holder from git. It is only
-// a suggestion: the interactive prompt confirms it, and --copyright
-// overrides it, because git's user.name is a person and a holder is often
-// a company.
+// detectHolder derives the suggested copyright holder from the working
+// directory's git.
 func detectHolder() string {
-	return gitConfigValue("user.name")
+	return detectHolderAt("")
+}
+
+// detectHolderAt derives the suggested copyright holder from root's git. It is
+// only a suggestion: the interactive prompt confirms it, and --copyright
+// overrides it, because git's user.name is a person and a holder is often a
+// company.
+func detectHolderAt(root string) string {
+	return gitConfigValueAt(root, "user.name")
 }
 
 // hasAll reports whether body contains every marker.
@@ -339,10 +367,10 @@ func identifyLicense(body string) (licenseChoice, bool) {
 	return licenseChoice{}, false
 }
 
-// detectSPDXInSources scans the working tree for an SPDX line the project
-// already stamps on its sources. The walk stops at the first match and at a
-// hard file cap, so `sicky generate` never turns into a full-tree read.
-func detectSPDXInSources() string {
+// detectSPDXInSourcesAt scans root for an SPDX line the project already stamps
+// on its sources. The walk stops at the first match and at a hard file cap, so
+// `sicky generate` never turns into a full-tree read.
+func detectSPDXInSourcesAt(root string) string {
 	const maxFiles = 200
 
 	skipDirs := map[string]bool{
@@ -353,7 +381,7 @@ func detectSPDXInSources() string {
 	seen := 0
 	found := ""
 
-	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(projectRoot(root), func(path string, d os.DirEntry, err error) error {
 		if err != nil || d == nil || found != "" {
 			return nil //nolint:nilerr // an unreadable entry is skipped, not fatal
 		}
@@ -394,14 +422,15 @@ func detectSPDXInSources() string {
 	return found
 }
 
-// detectProjectLicense decides which license a file generated in the
-// current directory should carry: the project's own license file first,
-// then a line an existing source file already uses, then MIT with a
-// warning. Every failure is loud because a wrong SPDX line is a claim about
-// licensing the file's owner never made.
-func detectProjectLicense() licenseChoice {
+// detectProjectLicenseAt decides which license a file generated in root should
+// carry: the project's own license file first, then a line an existing source
+// file already uses, then MIT with a warning. Every failure is loud because a
+// wrong SPDX line is a claim about licensing the file's owner never made.
+func detectProjectLicenseAt(root string) licenseChoice {
+	root = projectRoot(root)
+
 	for _, name := range licenseFileNames {
-		body, err := os.ReadFile(name)
+		body, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			continue
 		}
@@ -411,7 +440,7 @@ func detectProjectLicense() licenseChoice {
 		}
 	}
 
-	if c, ok := licenseForKey(detectSPDXInSources()); ok {
+	if c, ok := licenseForKey(detectSPDXInSourcesAt(root)); ok {
 		return c
 	}
 

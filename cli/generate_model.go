@@ -75,6 +75,14 @@ func generateModel(args []string) int {
 		dir = "."
 	}
 
+	// The output root is checked before any stat or mkdir, so "-o ../x"
+	// cannot create directories the path guard would later reject.
+	if err := validateOutputRoot(*output); err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+		return 1
+	}
+
 	module, err := preflightModelProject(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
@@ -85,17 +93,102 @@ func generateModel(args []string) int {
 	resources := modelResourceFiles(dir, spec)
 
 	// A repeat without --force is all-or-nothing: report the first occupied
-	// path and return before anything is written or wired.
+	// path and return before anything is written or wired. A stat that fails
+	// for any reason other than "absent" must not be read as "safe to write".
 	if !*force {
 		for _, resource := range resources {
-			if _, err := os.Stat(resource.path); err == nil {
+			_, statErr := os.Stat(resource.path)
+
+			switch {
+			case statErr == nil:
 				fmt.Fprintf(os.Stderr, "sicky generate model: %s exists (use --force)\n", resource.path)
+
+				return 1
+			case !errors.Is(statErr, os.ErrNotExist):
+				fmt.Fprintf(os.Stderr, "sicky generate model: %s: %s\n", resource.path, statErr.Error())
 
 				return 1
 			}
 		}
 	}
 
+	// Identity is resolved once, from the target project rather than the
+	// process working directory, so --output files describe the project they
+	// land in.
+	gc := &generateContext{
+		Name:         spec.Name,
+		ExportedName: spec.ExportedName,
+		Module:       module,
+		Table:        spec.Table,
+		WithAuth:     handlerHasValidateSession(filepath.Join(dir, "handler", "http.go")),
+		Root:         dir,
+	}
+	fillGenerateIdentity(gc)
+
+	// Plan everything before the first write. A rejected template, DTO file,
+	// config.json or main.go exits 1 with the tree untouched.
+	contents := make([]string, len(resources))
+
+	for i, resource := range resources {
+		data := *gc
+		data.Brief = resource.brief
+
+		content, renderErr := renderGenerateContent(resource.template, resource.path, &data)
+		if renderErr != nil {
+			fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", renderErr.Error())
+
+			return 1
+		}
+
+		contents[i] = content
+	}
+
+	requestDecls, responseDecls, err := renderModelDeclarations(gc)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+		return 1
+	}
+
+	requestPath := filepath.Join(dir, "handler", "request", "http.go")
+	responsePath := filepath.Join(dir, "handler", "response", "http.go")
+
+	requestOut, err := planAppendDecls(requestPath, requestDecls)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+		return 1
+	}
+
+	responseOut, err := planAppendDecls(responsePath, responseDecls)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+		return 1
+	}
+
+	configPath := filepath.Join(dir, "config.json")
+	mainPath := filepath.Join(dir, "main.go")
+
+	var configOut, mainOut []byte
+
+	if !*noWire {
+		configOut, err = planWireConfigBun(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+			return 1
+		}
+
+		mainOut, err = planWireMainGo(mainPath, module, spec.Name, spec.ExportedName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+			return 1
+		}
+	}
+
+	// Apply. Every expected failure was caught above; what remains is I/O.
 	for _, sub := range []string{"model", "service"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
 			fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
@@ -104,24 +197,9 @@ func generateModel(args []string) int {
 		}
 	}
 
-	// Identity is resolved once so the three files agree even when license
-	// detection walks the tree; renderGenerateTemplate would repeat it per
-	// file.
-	gc := &generateContext{
-		Name:         spec.Name,
-		ExportedName: spec.ExportedName,
-		Module:       module,
-		Table:        spec.Table,
-		WithAuth:     mainGoHasValidateSession(filepath.Join(dir, "handler", "http.go")),
-	}
-	fillGenerateIdentity(gc)
-
-	for _, resource := range resources {
-		data := *gc
-		data.Brief = resource.brief
-
-		if err := renderGenerateTemplate(resource.template, resource.path, &data); err != nil {
-			fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+	for i, resource := range resources {
+		if err := writeAtomic(resource.path, []byte(contents[i])); err != nil {
+			fmt.Fprintf(os.Stderr, "sicky generate model: create %s: %s\n", resource.path, err.Error())
 
 			return 1
 		}
@@ -129,27 +207,19 @@ func generateModel(args []string) int {
 		fmt.Printf("  \u2714 Created %s\n", resource.path)
 	}
 
-	// The aggregated DTO files carry a package and imports already; only the
-	// declared types are appended, and appendDecls skips names that exist so
-	// a --force rerun cannot duplicate them.
-	requestDecls, responseDecls, err := renderModelDeclarations(gc)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
-
-		return 1
-	}
-
 	for _, dto := range []struct {
-		path  string
-		decls string
+		path string
+		out  []byte
 	}{
-		{filepath.Join(dir, "handler", "request", "http.go"), requestDecls},
-		{filepath.Join(dir, "handler", "response", "http.go"), responseDecls},
+		{requestPath, requestOut},
+		{responsePath, responseOut},
 	} {
-		if err := appendDecls(dto.path, dto.decls); err != nil {
-			fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+		if len(dto.out) > 0 {
+			if err := writeAtomic(dto.path, dto.out); err != nil {
+				fmt.Fprintf(os.Stderr, "sicky generate model: write %s: %s\n", dto.path, err.Error())
 
-			return 1
+				return 1
+			}
 		}
 
 		fmt.Printf("  \u2714 Ensured declarations in %s\n", dto.path)
@@ -161,20 +231,22 @@ func generateModel(args []string) int {
 		return 0
 	}
 
-	configPath := filepath.Join(dir, "config.json")
-	if err := wireConfigBun(configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+	if len(configOut) > 0 {
+		if err := writeAtomic(configPath, configOut); err != nil {
+			fmt.Fprintf(os.Stderr, "sicky generate model: write %s: %s\n", configPath, err.Error())
 
-		return 1
+			return 1
+		}
 	}
 
 	fmt.Printf("  \u2714 Wired %s\n", configPath)
 
-	mainPath := filepath.Join(dir, "main.go")
-	if err := wireMainGo(mainPath, module, spec.Name, spec.ExportedName); err != nil {
-		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+	if len(mainOut) > 0 {
+		if err := writeAtomic(mainPath, mainOut); err != nil {
+			fmt.Fprintf(os.Stderr, "sicky generate model: write %s: %s\n", mainPath, err.Error())
 
-		return 1
+			return 1
+		}
 	}
 
 	fmt.Printf("  \u2714 Wired %s\n", mainPath)

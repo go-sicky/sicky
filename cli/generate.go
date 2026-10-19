@@ -119,6 +119,11 @@ type generateContext struct {
 	// WithAuth gates the validateSession middleware in a generated resource
 	// handler. It mirrors the project's own handler/http.go.
 	WithAuth bool
+	// Root is the project directory identity is resolved from. Empty means
+	// the process working directory, which is what every schematic that
+	// generates in place wants; `generate model --output` sets it so the
+	// generated headers describe the target project, not the caller.
+	Root string
 }
 
 func generateHandler(args []string) int {
@@ -322,34 +327,50 @@ func generateDoc(args []string) int {
 }
 
 func renderGenerateTemplate(tmplName, outputPath string, data any) error {
+	content, err := renderGenerateContent(tmplName, outputPath, data)
+	if err != nil {
+		return err
+	}
+
+	if err := writeAtomic(outputPath, []byte(content)); err != nil {
+		return fmt.Errorf("create %s: %w", outputPath, err)
+	}
+
+	return nil
+}
+
+// renderGenerateContent runs the template, header, footer and format pipeline
+// without touching the disk. Callers that must write several files run every
+// render to bytes first, so a rejected run leaves the tree untouched.
+func renderGenerateContent(tmplName, outputPath string, data any) (string, error) {
 	// Both the destination and the name interpolated into the template
 	// come from the command line: a "../" name would write outside the
 	// working tree, and a name that is not an identifier can inject
 	// statements into the generated file (gofmt only rejects syntax that
 	// does not parse, not syntax that is valid but malicious).
 	if err := checkWritePath(outputPath); err != nil {
-		return err
+		return "", err
 	}
 
 	if gc, ok := data.(*generateContext); ok {
 		if err := validateSchematicName(gc.Name); err != nil {
-			return fmt.Errorf("template %s: %w", tmplName, err)
+			return "", fmt.Errorf("template %s: %w", tmplName, err)
 		}
 	}
 
 	tmplBytes, err := generateTemplates.ReadFile(tmplName)
 	if err != nil {
-		return fmt.Errorf("template %q: %w", tmplName, err)
+		return "", fmt.Errorf("template %q: %w", tmplName, err)
 	}
 
 	tmpl, err := template.New(filepath.Base(tmplName)).Parse(string(tmplBytes))
 	if err != nil {
-		return fmt.Errorf("template %q parse: %w", tmplName, err)
+		return "", fmt.Errorf("template %q parse: %w", tmplName, err)
 	}
 
 	var buf strings.Builder
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("render %s: %w", outputPath, err)
+		return "", fmt.Errorf("render %s: %w", outputPath, err)
 	}
 
 	content := buf.String()
@@ -384,17 +405,13 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 	if strings.HasSuffix(outputPath, ".go") {
 		formatted, ferr := format.Source([]byte(content))
 		if ferr != nil {
-			return fmt.Errorf("render %s: format: %w", outputPath, ferr)
+			return "", fmt.Errorf("render %s: format: %w", outputPath, ferr)
 		}
 
 		content = string(formatted)
 	}
 
-	if err := writeAtomic(outputPath, []byte(content)); err != nil {
-		return fmt.Errorf("create %s: %w", outputPath, err)
-	}
-
-	return nil
+	return content, nil
 }
 
 // templateSchematic returns the schematic an embedded generate template
@@ -415,11 +432,11 @@ func templateSchematic(tmplName string) string {
 // runs once per generated file rather than once per process — a generate
 // command writes one file.
 func fillGenerateIdentity(gc *generateContext) {
-	license := detectProjectLicense()
+	license := detectProjectLicenseAt(gc.Root)
 
 	gc.SPDX = license.spdx
-	gc.Holder = detectHolder()
-	gc.Author = detectAuthor()
+	gc.Holder = detectHolderAt(gc.Root)
+	gc.Author = detectAuthorAt(gc.Root)
 }
 
 func detectModule() string {

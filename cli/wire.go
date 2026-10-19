@@ -45,39 +45,62 @@ type sourceEdit struct {
 // function is idempotent: wiring the same model twice reports success and
 // leaves the file byte-identical.
 func wireMainGo(path, module, modelName, exportedName string) error {
+	out, err := planWireMainGo(path, module, modelName, exportedName)
+	if err != nil {
+		return err
+	}
+
+	// A nil plan means the file already carries the wiring; rewriting it
+	// would only change its mtime.
+	if out == nil {
+		return nil
+	}
+
+	if err := writeAtomic(path, out); err != nil {
+		return fmt.Errorf("write main.go: %w", err)
+	}
+
+	return nil
+}
+
+// planWireMainGo computes the bytes wireMainGo writes without touching the
+// file. A nil result means nothing needs changing. Callers that generate
+// several files run every plan before the first write, so a rejected wiring
+// cannot leave a half-mutated project behind.
+func planWireMainGo(path, module, modelName, exportedName string) ([]byte, error) {
 	if module == "" {
-		return errors.New("wire main.go: empty module path")
+		return nil, errors.New("wire main.go: empty module path")
 	}
 
 	if exportedName == "" {
-		return fmt.Errorf("wire main.go: model %q has no exported name", modelName)
+		return nil, fmt.Errorf("wire main.go: model %q has no exported name", modelName)
 	}
 
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read main.go: %w", err)
+		return nil, fmt.Errorf("read main.go: %w", err)
 	}
 
 	fset := token.NewFileSet()
 
 	file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
 	if err != nil {
-		return fmt.Errorf("main.go does not look like a sicky scaffold: %w", err)
+		return nil, fmt.Errorf("main.go does not look like a sicky scaffold: %w", err)
 	}
 
 	mainFn := funcDeclaration(file, "main")
 	if mainFn == nil || mainFn.Body == nil {
-		return errors.New("main.go does not look like a sicky scaffold: func main")
+		return nil, errors.New("main.go does not look like a sicky scaffold: func main")
 	}
 
 	initCall := findInitCall(mainFn)
 	if initCall == nil {
-		return errors.New("main.go does not look like a sicky scaffold: sicky.Init")
+		return nil, errors.New("main.go does not look like a sicky scaffold: sicky.Init")
 	}
 
 	options := optionsComposite(initCall)
 	if options == nil {
-		return errors.New("main.go does not look like a sicky scaffold: sicky.Options")
+		return nil, errors.New("main.go does not look like a sicky scaffold: sicky.Options")
 	}
 
 	var edits []sourceEdit
@@ -100,7 +123,7 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 	// instead of emitting code that cannot compile.
 	modelPath := module + "/model"
 	if alias, ok := imports[modelPath]; ok && alias != "" && alias != "model" {
-		return fmt.Errorf("main.go does not look like a sicky scaffold: %s is imported as %s", modelPath, alias)
+		return nil, fmt.Errorf("main.go does not look like a sicky scaffold: %s is imported as %s", modelPath, alias)
 	}
 
 	wantImport(modelPath)
@@ -125,7 +148,7 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 		// The appended call passes ctx; an initdb without one would be edited
 		// into code that does not compile.
 		if !declaresCtx(file, initdb) {
-			return errors.New("main.go does not look like a sicky scaffold: initdb does not declare ctx")
+			return nil, errors.New("main.go does not look like a sicky scaffold: initdb does not declare ctx")
 		}
 
 		edits = append(edits, insertModelInitDB(src, fset, initdb, exportedName))
@@ -143,7 +166,7 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 		} else {
 			handlerPath := module + "/handler"
 			if alias, ok := imports[handlerPath]; ok && alias != "" && alias != "handler" {
-				return fmt.Errorf("main.go does not look like a sicky scaffold: %s is imported as %s", handlerPath, alias)
+				return nil, fmt.Errorf("main.go does not look like a sicky scaffold: %s is imported as %s", handlerPath, alias)
 			}
 
 			wantImport(handlerPath)
@@ -162,19 +185,15 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 	}
 
 	if len(edits) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	out, err := applyEdits(src, edits)
 	if err != nil {
-		return fmt.Errorf("wire main.go: %w", err)
+		return nil, fmt.Errorf("wire main.go: %w", err)
 	}
 
-	if err := writeAtomic(path, out); err != nil {
-		return fmt.Errorf("write main.go: %w", err)
-	}
-
-	return nil
+	return out, nil
 }
 
 // wireConfigBun ensures config.json carries the bun block the generated model
@@ -182,9 +201,29 @@ func wireMainGo(path, module, modelName, exportedName string) error {
 // a database keeps it. The file is left untouched when nothing is missing, so
 // a second run is byte-for-byte identical.
 func wireConfigBun(path string) error {
+	out, err := planWireConfigBun(path)
+	if err != nil {
+		return err
+	}
+
+	// A nil plan means the file already carries the block.
+	if out == nil {
+		return nil
+	}
+
+	if err := writeAtomic(path, out); err != nil {
+		return fmt.Errorf("write config.json: %w", err)
+	}
+
+	return nil
+}
+
+// planWireConfigBun computes the bytes wireConfigBun writes without touching
+// the file. A nil result means the bun block is already complete.
+func planWireConfigBun(path string) ([]byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read config.json: %w", err)
+		return nil, fmt.Errorf("read config.json: %w", err)
 	}
 
 	cfg := make(map[string]any)
@@ -195,26 +234,26 @@ func wireConfigBun(path string) error {
 	decoder.UseNumber()
 
 	if err := decoder.Decode(&cfg); err != nil {
-		return fmt.Errorf("config.json: %w", err)
+		return nil, fmt.Errorf("config.json: %w", err)
 	}
 
 	if cfg == nil {
-		return errors.New("config.json: the root must be a JSON object")
+		return nil, errors.New("config.json: the root must be a JSON object")
 	}
 
 	sickyCfg, err := jsonObject(cfg, "sicky", "sicky")
 	if err != nil {
-		return fmt.Errorf("config.json: %w", err)
+		return nil, fmt.Errorf("config.json: %w", err)
 	}
 
 	infraCfg, err := jsonObject(sickyCfg, "infra", "sicky.infra")
 	if err != nil {
-		return fmt.Errorf("config.json: %w", err)
+		return nil, fmt.Errorf("config.json: %w", err)
 	}
 
 	bunCfg, err := jsonObject(infraCfg, "bun", "sicky.infra.bun")
 	if err != nil {
-		return fmt.Errorf("config.json: %w", err)
+		return nil, fmt.Errorf("config.json: %w", err)
 	}
 
 	changed := false
@@ -230,21 +269,17 @@ func wireConfigBun(path string) error {
 	}
 
 	if !changed {
-		return nil
+		return nil, nil
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "    ")
 	if err != nil {
-		return fmt.Errorf("config.json: %w", err)
+		return nil, fmt.Errorf("config.json: %w", err)
 	}
 
 	out = append(out, '\n')
 
-	if err := writeAtomic(path, out); err != nil {
-		return fmt.Errorf("write config.json: %w", err)
-	}
-
-	return nil
+	return out, nil
 }
 
 // appendDecls appends the type declarations in decls that path does not
@@ -252,21 +287,41 @@ func wireConfigBun(path string) error {
 // `sicky generate model` renders. Duplicate names are skipped by name, so a
 // forced re-run cannot declare the same DTO twice.
 func appendDecls(path, decls string) error {
+	out, err := planAppendDecls(path, decls)
+	if err != nil {
+		return err
+	}
+
+	// A nil plan means every declaration is already present.
+	if out == nil {
+		return nil
+	}
+
+	if err := writeAtomic(path, out); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// planAppendDecls computes the bytes appendDecls writes without touching the
+// file. A nil result means every declaration is already present.
+func planAppendDecls(path, decls string) ([]byte, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
 	fset := token.NewFileSet()
 
 	file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
 	snippetSrc, snippetFset, snippet, err := parseDeclarations(decls)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	existing := declaredTypes(file)
@@ -291,7 +346,7 @@ func appendDecls(path, decls string) error {
 	}
 
 	if len(chunks) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	offset := trailingCommentOffset(src, fset, file)
@@ -307,21 +362,17 @@ func appendDecls(path, decls string) error {
 
 	out, err := applyEdits(src, []sourceEdit{{start: offset, end: offset, text: text}})
 	if err != nil {
-		return fmt.Errorf("append declarations to %s: %w", path, err)
+		return nil, fmt.Errorf("append declarations to %s: %w", path, err)
 	}
 
-	if err := writeAtomic(path, out); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-
-	return nil
+	return out, nil
 }
 
-// mainGoHasValidateSession reports whether the project's handler package still
-// defines the auth middleware. path is handler/http.go: --no-auth projects do
-// not have it, and resource handlers mount validateSession only when it
-// exists.
-func mainGoHasValidateSession(path string) bool {
+// handlerHasValidateSession reports whether the project's handler package
+// still defines the auth middleware. path is handler/http.go: --no-auth
+// projects do not have it, and resource handlers mount validateSession only
+// when it exists.
+func handlerHasValidateSession(path string) bool {
 	fset := token.NewFileSet()
 
 	file, err := parser.ParseFile(fset, path, nil, 0)
