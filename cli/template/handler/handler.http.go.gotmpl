@@ -15,7 +15,7 @@ func New{{.ExportedName}}() *{{.ExportedName}} {
 }
 
 func (h *{{.ExportedName}}) Name() string {
-	return "{{.Name}}.http"
+	return "{{.Route}}"
 }
 
 func (h *{{.ExportedName}}) Type() string {

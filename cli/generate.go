@@ -105,10 +105,15 @@ func generateRun(args []string) int {
 type generateContext struct {
 	Name         string
 	ExportedName string
-	Module       string
-	SPDX         string
-	Holder       string
-	Author       string
+	// Route is the handler's Name() value derived from the command-line name
+	// and its transport: both "key" and "key.http" with --type http yield
+	// "key.http". Only the HTTP handler template reads it; the Fiber template
+	// keeps appending its own ".fiber" suffix to Name.
+	Route  string
+	Module string
+	SPDX   string
+	Holder string
+	Author string
 	// Brief is the @brief sentence stamped on the generated header. It is
 	// derived from the template path when a caller leaves it empty; callers
 	// that know more about the file set it themselves.
@@ -155,9 +160,11 @@ func generateHandler(args []string) int {
 	}
 
 	name := fs.Arg(0)
+	ident, route := handlerIdent(name, kind)
 	gc := &generateContext{
 		Name:         name,
-		ExportedName: exportName(name),
+		ExportedName: ident,
+		Route:        route,
 		Module:       detectModule(),
 	}
 
@@ -178,6 +185,24 @@ func generateHandler(args []string) int {
 	fmt.Printf("  \u2714 Created %s (%s)\n", outputPath, kind)
 
 	return 0
+}
+
+// handlerIdent derives the exported type name and the Name() route from the
+// command-line name and its transport. The transport may already be spelled
+// in the name ("key.http"), so the suffix is stripped before it is exported
+// and then re-attached exactly once.
+func handlerIdent(name, transport string) (ident, route string) {
+	base := strings.TrimSuffix(name, "."+transport)
+	route = base + "." + transport
+
+	switch transport {
+	case "http":
+		ident = "HTTP" + exportName(base)
+	case "fiber":
+		ident = exportName(base) + "Fiber"
+	}
+
+	return ident, route
 }
 
 func generateTool(args []string) int {
