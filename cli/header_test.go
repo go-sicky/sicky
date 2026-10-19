@@ -115,6 +115,59 @@ func TestIdentifyUnknownLicenseBody(t *testing.T) {
 	}
 }
 
+// TestGoHeaderCarriesBrief pins the descriptor line every generated file
+// carries so a reader learns what the file is for without opening it. An
+// empty brief omits the line entirely rather than rendering an empty
+// @brief, which would be noise in every header.
+func TestGoHeaderCarriesBrief(t *testing.T) {
+	fm := fileMeta{
+		SPDX: "MIT", Holder: "Example Corp", Year: "2026",
+		Author: "Ada <ada@example.com>", File: "handler/http.go", Package: "handler",
+		Since: "10/19/2026", Brief: "This file defines the HTTP handlers.",
+	}
+
+	got := goHeader(&fm)
+	if !strings.Contains(got, "* @brief This file defines the HTTP handlers.\n") {
+		t.Errorf("go header missing @brief:\n%s", got)
+	}
+
+	without := goHeader(&fileMeta{SPDX: "MIT", Holder: "H", Year: "2026", Author: "A", File: "x.go", Package: "x", Since: "10/19/2026"})
+	if strings.Contains(without, "@brief") {
+		t.Errorf("an empty brief must omit the line:\n%s", without)
+	}
+}
+
+// TestGenerateHeaderCarriesBrief guards the wiring, not the renderer:
+// renderGenerateTemplate must copy the context's brief onto the header it
+// builds. Without it every `sicky generate` file would silently ship
+// without the descriptor the unit test above proves the renderer can emit.
+func TestGenerateHeaderCarriesBrief(t *testing.T) {
+	dir := t.TempDir()
+
+	gc := &generateContext{
+		Name:         "orders",
+		ExportedName: exportName("orders"),
+		Module:       "example.com/demo",
+		SPDX:         "MIT",
+		Holder:       "Example Corp",
+		Author:       "Ada <ada@example.com>",
+	}
+
+	out := filepath.Join(dir, "orders.go")
+	if err := renderGenerateTemplate("template/handler/handler.http.go.gotmpl", out, gc); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read %s: %v", out, err)
+	}
+
+	if !strings.Contains(string(raw), "* @brief Generated handler orders.\n") {
+		t.Errorf("generated header missing the derived brief:\n%s", raw)
+	}
+}
+
 // TestInjectionClassifiesFiles pins the scope decision: .go gets a header
 // and a modeline, build scripts get a header only, and everything else is
 // left alone. config.json is the case that matters most — a comment in it
@@ -124,7 +177,7 @@ func TestInjectionClassifiesFiles(t *testing.T) {
 	fm := fileMeta{
 		Name: "demo", SPDX: "MIT", Holder: "Example Corp", Year: "2026",
 		Author: "Ada <ada@example.com>", File: "main.go", Package: "main",
-		Since: "10/09/2026",
+		Since: "10/09/2026", Brief: "This file defines the HTTP handlers.",
 	}
 
 	goSrc := "package main\n\nfunc main() {}\n"
@@ -137,6 +190,7 @@ func TestInjectionClassifiesFiles(t *testing.T) {
 		"* @package main",
 		"* @author Ada <ada@example.com>",
 		"* @since 10/09/2026",
+		"* @brief This file defines the HTTP handlers.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("go header missing %q:\n%s", want, got)
@@ -296,6 +350,7 @@ func TestScaffoldWritesLicenseAndFileHeaders(t *testing.T) {
 		"* @file main.go",
 		"* @package main",
 		"* @author Ada <ada@example.com>",
+		"* @brief This file contains the main entry point for the service.",
 		"vim600: sw=4 ts=4 fdm=marker",
 	} {
 		if !strings.Contains(mainGo, want) {

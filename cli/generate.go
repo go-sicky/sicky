@@ -107,6 +107,10 @@ type generateContext struct {
 	SPDX         string
 	Holder       string
 	Author       string
+	// Brief is the @brief sentence stamped on the generated header. It is
+	// derived from the template path when a caller leaves it empty; callers
+	// that know more about the file set it themselves.
+	Brief string
 }
 
 func generateHandler(args []string) int {
@@ -351,9 +355,19 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 			fillGenerateIdentity(gc)
 		}
 
+		// The schematic is the middle segment of the embedded template path
+		// (template/handler/...), which is the only place that still knows
+		// it this deep; generateRun's local is long gone by now.
+		if gc.Brief == "" {
+			if schematic := templateSchematic(tmplName); schematic != "" {
+				gc.Brief = "Generated " + schematic + " " + gc.Name + "."
+			}
+		}
+
 		fm := newFileMeta(gc.Name, gc.SPDX, gc.Holder, gc.Author)
 		fm.File = filepath.ToSlash(outputPath)
 		fm.Package = packageOf(content)
+		fm.Brief = gc.Brief
 
 		content = injectFileHeader(outputPath, content, &fm)
 		content = injectFileFooter(outputPath, content)
@@ -373,6 +387,19 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 	}
 
 	return nil
+}
+
+// templateSchematic returns the schematic an embedded generate template
+// belongs to: "template/handler/handler.fiber.go.gotmpl" yields "handler".
+// An unrecognized path yields "", and the caller then omits @brief rather
+// than stamping a descriptor it cannot name.
+func templateSchematic(tmplName string) string {
+	parts := strings.Split(filepath.ToSlash(tmplName), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	return parts[1]
 }
 
 // fillGenerateIdentity resolves the license a generated file should carry

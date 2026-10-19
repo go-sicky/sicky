@@ -128,7 +128,8 @@ func resolveLicense(input string) licenseChoice {
 
 // fileMeta carries everything a generated file's header and footer renders
 // from. Holder, Author and Package fall back to a visible placeholder when
-// the value could not be confirmed.
+// the value could not be confirmed. Brief is the @brief sentence; an empty
+// Brief omits the line, so files with nothing to say keep the shorter head.
 type fileMeta struct {
 	Name    string
 	SPDX    string
@@ -138,6 +139,7 @@ type fileMeta struct {
 	File    string
 	Package string
 	Since   string
+	Brief   string
 }
 
 // newFileMeta builds the time- and identity-dependent part of a header.
@@ -181,6 +183,13 @@ func goHeader(fm *fileMeta) string {
 	fmt.Fprintf(&b, " * @package %s\n", fm.Package)
 	fmt.Fprintf(&b, " * @author %s\n", fm.Author)
 	fmt.Fprintf(&b, " * @since %s\n", fm.Since)
+
+	// An empty brief means "nothing to say", not an empty descriptor line:
+	// every caller without a sentence keeps the shorter header it had.
+	if fm.Brief != "" {
+		fmt.Fprintf(&b, " * @brief %s\n", fm.Brief)
+	}
+
 	b.WriteString(" */\n\n")
 
 	return b.String()

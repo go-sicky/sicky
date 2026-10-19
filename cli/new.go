@@ -466,25 +466,29 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		}
 	}
 
+	// The brief column feeds the @brief line of a .go header. Build scripts
+	// get the shorter two-line head and files outside the header policy get
+	// no comment at all, so their entry stays empty.
 	files := []struct {
 		path     string
 		template string
+		brief    string
 		skip     func(*newContext) bool
 	}{
-		{filepath.Join(dir, "main.go"), "template/project/" + nc.Type + "/main.go.gotmpl", nil},
-		{filepath.Join(dir, "config.go"), "template/project/" + nc.Type + "/config.go.gotmpl", nil},
-		{filepath.Join(dir, "config.json"), "template/project/" + nc.Type + "/config.json.gotmpl", nil},
-		{filepath.Join(dir, "handler", "fiber.go"), "template/project/" + nc.Type + "/fiber.go.gotmpl", func(nc *newContext) bool { return !nc.WithFiber }},
-		{filepath.Join(dir, "handler", "http.go"), "template/project/" + nc.Type + "/http.go.gotmpl", func(nc *newContext) bool { return !nc.WithHTTP }},
-		{filepath.Join(dir, "handler", "grpc.go"), "template/project/" + nc.Type + "/grpc.go.gotmpl", func(nc *newContext) bool { return !nc.WithGRPC }},
+		{filepath.Join(dir, "main.go"), "template/project/" + nc.Type + "/main.go.gotmpl", "This file contains the main entry point for the service.", nil},
+		{filepath.Join(dir, "config.go"), "template/project/" + nc.Type + "/config.go.gotmpl", "This file contains the application configuration.", nil},
+		{filepath.Join(dir, "config.json"), "template/project/" + nc.Type + "/config.json.gotmpl", "", nil},
+		{filepath.Join(dir, "handler", "fiber.go"), "template/project/" + nc.Type + "/fiber.go.gotmpl", "This file defines the Fiber HTTP handlers.", func(nc *newContext) bool { return !nc.WithFiber }},
+		{filepath.Join(dir, "handler", "http.go"), "template/project/" + nc.Type + "/http.go.gotmpl", "This file defines the net/http handlers.", func(nc *newContext) bool { return !nc.WithHTTP }},
+		{filepath.Join(dir, "handler", "grpc.go"), "template/project/" + nc.Type + "/grpc.go.gotmpl", "This file defines the gRPC handlers.", func(nc *newContext) bool { return !nc.WithGRPC }},
 		// MCP service handler (Tools/Resources/Prompts) is independent of
 		// the SSE transport servers and always rendered for mcp projects.
-		{filepath.Join(dir, "handler", "handler.go"), "template/project/mcp/handler.go.gotmpl", func(nc *newContext) bool { return nc.Type != "mcp" }},
-		{filepath.Join(dir, "Makefile"), "template/project/shared/Makefile.gotmpl", nil},
-		{filepath.Join(dir, "Dockerfile"), "template/project/shared/Dockerfile.gotmpl", nil},
-		{filepath.Join(dir, ".dockerignore"), "template/project/shared/dockerignore.gotmpl", nil},
-		{filepath.Join(dir, ".gitignore"), "template/project/shared/gitignore.gotmpl", nil},
-		{filepath.Join(dir, "go.mod"), "template/project/shared/go.mod.gotmpl", nil},
+		{filepath.Join(dir, "handler", "handler.go"), "template/project/mcp/handler.go.gotmpl", "This file defines the MCP tool, resource and prompt handlers.", func(nc *newContext) bool { return nc.Type != "mcp" }},
+		{filepath.Join(dir, "Makefile"), "template/project/shared/Makefile.gotmpl", "", nil},
+		{filepath.Join(dir, "Dockerfile"), "template/project/shared/Dockerfile.gotmpl", "", nil},
+		{filepath.Join(dir, ".dockerignore"), "template/project/shared/dockerignore.gotmpl", "", nil},
+		{filepath.Join(dir, ".gitignore"), "template/project/shared/gitignore.gotmpl", "", nil},
+		{filepath.Join(dir, "go.mod"), "template/project/shared/go.mod.gotmpl", "", nil},
 	}
 
 	// Identity and date are fixed for the whole scaffold so every file in
@@ -514,6 +518,7 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		// in code cannot drift across 27 templates.
 		fm := baseMeta
 		fm.File = relativeFile(dir, f.path)
+		fm.Brief = f.brief
 
 		if isGoFile(f.path) {
 			fm.Package = packageOf(content)
@@ -556,6 +561,7 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		fm := baseMeta
 		fm.File = relativeFile(dir, handlerPath)
 		fm.Package = packageOf(content)
+		fm.Brief = "This file defines the service handlers."
 
 		content = injectFileHeader(handlerPath, content, &fm)
 		content = injectFileFooter(handlerPath, content)
