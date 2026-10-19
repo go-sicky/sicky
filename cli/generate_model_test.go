@@ -287,13 +287,37 @@ func TestGenerateModelAliasedImportWritesNothing(t *testing.T) {
 	}
 }
 
-// TestGenerateModelRejectsOutputTraversal: -o ../x must be rejected by the
-// same path guard as every generate schematic, before any directory is
-// created.
+// TestGenerateModelRejectsOutputTraversal: -o ../target must be rejected by
+// the same path guard as every generate schematic, before any directory is
+// created. The target is a real sicky project on purpose: with a non-project
+// path the base command already failed in preflight, so the test would pass
+// even while the path guard ran after mkdir. Both projects are scaffolded
+// --no-auth so service/ does not pre-exist, which makes both directory
+// assertions meaningful.
 func TestGenerateModelRejectsOutputTraversal(t *testing.T) {
-	dir := scaffoldProjectDir(t, "gentraversal", "--http", "--fiber=false", "--no-grpc")
+	root := t.TempDir()
 
-	out, code := runGenerateRaw(t, dir, "model", "train", "--output", "../escaped")
+	for _, name := range []string{"caller", "target"} {
+		out, err := exec.Command(
+			scaffoldBinary(t),
+			"new", name,
+			"--module", "example.com/"+name,
+			"--type", "standard",
+			"--http", "--fiber=false", "--no-grpc", "--no-auth",
+			"-o", root,
+		).CombinedOutput()
+		if err != nil {
+			t.Fatalf("scaffold %s: %v\n%s", name, err, out)
+		}
+	}
+
+	caller := filepath.Join(root, "caller")
+	target := filepath.Join(root, "target")
+
+	mainBefore := readFile(t, filepath.Join(target, "main.go"))
+	cfgBefore := readFile(t, filepath.Join(target, "config.json"))
+
+	out, code := runGenerateRaw(t, caller, "model", "train", "--output", "../target")
 	if code == 0 {
 		t.Fatal("generate model must reject an output root containing ..")
 	}
@@ -302,12 +326,20 @@ func TestGenerateModelRejectsOutputTraversal(t *testing.T) {
 		t.Errorf("error does not explain the rejected path:\n%s", out)
 	}
 
-	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped")); err == nil {
-		t.Error("a rejected output root must not be created")
+	// These two directories are what the base command created before
+	// checkWritePath rejected the generated paths.
+	for _, sub := range []string{"model", "service"} {
+		if _, err := os.Stat(filepath.Join(target, sub)); err == nil {
+			t.Errorf("a rejected output root must not create %s", filepath.Join("target", sub))
+		}
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "model", "train.go")); err == nil {
-		t.Error("a rejected output root must not write into the project")
+	if readFile(t, filepath.Join(target, "main.go")) != mainBefore {
+		t.Error("a rejected output root must not touch target/main.go")
+	}
+
+	if readFile(t, filepath.Join(target, "config.json")) != cfgBefore {
+		t.Error("a rejected output root must not touch target/config.json")
 	}
 }
 
