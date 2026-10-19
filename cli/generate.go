@@ -42,14 +42,14 @@ import (
 	"github.com/spf13/pflag"
 )
 
-//go:embed template/handler/*.gotmpl template/tool/*.gotmpl template/resource/*.gotmpl template/prompt/*.gotmpl template/doc/*.gotmpl
+//go:embed template/handler/*.gotmpl template/tool/*.gotmpl template/resource/*.gotmpl template/prompt/*.gotmpl template/doc/*.gotmpl template/entity/*.gotmpl
 var generateTemplates embed.FS
 
 func generateRun(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "sicky generate: missing schematic name")
 		fmt.Fprintln(os.Stderr, "Usage: sicky generate <schematic> [name] [flags]")
-		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, prompt, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
+		fmt.Fprintln(os.Stderr, "Schematics: handler, model, tool, resource, prompt, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
 
 		return 1
 	}
@@ -60,6 +60,8 @@ func generateRun(args []string) int {
 	switch schematic {
 	case "handler":
 		return generateHandler(schematicArgs)
+	case "model":
+		return generateModel(schematicArgs)
 	case "tool":
 		return generateTool(schematicArgs)
 	case "resource":
@@ -90,7 +92,7 @@ func generateRun(args []string) int {
 		return generateK8sFiles(schematicArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "sicky generate: unknown schematic %q\n", schematic)
-		fmt.Fprintln(os.Stderr, "Schematics: handler, tool, resource, prompt, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
+		fmt.Fprintln(os.Stderr, "Schematics: handler, model, tool, resource, prompt, doc, server, client, service, broker, job, middleware, proto, config, docker, k8s")
 
 		return 1
 	}
@@ -111,6 +113,12 @@ type generateContext struct {
 	// derived from the template path when a caller leaves it empty; callers
 	// that know more about the file set it themselves.
 	Brief string
+	// Table is the PostgreSQL table a generated model owns. Only the entity
+	// templates read it; every other schematic leaves it empty.
+	Table string
+	// WithAuth gates the validateSession middleware in a generated resource
+	// handler. It mirrors the project's own handler/http.go.
+	WithAuth bool
 }
 
 func generateHandler(args []string) int {
@@ -382,7 +390,7 @@ func renderGenerateTemplate(tmplName, outputPath string, data any) error {
 		content = string(formatted)
 	}
 
-	if err := os.WriteFile(outputPath, []byte(content), 0o644); err != nil {
+	if err := writeAtomic(outputPath, []byte(content)); err != nil {
 		return fmt.Errorf("create %s: %w", outputPath, err)
 	}
 
