@@ -40,7 +40,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/etag"
-	"github.com/gofiber/fiber/v3/middleware/recover"
+	fiberrecover "github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
@@ -170,8 +170,8 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	// middlewares below it; route handlers are caught by the innermost
 	// copy registered after the access logger - a panic unwinding past
 	// the access logger would skip its logging and metrics entirely.
-	app.Use(recover.New(
-		recover.Config{
+	app.Use(fiberrecover.New(
+		fiberrecover.Config{
 			EnableStackTrace: cfg.EnableStackTrace,
 			PanicHandler:     NewPanicHandler(opts.Logger),
 		},
@@ -234,8 +234,8 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	// error *below* the access logger, otherwise it unwinds past the
 	// logger and the tracer and the request is never logged, counted or
 	// observed - while the client still gets a 500 from the outer net.
-	app.Use(recover.New(
-		recover.Config{
+	app.Use(fiberrecover.New(
+		fiberrecover.Config{
 			EnableStackTrace: cfg.EnableStackTrace,
 			PanicHandler:     NewPanicHandler(opts.Logger),
 		},

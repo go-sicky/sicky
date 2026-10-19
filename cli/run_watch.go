@@ -107,7 +107,11 @@ func (p *watchProcess) stop(grace time.Duration) {
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
 
 	select {
-	case <-done:
+	case err := <-done:
+		// The reaping goroutine already stored the error in exitErr;
+		// this receive only waits for Wait to return.
+		_ = err
+
 		return
 	case <-time.After(grace):
 	}
@@ -115,7 +119,8 @@ func (p *watchProcess) stop(grace time.Duration) {
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
 
 	select {
-	case <-done:
+	case err := <-done:
+		_ = err
 	case <-time.After(watchKillTimeout):
 		// Never block the restart loop forever on a stuck child.
 		fmt.Fprintf(os.Stderr, "sicky run --watch: child process %d did not exit\n", pid)
