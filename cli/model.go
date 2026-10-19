@@ -27,6 +27,8 @@ type modelSpec struct {
 // declares a handler and a service under that name.
 func modelSpecs(names []string) ([]modelSpec, error) {
 	out := make([]modelSpec, 0, len(names))
+	byExported := make(map[string]string, len(names))
+	byTable := make(map[string]string, len(names))
 
 	for _, name := range names {
 		name = strings.TrimSpace(name)
@@ -38,11 +40,33 @@ func modelSpecs(names []string) ([]modelSpec, error) {
 			return nil, err
 		}
 
+		// auth and http are generated as their own handler/service pairs: a
+		// model with either name would redeclare types the scaffold emits.
 		if strings.EqualFold(name, "auth") {
 			return nil, fmt.Errorf("model name %q is reserved for the auth example", name)
 		}
 
-		out = append(out, modelSpec{Name: name, ExportedName: exportName(name), Table: tableName(name)})
+		if strings.EqualFold(name, "http") {
+			return nil, fmt.Errorf("model name %q is reserved for the base HTTP handler", name)
+		}
+
+		spec := modelSpec{Name: name, ExportedName: exportName(name), Table: tableName(name)}
+
+		// Two spellings can normalize to one identifier or table (key/Key,
+		// my-key/my_key, my.key/my_key); writing both would duplicate
+		// declarations and the same table, so neither compiles.
+		if prev, ok := byExported[spec.ExportedName]; ok {
+			return nil, fmt.Errorf("model name %q collides with %q: both resolve to %s", name, prev, spec.ExportedName)
+		}
+
+		if prev, ok := byTable[spec.Table]; ok {
+			return nil, fmt.Errorf("model name %q collides with %q: both resolve to table %q", name, prev, spec.Table)
+		}
+
+		byExported[spec.ExportedName] = name
+		byTable[spec.Table] = name
+
+		out = append(out, spec)
 	}
 
 	return out, nil

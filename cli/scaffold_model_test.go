@@ -52,6 +52,26 @@ func TestNewWithModels(t *testing.T) {
 	if !strings.Contains(readFile(t, filepath.Join(dir, "handler", "key.http.go")), ".Use(validateSession)") {
 		t.Error("a model handler in an auth-enabled project must mount validateSession")
 	}
+
+	reqSrc := readFile(t, filepath.Join(dir, "handler", "request", "http.go"))
+	for _, want := range []string{"HttpKeyPostCreate", "HttpKeyPutUpdate", "HttpCabinetPostCreate", "HttpCabinetPutUpdate"} {
+		if !strings.Contains(reqSrc, want) {
+			t.Errorf("handler/request/http.go missing merged declaration %q", want)
+		}
+	}
+
+	respSrc := readFile(t, filepath.Join(dir, "handler", "response", "http.go"))
+	for _, want := range []string{"type HttpKey struct", "type HttpCabinet struct"} {
+		if !strings.Contains(respSrc, want) {
+			t.Errorf("handler/response/http.go missing merged declaration %q", want)
+		}
+	}
+
+	// Generated code must check every error: discarding RowsAffected's
+	// error reports a successful write as "no rows affected".
+	if strings.Contains(readFile(t, filepath.Join(dir, "model", "key.go")), "n, _ := r.RowsAffected()") {
+		t.Error("generated model discards the RowsAffected error")
+	}
 }
 
 // A project built with --no-auth has no validateSession to mount, so the
@@ -99,6 +119,64 @@ func TestNewRejectsAuthModel(t *testing.T) {
 
 	if !strings.Contains(string(out), "reserved") {
 		t.Errorf("error does not explain the collision:\n%s", out)
+	}
+}
+
+// Models are generated from the standard layering only: mcp and interactive
+// projects have no handler/request|response files and no validateSession, so
+// the generated resource handler would not compile.
+func TestNewModelRequiresStandardType(t *testing.T) {
+	dir := t.TempDir()
+	out, err := exec.Command(scaffoldBinary(t), "new", "nodemcp", "--module", "example.com/nodemcp",
+		"--type", "mcp", "--http", "--fiber=false", "--no-grpc", "--model", "key", "-o", dir).CombinedOutput()
+	if err == nil {
+		t.Fatal("--model with a non-standard type must fail")
+	}
+
+	if !strings.Contains(string(out), "--model requires --type standard") {
+		t.Errorf("error does not explain the requirement:\n%s", out)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(dir, "nodemcp")); statErr == nil {
+		t.Error("a rejected scaffold must not leave a project behind")
+	}
+}
+
+// http is the base handler's name: a model called http would generate
+// HTTPHttp/NewHTTPHttp and redeclare it.
+func TestNewRejectsHTTPModel(t *testing.T) {
+	dir := t.TempDir()
+	out, err := exec.Command(scaffoldBinary(t), "new", "badmodelhttp", "--module", "example.com/badmodelhttp",
+		"--type", "standard", "--http", "--fiber=false", "--no-grpc", "--model", "http", "-o", dir).CombinedOutput()
+	if err == nil {
+		t.Fatal("model name http must be rejected")
+	}
+
+	if !strings.Contains(string(out), "reserved") {
+		t.Errorf("error does not explain the collision:\n%s", out)
+	}
+}
+
+// Two names that normalize to the same Go identifier or table would write the
+// same declarations twice, which cannot compile.
+func TestNewRejectsDuplicateModels(t *testing.T) {
+	for _, models := range []string{"key,Key", "my-key,my_key", "my.key,my_key", "AB,Ab"} {
+		t.Run(models, func(t *testing.T) {
+			dir := t.TempDir()
+			out, err := exec.Command(scaffoldBinary(t), "new", "dupmodel", "--module", "example.com/dupmodel",
+				"--type", "standard", "--http", "--fiber=false", "--no-grpc", "--model", models, "-o", dir).CombinedOutput()
+			if err == nil {
+				t.Fatalf("duplicate models %q must fail", models)
+			}
+
+			if !strings.Contains(string(out), "collides") {
+				t.Errorf("error does not explain the collision:\n%s", out)
+			}
+
+			if _, statErr := os.Stat(filepath.Join(dir, "dupmodel")); statErr == nil {
+				t.Error("a rejected scaffold must not leave a project behind")
+			}
+		})
 	}
 }
 

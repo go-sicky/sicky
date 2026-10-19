@@ -168,6 +168,15 @@ func newRun(args []string) int {
 
 	nc.Models = models
 
+	// Models are generated from the standard layering: mcp and interactive
+	// projects have no request/response files and no validateSession, so
+	// their resource handler would not compile.
+	if len(nc.Models) > 0 && nc.Type != "standard" {
+		fmt.Fprintln(os.Stderr, "sicky new: --model requires --type standard")
+
+		return 1
+	}
+
 	// A model is an HTTP resource: its handler, DTOs and the request/response
 	// aggregation files only exist for the bunrouter stack. Rejecting the
 	// combination before scaffoldProject writes anything keeps a failed run

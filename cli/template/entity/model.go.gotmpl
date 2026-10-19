@@ -81,7 +81,13 @@ func (m *{{.ExportedName}}) Create(ctx context.Context) error {
 		return err
 	}
 
-	n, _ := r.RowsAffected()
+	n, err := r.RowsAffected()
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
 	if n == 0 {
 		return fmt.Errorf("no rows affected")
 	}
@@ -110,7 +116,13 @@ func (m *{{.ExportedName}}) Update(ctx context.Context) error {
 		return err
 	}
 
-	n, _ := r.RowsAffected()
+	n, err := r.RowsAffected()
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
 	if n == 0 {
 		return fmt.Errorf("no rows affected")
 	}
@@ -131,7 +143,13 @@ func (m *{{.ExportedName}}) Delete(ctx context.Context) error {
 		return err
 	}
 
-	n, _ := r.RowsAffected()
+	n, err := r.RowsAffected()
+	if err != nil {
+		logger.Logger.ErrorContext(ctx, err.Error())
+
+		return err
+	}
+
 	if n == 0 {
 		return fmt.Errorf("no rows affected")
 	}
