@@ -47,7 +47,11 @@ import (
 	"github.com/spf13/pflag"
 )
 
-//go:embed template/project template/entity template/license/*.gotmpl
+// The README template is shared with `sicky generate doc`, so it lives under
+// template/doc; `sicky new` embeds it from there rather than keeping a second
+// copy that could drift.
+//
+//go:embed template/project template/entity template/license/*.gotmpl template/doc/readme.md.gotmpl
 var projectTemplates embed.FS
 
 type newContext struct {
@@ -224,7 +228,7 @@ func newRun(args []string) int {
 		fmt.Println("    make proto   # requires protoc + protoc-gen-go (see `make grpc`)")
 	}
 	fmt.Println("    make build")
-	fmt.Println("    make run")
+	fmt.Println("    ./bin/svc")
 	fmt.Println()
 
 	return 0
@@ -566,6 +570,10 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		{path: filepath.Join(dir, "main.go"), template: "template/project/" + nc.Type + "/main.go.gotmpl", brief: "This file contains the main entry point for the service."},
 		{path: filepath.Join(dir, "config.go"), template: "template/project/" + nc.Type + "/config.go.gotmpl", brief: "This file contains the application configuration."},
 		{path: filepath.Join(dir, "config.json"), template: "template/project/" + nc.Type + "/config.json.gotmpl"},
+		// README is rendered for every project type; AGENTS.md describes the
+		// standard layering and has no mcp/interactive counterpart.
+		{path: filepath.Join(dir, "README.md"), template: "template/doc/readme.md.gotmpl"},
+		{path: filepath.Join(dir, "AGENTS.md"), template: "template/project/standard/AGENTS.md.gotmpl", skip: func(nc *newContext) bool { return nc.Type != "standard" }},
 		{path: filepath.Join(dir, "handler", "fiber.go"), template: "template/project/" + nc.Type + "/handler/fiber.go.gotmpl", brief: "This file defines the Fiber HTTP handlers.", skip: func(nc *newContext) bool { return !nc.WithFiber }},
 		{path: filepath.Join(dir, "handler", "http.go"), template: "template/project/" + nc.Type + "/handler/http.go.gotmpl", brief: "This file defines the net/http handlers.", skip: func(nc *newContext) bool { return !nc.WithHTTP }},
 		{path: filepath.Join(dir, "handler", "grpc.go"), template: "template/project/" + nc.Type + "/handler/grpc.go.gotmpl", brief: "This file defines the gRPC handlers.", skip: func(nc *newContext) bool { return !nc.WithGRPC }},

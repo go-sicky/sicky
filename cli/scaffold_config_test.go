@@ -141,6 +141,7 @@ func TestScaffoldConfigKeysAllResolve(t *testing.T) {
 		withGRPC, withFiber, withHTTP bool
 	}{
 		{projectType: "standard", args: []string{"--http", "--fiber=false", "--no-grpc"}, withHTTP: true},
+		{projectType: "standard", args: []string{"--http", "--fiber=false", "--no-grpc", "--model", "key"}, withHTTP: true},
 		{projectType: "standard", args: []string{"--http"}, withFiber: true, withHTTP: true},
 		{projectType: "standard", args: nil, withFiber: true, withGRPC: true},
 		{projectType: "mcp", args: []string{"--http", "--fiber=false", "--no-grpc"}, withHTTP: true},
@@ -158,6 +159,28 @@ func TestScaffoldConfigKeysAllResolve(t *testing.T) {
 					"own file claims", key)
 			}
 		})
+	}
+}
+
+// A generated project is read before it is built, and the docs are the only
+// place several conventions are stated. They are rendered from the same
+// templates the code is, so they can silently stop being generated without
+// breaking any build.
+func TestScaffoldDocs(t *testing.T) {
+	dir := scaffoldProjectDir(t, "documented", "--http", "--fiber=false", "--no-grpc", "--model", "key")
+
+	for _, name := range []string{"README.md", "AGENTS.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("missing %s: %v", name, err)
+		}
+	}
+
+	if !strings.Contains(readFile(t, filepath.Join(dir, "AGENTS.md")), "--initdb") {
+		t.Error("AGENTS.md must document --initdb")
+	}
+
+	if !strings.Contains(readFile(t, filepath.Join(dir, "README.md")), "model/") {
+		t.Error("README.md must document the layered structure")
 	}
 }
 

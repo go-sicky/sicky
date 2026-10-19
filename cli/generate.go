@@ -333,14 +333,13 @@ func generateDoc(args []string) int {
 		return 1
 	}
 
-	gc := &generateContext{
-		Name:         detectProjectName(),
-		ExportedName: exportName(detectProjectName()),
-		Module:       detectModule(),
-	}
+	// The README renders from the same context `sicky new` uses. An existing
+	// project has no scaffold context left, so the selection is read back from
+	// the files that selection produced.
+	dc := detectDocContext()
 
 	outputPath := "README.md"
-	if err := renderGenerateTemplate("template/doc/readme.md.gotmpl", outputPath, gc); err != nil {
+	if err := renderGenerateTemplate("template/doc/readme.md.gotmpl", outputPath, dc); err != nil {
 		fmt.Fprintf(os.Stderr, "sicky generate doc: %s\n", err.Error())
 
 		return 1
@@ -479,6 +478,76 @@ func detectModule() string {
 	}
 
 	return "github.com/myorg/my-app"
+}
+
+// detectDocContext reconstructs the scaffold selection from the project on
+// disk, so `sicky generate doc` renders the same README `sicky new` would for
+// this tree. A file that is absent simply means that option was not selected.
+func detectDocContext() *newContext {
+	nc := &newContext{
+		Name:      detectProjectName(),
+		Type:      detectDocProjectType(),
+		Module:    detectModule(),
+		WithFiber: fileExists("handler/fiber.go"),
+		WithGRPC:  fileExists("handler/grpc.go"),
+		WithHTTP:  fileExists("handler/http.go"),
+		WithAuth:  fileExists("handler/auth.http.go"),
+	}
+	nc.ExportedName = exportName(nc.Name)
+	nc.Models = detectDocModels()
+
+	return nc
+}
+
+// detectDocProjectType reads the service constructor out of main.go. Failing
+// to read the file yields the standard layout, which is the only type with the
+// layered documentation this template can describe without hints.
+func detectDocProjectType() string {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		return "standard"
+	}
+
+	src := string(data)
+
+	switch {
+	case strings.Contains(src, "service/interactive"):
+		return "interactive"
+	case strings.Contains(src, "service/mcp"):
+		return "mcp"
+	default:
+		return "standard"
+	}
+}
+
+// detectDocModels lists the generated model files. Only the documentation
+// fields are needed: the resource name and its exported identifier.
+func detectDocModels() []modelSpec {
+	entries, err := os.ReadDir("model")
+	if err != nil {
+		return nil
+	}
+
+	var models []modelSpec
+
+	for _, entry := range entries {
+		name, ok := strings.CutSuffix(entry.Name(), ".go")
+		if !ok || entry.IsDir() || strings.HasSuffix(name, "_test") {
+			continue
+		}
+
+		models = append(models, modelSpec{Name: name, ExportedName: exportName(name), Table: tableName(name)})
+	}
+
+	return models
+}
+
+// fileExists reports whether path names an existing non-directory. Rebuilding
+// a scaffold context treats absence as "not selected", never as an error.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && !info.IsDir()
 }
 
 func detectProjectName() string {
