@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
-	"context"
 
+	"{{.Module}}/app"
 {{if or .WithGRPC .WithFiber .WithHTTP}}	"{{.Module}}/handler"
 {{end}}	"github.com/go-sicky/sicky"
 {{if or .WithGRPC .WithFiber .WithHTTP}}	"github.com/go-sicky/sicky/server"
@@ -47,6 +48,10 @@ func main() {
 		log.Fatalf("sicky: config unmarshal: %v", err)
 	}
 
+	// Application configuration. Ensure keeps the pointer non-nil even when
+	// config.json carries no app block, so the middleware can read it.
+	app.Config = config.App.Ensure()
+
 {{if .WithGRPC}}	// GRPC server
 	grpcSrv := srvGRPC.New(
 		&server.Options{
@@ -75,8 +80,9 @@ func main() {
 		},
 		config.Server.HTTP,
 	)
-	httpSrv.Handle(handler.New{{.ExportedName}}HTTP())
-
+	httpSrv.Handle(handler.NewHTTPHttp())
+{{if .WithAuth}}	httpSrv.Handle(handler.NewHTTPAuth())
+{{end}}
 {{end}}	// Service
 	svc := standard.New(
 		&service.Options{

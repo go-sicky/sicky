@@ -60,7 +60,11 @@ type newContext struct {
 	WithFiber    bool
 	WithHTTP     bool
 	WithProto    bool
-	OutputDir    string
+	// WithAuth gates the auth/session example (app/session.go,
+	// handler/auth.http.go, service/auth.go and the validateSession
+	// middleware). It is on unless --no-auth is given.
+	WithAuth  bool
+	OutputDir string
 	// Optional scaffolding hints used by `sicky config init` and
 	// `sicky generate config/docker`. Kept for compat; templates
 	// render from WithGRPC/WithFiber/WithHTTP, these are informational only.
@@ -110,6 +114,7 @@ func newRun(args []string) int {
 	noGrpcFlag := fs.Bool("no-grpc", false, "Skip gRPC server")
 	fiberFlag := fs.Bool("fiber", true, "Add Fiber server (use --fiber=false to skip)")
 	httpFlag := fs.Bool("http", false, "Add net/http (bunrouter) server")
+	noAuthFlag := fs.Bool("no-auth", false, "Skip the auth/session example")
 	forceFlag := fs.Bool("force", false, "Overwrite an existing non-empty project directory")
 	licenseFlag := fs.String("license", "", "License: MIT, Apache-2.0, GPL-3.0, BSD-3-Clause, Commercial")
 	authorFlag := fs.String("author", "", `Author stamped on file headers, e.g. "Jane Doe <jane@example.com>"`)
@@ -135,6 +140,7 @@ func newRun(args []string) int {
 		WithGRPC:  !*noGrpcFlag,
 		WithFiber: *fiberFlag,
 		WithHTTP:  *httpFlag,
+		WithAuth:  !*noAuthFlag,
 		License:   *licenseFlag,
 		Author:    *authorFlag,
 		Holder:    *copyrightFlag,
@@ -446,6 +452,28 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		return err
 	}
 
+	// Directories are created only for the files that will actually be
+	// written: an HTTP-less project must not gain empty layering directories.
+	if nc.Type == "standard" {
+		if err := os.MkdirAll(filepath.Join(dir, "app"), 0o755); err != nil {
+			return err
+		}
+	}
+
+	if nc.Type == "standard" && nc.WithHTTP {
+		for _, sub := range []string{"request", "response"} {
+			if err := os.MkdirAll(filepath.Join(dir, "handler", sub), 0o755); err != nil {
+				return err
+			}
+		}
+	}
+
+	if nc.Type == "standard" && nc.WithHTTP && nc.WithAuth {
+		if err := os.MkdirAll(filepath.Join(dir, "service"), 0o755); err != nil {
+			return err
+		}
+	}
+
 	if nc.WithProto {
 		if err := os.MkdirAll(filepath.Join(dir, "proto"), 0o755); err != nil {
 			return err
@@ -481,6 +509,17 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 		{filepath.Join(dir, "handler", "fiber.go"), "template/project/" + nc.Type + "/handler/fiber.go.gotmpl", "This file defines the Fiber HTTP handlers.", func(nc *newContext) bool { return !nc.WithFiber }},
 		{filepath.Join(dir, "handler", "http.go"), "template/project/" + nc.Type + "/handler/http.go.gotmpl", "This file defines the net/http handlers.", func(nc *newContext) bool { return !nc.WithHTTP }},
 		{filepath.Join(dir, "handler", "grpc.go"), "template/project/" + nc.Type + "/handler/grpc.go.gotmpl", "This file defines the gRPC handlers.", func(nc *newContext) bool { return !nc.WithGRPC }},
+		// Application layering (standard only). app/config.go is the
+		// application's own configuration; session, auth handler, service
+		// and the middleware they feed are the auth example, which
+		// --no-auth removes. The request/response aggregation files stay
+		// without auth: `sicky generate model` appends to them.
+		{filepath.Join(dir, "app", "config.go"), "template/project/standard/app/config.go.gotmpl", "This file contains the application configuration.", func(nc *newContext) bool { return nc.Type != "standard" }},
+		{filepath.Join(dir, "app", "session.go"), "template/project/standard/app/session.go.gotmpl", "This file manages in-memory access tokens.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithAuth }},
+		{filepath.Join(dir, "handler", "auth.http.go"), "template/project/standard/handler/auth.http.go.gotmpl", "This file defines the authentication HTTP handlers.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP || !nc.WithAuth }},
+		{filepath.Join(dir, "handler", "request", "http.go"), "template/project/standard/handler/request/http.go.gotmpl", "This file contains the HTTP request payloads.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP }},
+		{filepath.Join(dir, "handler", "response", "http.go"), "template/project/standard/handler/response/http.go.gotmpl", "This file contains the HTTP response codes and payloads.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP }},
+		{filepath.Join(dir, "service", "auth.go"), "template/project/standard/service/auth.go.gotmpl", "This file defines the authentication service.", func(nc *newContext) bool { return nc.Type != "standard" || !nc.WithHTTP || !nc.WithAuth }},
 		// MCP service handler (Tools/Resources/Prompts) is independent of
 		// the SSE transport servers and always rendered for mcp projects.
 		{filepath.Join(dir, "handler", "handler.go"), "template/project/mcp/handler/handler.go.gotmpl", "This file defines the MCP tool, resource and prompt handlers.", func(nc *newContext) bool { return nc.Type != "mcp" }},
@@ -503,9 +542,17 @@ func scaffoldProject(dir string, nc *newContext, force bool) error {
 
 		content, err := renderProjectTemplate(f.template, nc)
 		if err != nil {
-			// Per-protocol handler templates are optional: types without
-			// split files (e.g. interactive) fall back to handler.go.gotmpl.
-			if strings.HasSuffix(f.template, "/fiber.go.gotmpl") || strings.HasSuffix(f.template, "/http.go.gotmpl") || strings.HasSuffix(f.template, "/grpc.go.gotmpl") {
+			// Per-protocol handler templates are optional for project types
+			// without split files (e.g. interactive), which fall back to
+			// handler.go.gotmpl. The type gate keeps standard failures
+			// visible: those templates always exist there, and its own
+			// request/response files also end in /http.go.gotmpl, so a
+			// suffix-only check would swallow a real render error.
+			optional := nc.Type != "standard" &&
+				(strings.HasSuffix(f.template, "/fiber.go.gotmpl") ||
+					strings.HasSuffix(f.template, "/http.go.gotmpl") ||
+					strings.HasSuffix(f.template, "/grpc.go.gotmpl"))
+			if optional {
 				continue
 			}
 

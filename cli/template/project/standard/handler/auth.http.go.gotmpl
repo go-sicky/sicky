@@ -1,0 +1,93 @@
+package handler
+
+import (
+	"net/http"
+
+	"{{.Module}}/app"
+	"{{.Module}}/handler/request"
+	"{{.Module}}/handler/response"
+	"{{.Module}}/service"
+	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/utils"
+	"github.com/uptrace/bunrouter"
+)
+
+// HTTPAuth serves login and logout.
+type HTTPAuth struct {
+	svcAuth *service.Auth
+}
+
+// NewHTTPAuth creates the auth handler.
+func NewHTTPAuth() *HTTPAuth {
+	h := &HTTPAuth{
+		svcAuth: new(service.Auth),
+	}
+
+	return h
+}
+
+// Name returns the handler name.
+func (h *HTTPAuth) Name() string {
+	return "auth.http"
+}
+
+// Type returns the handler transport.
+func (h *HTTPAuth) Type() string {
+	return "http"
+}
+
+// Register mounts the auth routes. Login is public; logout requires a
+// session because it needs the token to delete.
+func (h *HTTPAuth) Register(router *bunrouter.Router) {
+	ga := router.NewGroup("/auth")
+
+	ga.POST("/login", h.login)
+	ga.Use(validateSession).POST("/logout", h.logout)
+}
+
+/* ===== [HTTP handlers] ===== */
+// login exchanges the configured administrator credentials for a session
+// token. A deployment with an empty username or password cannot log in.
+func (h *HTTPAuth) login(w http.ResponseWriter, req bunrouter.Request) error {
+	ctx := req.Context()
+	r := new(request.HttpAuthPostLogin)
+	resp := utils.WrapHTTPResponse(nil)
+
+	if err := utils.BunAutoBind(req, r); err != nil {
+		// The parse detail describes the client's body; it stays in the
+		// server log while the response carries the generic message.
+		logger.Logger.WarnContext(ctx, "login: bind request failed", "error", err)
+		resp.Code = response.CodeInvalidRequest
+		resp.Message = response.MsgInvalidRequest
+		resp.Status = http.StatusBadRequest
+
+		return utils.BunAutoFormatWithStatus(w, http.StatusBadRequest, req, resp)
+	}
+
+	if err := h.svcAuth.Authenticate(r.Username, r.Password); err != nil {
+		// "not configured" and "wrong credentials" answer identically so
+		// the endpoint does not reveal which half of the pair is missing.
+		logger.Logger.WarnContext(ctx, "login: authentication failed", "error", err)
+		resp.Code = response.CodeInvalidCertificate
+		resp.Message = response.MsgInvalidCertificate
+		resp.Status = http.StatusUnauthorized
+
+		return utils.BunAutoFormatWithStatus(w, http.StatusUnauthorized, req, resp)
+	}
+
+	token := app.AppendSession(r.Username, "")
+	logger.Logger.InfoContext(ctx, "login succeeded", "username", r.Username)
+	resp.Data = &response.HttpAuthPostLogin{AccessToken: token}
+
+	return utils.BunAutoFormat(w, req, resp)
+}
+
+// logout deletes the caller's session and reports whether it existed.
+func (h *HTTPAuth) logout(w http.ResponseWriter, req bunrouter.Request) error {
+	resp := utils.WrapHTTPResponse(nil)
+	resp.Data = app.DeleteSession(getToken(req.Request))
+
+	return utils.BunAutoFormat(w, req, resp)
+}
+
+/* ===== [/HTTP handlers] ===== */

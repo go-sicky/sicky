@@ -47,6 +47,15 @@ type serverFields struct {
 	HTTP  *srvHTTP.Config  `mapstructure:"http"`
 }
 
+// appFields mirrors the generated `app` block (app/config.go). It is
+// restated for the same reason as serverFields: the generated type lives in
+// package app of another module.
+type appFields struct {
+	AdminUsername string `mapstructure:"admin_username"`
+	AdminPassword string `mapstructure:"admin_password"`
+	GeneralToken  string `mapstructure:"general_token"`
+}
+
 // scaffoldConfigStruct reproduces the ConfigDef main.go is generated with, for
 // the given enabled protocols.
 //
@@ -88,7 +97,8 @@ func scaffoldConfigStruct(projectType string, withGRPC, withFiber, withHTTP bool
 			Server  serverFields     `mapstructure:"server"`
 			Service *standard.Config `mapstructure:"service"`
 			Sicky   *sicky.Config    `mapstructure:"sicky"`
-		}{Server: servers, Service: &standard.Config{}}
+			App     *appFields       `mapstructure:"app"`
+		}{Server: servers, Service: &standard.Config{}, App: &appFields{}}
 	}
 }
 

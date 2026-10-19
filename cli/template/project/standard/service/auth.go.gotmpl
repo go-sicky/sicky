@@ -1,0 +1,32 @@
+// Package service contains the business layer.
+package service
+
+import (
+	"crypto/subtle"
+	"errors"
+
+	"{{.Module}}/app"
+)
+
+// Auth authenticates management users against the configured administrator
+// credentials.
+type Auth struct{}
+
+// Authenticate checks username and password. Both configured credentials
+// must be non-empty: an unconfigured deployment fails closed rather than
+// shipping a default login.
+func (s *Auth) Authenticate(username, password string) error {
+	if app.Config == nil || app.Config.AdminUsername == "" || app.Config.AdminPassword == "" {
+		return errors.New("authentication is not configured")
+	}
+
+	// Compare both halves in constant time so the response does not reveal
+	// which one was wrong.
+	userOK := subtle.ConstantTimeCompare([]byte(username), []byte(app.Config.AdminUsername)) == 1
+	passOK := subtle.ConstantTimeCompare([]byte(password), []byte(app.Config.AdminPassword)) == 1
+	if userOK && passOK {
+		return nil
+	}
+
+	return errors.New("invalid credentials")
+}

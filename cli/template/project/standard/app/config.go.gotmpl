@@ -1,0 +1,24 @@
+package app
+
+// ConfigDef contains the application-level settings that are not part of
+// the sicky framework configuration. Credentials stay empty by default: a
+// scaffold must not ship a working login.
+type ConfigDef struct {
+	AdminUsername string `json:"admin_username" mapstructure:"admin_username" yaml:"admin_username"`
+	AdminPassword string `json:"admin_password" mapstructure:"admin_password" yaml:"admin_password"`
+	GeneralToken  string `json:"general_token"  mapstructure:"general_token"  yaml:"general_token"`
+}
+
+// Ensure returns a usable configuration, allocating an empty one when the
+// `app` block is absent from config.json.
+func (c *ConfigDef) Ensure() *ConfigDef {
+	if c == nil {
+		c = &ConfigDef{}
+	}
+
+	return c
+}
+
+// Config is the process-wide application configuration, assigned in main
+// once the framework configuration has been read.
+var Config *ConfigDef

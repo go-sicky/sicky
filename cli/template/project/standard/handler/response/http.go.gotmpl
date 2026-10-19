@@ -1,0 +1,32 @@
+// Package response collects the HTTP response codes and payloads. `sicky
+// generate model` appends each resource's declarations to this file.
+package response
+
+// Response codes. 0 is success; the rest are grouped by HTTP status.
+const (
+	CodeOK                   = 0
+	CodeInvalidRequest       = 40000001
+	CodeInvalidCertificate   = 40100001
+	CodeInvalidAuthorization = 40100002
+	CodeGeneralError         = 99999999
+)
+
+// Response messages. MsgOK is the string "OK", not the reference project's
+// numeric 0: utils.MsgOK is a string, and a Message field that is sometimes
+// an int and sometimes a string cannot be decoded by a typed client.
+const (
+	MsgOK                   = "OK"
+	MsgInvalidRequest       = "invalid request"
+	MsgInvalidCertificate   = "invalid certificate"
+	MsgInvalidAuthorization = "invalid authorization header"
+	MsgGeneralError         = "general error"
+)
+{{if .WithAuth}}
+// HttpAuthPostLogin is the login response payload.
+type HttpAuthPostLogin struct {
+	AccessToken string `json:"access_token" yaml:"access_token" xml:"access_token"`
+}
+
+// HttpAuthPostLogout is the logout response payload.
+type HttpAuthPostLogout struct{}
+{{end}}

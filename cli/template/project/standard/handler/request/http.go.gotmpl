@@ -1,0 +1,13 @@
+// Package request collects the HTTP request payloads. `sicky generate
+// model` appends each resource's declarations to this file.
+package request
+{{if .WithAuth}}
+// HttpAuthPostLogin is the login payload.
+type HttpAuthPostLogin struct {
+	Username string `json:"username" form:"username"`
+	Password string `json:"password" form:"password"`
+}
+
+// HttpAuthPostLogout is the logout payload.
+type HttpAuthPostLogout struct{}
+{{end}}

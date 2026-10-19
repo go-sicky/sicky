@@ -1,0 +1,60 @@
+package app
+
+import (
+	"sync"
+	"time"
+
+	"github.com/go-sicky/sicky/utils"
+)
+
+// sessions holds the access tokens issued by the login handler. It is an
+// in-memory example: a restart forgets every session, and a multi-instance
+// deployment needs a shared store instead.
+var sessions sync.Map
+
+// AccessToken is one issued session.
+type AccessToken struct {
+	Username   string        `json:"username"    yaml:"username"    xml:"username"`
+	AppendTime time.Time     `json:"append_time" yaml:"append_time" xml:"append_time"`
+	TTL        time.Duration `json:"ttl"         yaml:"ttl"         xml:"ttl"`
+	Token      string        `json:"token"       yaml:"token"       xml:"token"`
+}
+
+// AppendSession stores a session for username and returns its token. An
+// empty token asks for a new one, prefixed with "sess_".
+func AppendSession(username, token string) string {
+	if token == "" {
+		token = "sess_" + utils.RandomString(32)
+	}
+
+	sessions.Store(token, AccessToken{
+		Username:   username,
+		AppendTime: time.Now(),
+		TTL:        0,
+		Token:      token,
+	})
+
+	return token
+}
+
+// DeleteSession removes token and reports whether a token was supplied.
+func DeleteSession(token string) bool {
+	if token == "" {
+		return false
+	}
+
+	sessions.Delete(token)
+
+	return true
+}
+
+// CheckSession reports whether token names a live session.
+func CheckSession(token string) bool {
+	if token == "" {
+		return false
+	}
+
+	_, ok := sessions.Load(token)
+
+	return ok
+}

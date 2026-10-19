@@ -1,36 +1,108 @@
 package handler
 
 import (
-	"net/http"
+{{if .WithAuth}}	"context"
+	"crypto/subtle"
+{{end}}	"net/http"
+{{if .WithAuth}}	"strings"
 
+	"{{.Module}}/app"
+	"{{.Module}}/handler/response"
+	"github.com/go-sicky/sicky/utils"
+{{end}}
 	"github.com/uptrace/bunrouter"
 )
 
-type {{.ExportedName}}HTTP struct{}
+// HTTPHttp serves the base HTTP endpoints.
+type HTTPHttp struct{}
 
-func New{{.ExportedName}}HTTP() *{{.ExportedName}}HTTP {
-	h := &{{.ExportedName}}HTTP{}
+// NewHTTPHttp creates the base HTTP handler.
+func NewHTTPHttp() *HTTPHttp {
+	h := &HTTPHttp{}
 
 	return h
 }
 
-func (h *{{.ExportedName}}HTTP) Name() string {
-	return "{{.Name}}.http"
+// Name returns the handler name.
+func (h *HTTPHttp) Name() string {
+	return "http.http"
 }
 
-func (h *{{.ExportedName}}HTTP) Type() string {
+// Type returns the handler transport.
+func (h *HTTPHttp) Type() string {
 	return "http"
 }
 
-func (h *{{.ExportedName}}HTTP) Register(router *bunrouter.Router) {
+// Register mounts the base routes.
+func (h *HTTPHttp) Register(router *bunrouter.Router) {
 	router.GET("/ping", h.ping)
 }
 
 /* ===== [HTTP handlers] ===== */
-func (h *{{.ExportedName}}HTTP) ping(w http.ResponseWriter, _ bunrouter.Request) error {
+func (h *HTTPHttp) ping(w http.ResponseWriter, _ bunrouter.Request) error {
 	return bunrouter.JSON(w, bunrouter.H{
 		"message": "pong",
 	})
 }
 
 /* ===== [/HTTP handlers] ===== */
+{{if .WithAuth}}
+/* ===== [Middlewares] ===== */
+type ctxKey int
+
+const (
+	ctxKeyToken ctxKey = iota
+)
+
+// validateSession rejects a request that carries neither the configured
+// general token nor a live session token. An empty general token disables
+// that path rather than accepting every caller.
+func validateSession(next bunrouter.HandlerFunc) bunrouter.HandlerFunc {
+	return func(w http.ResponseWriter, req bunrouter.Request) error {
+		resp := utils.WrapHTTPResponse(nil)
+		auth := req.Header.Get("Authorization")
+		if auth == "" {
+			resp.Code = response.CodeInvalidCertificate
+			resp.Message = response.MsgInvalidCertificate
+			resp.Status = http.StatusUnauthorized
+
+			return utils.BunAutoFormatWithStatus(w, http.StatusUnauthorized, req, resp)
+		}
+
+		parts := strings.Fields(auth)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			resp.Code = response.CodeInvalidAuthorization
+			resp.Message = response.MsgInvalidAuthorization
+			resp.Status = http.StatusUnauthorized
+
+			return utils.BunAutoFormatWithStatus(w, http.StatusUnauthorized, req, resp)
+		}
+
+		validToken := app.Config.GeneralToken != "" &&
+			subtle.ConstantTimeCompare([]byte(parts[1]), []byte(app.Config.GeneralToken)) == 1
+		if !validToken && !app.CheckSession(parts[1]) {
+			resp.Code = response.CodeInvalidCertificate
+			resp.Message = response.MsgInvalidCertificate
+			resp.Status = http.StatusUnauthorized
+
+			return utils.BunAutoFormatWithStatus(w, http.StatusUnauthorized, req, resp)
+		}
+
+		ctx := context.WithValue(req.Context(), ctxKeyToken, parts[1])
+		req.Request = req.Request.WithContext(ctx)
+
+		return next(w, req)
+	}
+}
+
+// getToken returns the access token validateSession stored in the request.
+func getToken(req *http.Request) string {
+	if token, ok := req.Context().Value(ctxKeyToken).(string); ok {
+		return token
+	}
+
+	return ""
+}
+
+/* ===== [/Middlewares] ===== */
+{{end}}
