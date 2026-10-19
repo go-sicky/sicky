@@ -124,7 +124,7 @@ make push
 ```
 {{.Name}}/
   main.go                  # Entry point: sicky.Init, servers, service
-  config.go                # Root configuration (server, service, sicky, app)
+  config.go                # Root configuration (server, service, sicky{{if eq .Type "standard"}}, app{{end}})
   config.json              # Default runtime configuration
 {{if eq .Type "standard"}}  app/                     # Application-level configuration
     config.go
@@ -149,6 +149,6 @@ make push
 {{end}}{{end}}  Makefile
   Dockerfile
   README.md
-  AGENTS.md
-  go.mod
+{{if eq .Type "standard"}}  AGENTS.md
+{{end}}  go.mod
 ```

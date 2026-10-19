@@ -41,8 +41,16 @@ func TestProjectTemplatesEmbedNestedFiles(t *testing.T) {
 func scaffoldProjectDir(t *testing.T, name string, args ...string) string {
 	t.Helper()
 
+	return scaffoldProjectDirOfType(t, name, "standard", args...)
+}
+
+// scaffoldProjectDirOfType is scaffoldProjectDir for the other project types.
+// Only the docs test needs a type whose generated tree differs from standard.
+func scaffoldProjectDirOfType(t *testing.T, name, projectType string, args ...string) string {
+	t.Helper()
+
 	dir := t.TempDir()
-	full := append([]string{"new", name, "--module", "example.com/" + name, "--type", "standard", "-o", dir}, args...)
+	full := append([]string{"new", name, "--module", "example.com/" + name, "--type", projectType, "-o", dir}, args...)
 
 	if out, err := exec.Command(scaffoldBinary(t), full...).CombinedOutput(); err != nil {
 		t.Fatalf("scaffold %s: %v\n%s", name, err, out)

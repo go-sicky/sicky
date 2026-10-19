@@ -167,20 +167,47 @@ func TestScaffoldConfigKeysAllResolve(t *testing.T) {
 // templates the code is, so they can silently stop being generated without
 // breaking any build.
 func TestScaffoldDocs(t *testing.T) {
-	dir := scaffoldProjectDir(t, "documented", "--http", "--fiber=false", "--no-grpc", "--model", "key")
+	standard := scaffoldProjectDir(t, "documented", "--http", "--fiber=false", "--no-grpc", "--model", "key")
 
 	for _, name := range []string{"README.md", "AGENTS.md"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+		if _, err := os.Stat(filepath.Join(standard, name)); err != nil {
 			t.Errorf("missing %s: %v", name, err)
 		}
 	}
 
-	if !strings.Contains(readFile(t, filepath.Join(dir, "AGENTS.md")), "--initdb") {
+	readme := readFile(t, filepath.Join(standard, "README.md"))
+
+	for _, want := range []string{"model/", "AGENTS.md", "  app/", "sicky, app"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("standard README.md must document %q", want)
+		}
+	}
+
+	if !strings.Contains(readFile(t, filepath.Join(standard, "AGENTS.md")), "--initdb") {
 		t.Error("AGENTS.md must document --initdb")
 	}
 
-	if !strings.Contains(readFile(t, filepath.Join(dir, "README.md")), "model/") {
-		t.Error("README.md must document the layered structure")
+	// mcp and interactive projects have no app block and no AGENTS.md. The
+	// structure block is the tree a reader trusts, so naming a file or block
+	// that was never generated is worse than saying nothing.
+	for _, tc := range []struct {
+		name        string
+		projectType string
+		args        []string
+	}{
+		{name: "mcpservice", projectType: "mcp", args: []string{"--http", "--fiber=false"}},
+		{name: "clisvc", projectType: "interactive"},
+	} {
+		t.Run(tc.projectType, func(t *testing.T) {
+			dir := scaffoldProjectDirOfType(t, tc.name, tc.projectType, tc.args...)
+			other := readFile(t, filepath.Join(dir, "README.md"))
+
+			for _, unexpected := range []string{"AGENTS.md", "  app/", "sicky, app"} {
+				if strings.Contains(other, unexpected) {
+					t.Errorf("%s README.md must not describe %q: the generated tree does not contain it", tc.projectType, unexpected)
+				}
+			}
+		})
 	}
 }
 
