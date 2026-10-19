@@ -36,6 +36,9 @@ func TestScaffoldBuilds(t *testing.T) {
 		{name: "plain", args: []string{"--http", "--fiber=false", "--no-grpc"}},
 		{name: "noauth", args: []string{"--http", "--fiber=false", "--no-grpc", "--no-auth"}},
 		{name: "models", args: []string{"--http", "--fiber=false", "--no-grpc", "--model", "key"}},
+		// --model and --no-auth together: the resource handler must not mount
+		// the validateSession the --no-auth project does not define.
+		{name: "modelsnoauth", args: []string{"--http", "--fiber=false", "--no-grpc", "--no-auth", "--model", "key"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := scaffoldProjectDir(t, tc.name, tc.args...)

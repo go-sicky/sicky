@@ -452,9 +452,21 @@ func detectProjectLicenseAt(root string) licenseChoice {
 // relativeFile renders a scaffold path the way the @file line should read:
 // slash-separated and relative to the project root, never an absolute path
 // that would leak the builder's directory layout into a committed file.
+//
+// The two paths need not share a form: a --output root may be absolute while
+// a relative --output leaves both relative, and generate model builds every
+// destination by joining the root. They are therefore compared in absolute
+// form. A path that cannot be expressed under the root falls back to its base
+// name rather than leaking the layout.
 func relativeFile(dir, path string) string {
-	rel, err := filepath.Rel(dir, path)
-	if err != nil {
+	absDir, dirErr := filepath.Abs(dir)
+	absPath, pathErr := filepath.Abs(path)
+	if dirErr != nil || pathErr != nil {
+		return filepath.Base(path)
+	}
+
+	rel, err := filepath.Rel(absDir, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return filepath.Base(path)
 	}
 

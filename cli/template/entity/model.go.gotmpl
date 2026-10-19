@@ -76,14 +76,14 @@ func (m *{{.ExportedName}}) Create(ctx context.Context) error {
 
 	r, err := infra.Bun.NewInsert().Model(m).Returning("*").Exec(ctx)
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "create model failed", "error", err)
 
 		return err
 	}
 
 	n, err := r.RowsAffected()
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "read created rows failed", "error", err)
 
 		return err
 	}
@@ -111,14 +111,14 @@ func (m *{{.ExportedName}}) Update(ctx context.Context) error {
 
 	r, err := uq.Exec(ctx)
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "update model failed", "error", err)
 
 		return err
 	}
 
 	n, err := r.RowsAffected()
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "read updated rows failed", "error", err)
 
 		return err
 	}
@@ -138,14 +138,14 @@ func (m *{{.ExportedName}}) Delete(ctx context.Context) error {
 
 	r, err := infra.Bun.NewDelete().Model((*{{.ExportedName}})(nil)).Where("id = ?", m.ID).Exec(ctx)
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "delete model failed", "error", err)
 
 		return err
 	}
 
 	n, err := r.RowsAffected()
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "read deleted rows failed", "error", err)
 
 		return err
 	}
@@ -171,7 +171,7 @@ func (m *{{.ExportedName}}) Get(ctx context.Context) error {
 	}
 
 	if err := sq.Scan(ctx); err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "get model failed", "error", err)
 
 		return err
 	}
@@ -204,7 +204,7 @@ func (m *{{.ExportedName}}) List(ctx context.Context, filter *utils.ListFilter) 
 
 	list := make([]*{{.ExportedName}}, 0)
 	if err := sq.Scan(ctx, &list); err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "list models failed", "error", err)
 
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func (m *{{.ExportedName}}) List(ctx context.Context, filter *utils.ListFilter) 
 func (m *{{.ExportedName}}) Count(ctx context.Context) (int64, error) {
 	count, err := m.where(infra.Bun.NewSelect().Model((*{{.ExportedName}})(nil))).Count(ctx)
 	if err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "count models failed", "error", err)
 
 		return 0, err
 	}
@@ -231,14 +231,14 @@ func (m *{{.ExportedName}}) Count(ctx context.Context) (int64, error) {
 func (m {{.ExportedName}}) InitDB(ctx context.Context, dropTable bool) error {
 	if dropTable {
 		if _, err := infra.Bun.NewDropTable().Model((*{{.ExportedName}})(nil)).IfExists().Exec(ctx); err != nil {
-			logger.Logger.ErrorContext(ctx, err.Error())
+			logger.Logger.ErrorContext(ctx, "drop table failed", "error", err)
 
 			return err
 		}
 	}
 
 	if _, err := infra.Bun.NewCreateTable().Model((*{{.ExportedName}})(nil)).IfNotExists().Exec(ctx); err != nil {
-		logger.Logger.ErrorContext(ctx, err.Error())
+		logger.Logger.ErrorContext(ctx, "create table failed", "error", err)
 
 		return err
 	}
@@ -258,7 +258,7 @@ func (m {{.ExportedName}}) InitDB(ctx context.Context, dropTable bool) error {
 			IfNotExists().
 			Exec(ctx)
 		if err != nil {
-			logger.Logger.ErrorContext(ctx, err.Error())
+			logger.Logger.ErrorContext(ctx, "create index failed", "error", err)
 
 			return err
 		}

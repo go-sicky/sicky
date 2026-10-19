@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 )
 
 // TestNewWithModels drills the whole model path: the three per-resource files,
@@ -200,5 +202,44 @@ func TestScaffoldGoDirective(t *testing.T) {
 	dir := scaffoldProjectDir(t, "goversion", "--http", "--fiber=false", "--no-grpc")
 	if !strings.Contains(readFile(t, filepath.Join(dir, "go.mod")), "go 1.27.0") {
 		t.Error("generated go.mod must target Go 1.27")
+	}
+}
+
+// Generated model methods log a constant lowercase message and carry the
+// error in a structured field. Passing err.Error() as the message breaks the
+// framework's lowercase-message rule and makes the log text depend on the
+// driver's wording.
+func TestGeneratedModelLogsConstantMessages(t *testing.T) {
+	dir := scaffoldProjectDir(t, "modellogs", "--http", "--fiber=false", "--no-grpc", "--model", "key")
+
+	src := readFile(t, filepath.Join(dir, "model", "key.go"))
+	if strings.Contains(src, "ErrorContext(ctx, err.Error())") {
+		t.Error("generated model passes err.Error() as the log message")
+	}
+
+	if !strings.Contains(src, `ErrorContext(ctx, "create model failed", "error", err)`) {
+		t.Error("generated model does not log a constant message with a structured error")
+	}
+
+	const call = `ErrorContext(ctx, "`
+
+	for line := range strings.SplitSeq(src, "\n") {
+		_, rest, ok := strings.Cut(line, call)
+		if !ok {
+			continue
+		}
+
+		end := strings.Index(rest, `"`)
+		if end <= 0 {
+			t.Errorf("error log message is not a string literal: %s", strings.TrimSpace(line))
+
+			continue
+		}
+
+		message := rest[:end]
+
+		if first, _ := utf8.DecodeRuneInString(message); unicode.IsUpper(first) {
+			t.Errorf("error log message %q does not start lowercase", message)
+		}
 	}
 }

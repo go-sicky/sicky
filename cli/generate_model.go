@@ -10,10 +10,13 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -91,6 +94,28 @@ func generateModel(args []string) int {
 	}
 
 	resources := modelResourceFiles(dir, spec)
+
+	// modelSpecs only sees the names on this command line. A later
+	// invocation with another spelling of an existing model (my-key, then
+	// my_key) would write a second declaration of MyKey and a second model
+	// mapped to table my_key, which cannot compile. The file-exists check
+	// below cannot see it because the destination paths differ.
+	conflict, err := findModelConflict(dir, spec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "sicky generate model: %s\n", err.Error())
+
+		return 1
+	}
+
+	if conflict != "" {
+		fmt.Fprintf(
+			os.Stderr,
+			"sicky generate model: model %q collides with %s: both resolve to type %s and table %q\n",
+			spec.Name, conflict, spec.ExportedName, spec.Table,
+		)
+
+		return 1
+	}
 
 	// A repeat without --force is all-or-nothing: report the first occupied
 	// path and return before anything is written or wired. A stat that fails
@@ -281,6 +306,109 @@ func modelResourceFiles(dir string, spec modelSpec) []modelResource {
 			brief:    "This file defines the HTTP handlers for the " + spec.Name + " resource.",
 		},
 	}
+}
+
+// findModelConflict reports the existing model file in dir that already
+// declares spec's Go type or table, if any. modelSpecs only compares the
+// names of one invocation, so `generate model my-key` followed by
+// `generate model my_key` passed every check and produced a package that
+// could not compile: two MyKey declarations, both mapped to table my_key.
+//
+// The target file itself is not a conflict — --force exists to overwrite
+// exactly that path — so only the other spellings are considered.
+func findModelConflict(dir string, spec modelSpec) (string, error) {
+	modelDir := filepath.Join(dir, "model")
+
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		// A project without model/ has nothing to collide with; every other
+		// read failure makes the existing declarations unknowable, so it must
+		// not be treated as "safe to write".
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+
+		return "", fmt.Errorf("read model directory: %w", err)
+	}
+
+	target := spec.Name + ".go"
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == target {
+			continue
+		}
+
+		stem := strings.TrimSuffix(name, ".go")
+		if tableName(stem) == spec.Table || exportName(stem) == spec.ExportedName {
+			return filepath.ToSlash(filepath.Join("model", name)), nil
+		}
+
+		types, tables, readErr := readModelIdentities(filepath.Join(modelDir, name))
+		if readErr != nil {
+			return "", readErr
+		}
+
+		if types[spec.ExportedName] || tables[spec.Table] {
+			return filepath.ToSlash(filepath.Join("model", name)), nil
+		}
+	}
+
+	return "", nil
+}
+
+// readModelIdentities returns the top-level type names and bun table names an
+// existing model file declares. A file may have been renamed without renaming
+// the type or the table it maps, so its stem alone cannot answer the question
+// findModelConflict asks.
+func readModelIdentities(path string) (types, tables map[string]bool, err error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse %s: %w", filepath.ToSlash(path), err)
+	}
+
+	types = make(map[string]bool)
+	tables = make(map[string]bool)
+
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+
+		for _, typeSpec := range gen.Specs {
+			ts, ok := typeSpec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			types[ts.Name.Name] = true
+
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok || st.Fields == nil {
+				continue
+			}
+
+			for _, field := range st.Fields.List {
+				if field.Tag == nil {
+					continue
+				}
+
+				tag, unquoteErr := strconv.Unquote(field.Tag.Value)
+				if unquoteErr != nil {
+					continue
+				}
+
+				for part := range strings.SplitSeq(reflect.StructTag(tag).Get("bun"), ",") {
+					if table, found := strings.CutPrefix(part, "table:"); found {
+						tables[table] = true
+					}
+				}
+			}
+		}
+	}
+
+	return types, tables, nil
 }
 
 // preflightModelProject checks everything the command needs before it writes:

@@ -372,9 +372,106 @@ func TestGenerateModelUsesTargetProjectIdentity(t *testing.T) {
 		"Copyright (c) ",
 		"Target Holder",
 		"@author Target Holder <target@example.com>",
+		"* @file model/train.go",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("generated model does not carry the target identity %q:\n%s", want, src[:400])
 		}
+	}
+
+	if strings.Contains(src, "* @file "+target) {
+		t.Errorf("the @file header leaks the absolute target path:\n%s", src[:400])
+	}
+}
+
+// TestGenerateModelHeadersAreProjectRelative: @file describes the file's
+// place inside the project it lands in, never the directory the command ran
+// from. --output may be absolute or relative; both must render the same
+// project-relative path, or the header follows the caller's layout.
+func TestGenerateModelHeadersAreProjectRelative(t *testing.T) {
+	// Absolute --output, invoked from an unrelated caller directory.
+	target := scaffoldProjectDir(t, "absheader", "--http", "--fiber=false", "--no-grpc")
+	caller := t.TempDir()
+	runGenerate(t, caller, "model", "widget", "--output", target)
+
+	absSrc := readFile(t, filepath.Join(target, "model", "widget.go"))
+	if !strings.Contains(absSrc, "* @file model/widget.go") {
+		t.Errorf("absolute --output did not render a project-relative @file:\n%s", absSrc[:400])
+	}
+
+	if strings.Contains(absSrc, target) {
+		t.Errorf("absolute --output leaked the builder layout into @file:\n%s", absSrc[:400])
+	}
+
+	// Relative --output: scaffold into a known root so the command names the
+	// project by a path relative to its own working directory.
+	root := t.TempDir()
+
+	out, err := exec.Command(
+		scaffoldBinary(t), "new", "relheader",
+		"--module", "example.com/relheader",
+		"--type", "standard",
+		"--http", "--fiber=false", "--no-grpc",
+		"-o", root,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("scaffold relheader: %v\n%s", err, out)
+	}
+
+	runGenerate(t, root, "model", "widget", "--output", "relheader")
+
+	relSrc := readFile(t, filepath.Join(root, "relheader", "model", "widget.go"))
+	if !strings.Contains(relSrc, "* @file model/widget.go") {
+		t.Errorf("relative --output did not render a project-relative @file:\n%s", relSrc[:400])
+	}
+
+	if strings.Contains(relSrc, "* @file relheader/") {
+		t.Errorf("relative --output kept the --output prefix in @file:\n%s", relSrc[:400])
+	}
+}
+
+// TestGenerateModelRejectsCrossRunCollision: modelSpecs only compares the
+// names of one invocation, and the exists check compares file paths, so two
+// spellings of one model used to slip through: my-key then my_key wrote a
+// second MyKey declaration and a second model mapped to table my_key. The
+// second run must be rejected before anything is written, for a plain run and
+// for --force alike.
+func TestGenerateModelRejectsCrossRunCollision(t *testing.T) {
+	dir := scaffoldProjectDir(t, "gencollide", "--http", "--fiber=false", "--no-grpc")
+	runGenerate(t, dir, "model", "my-key")
+
+	modelBefore := readFile(t, filepath.Join(dir, "model", "my-key.go"))
+	mainBefore := readFile(t, filepath.Join(dir, "main.go"))
+	cfgBefore := readFile(t, filepath.Join(dir, "config.json"))
+
+	for _, args := range [][]string{{"model", "my_key"}, {"model", "my_key", "--force"}} {
+		out, code := runGenerateRaw(t, dir, args...)
+		if code == 0 {
+			t.Fatalf("sicky generate %s must be rejected", strings.Join(args, " "))
+		}
+
+		if !strings.Contains(out, "collides") || !strings.Contains(out, "model/my-key.go") {
+			t.Errorf("%s: error does not name the existing model:\n%s", strings.Join(args, " "), out)
+		}
+
+		if _, err := os.Stat(filepath.Join(dir, "model", "my_key.go")); err == nil {
+			t.Errorf("%s wrote model/my_key.go", strings.Join(args, " "))
+		}
+
+		if _, err := os.Stat(filepath.Join(dir, "service", "my_key.go")); err == nil {
+			t.Errorf("%s wrote service/my_key.go", strings.Join(args, " "))
+		}
+	}
+
+	if readFile(t, filepath.Join(dir, "model", "my-key.go")) != modelBefore {
+		t.Error("a rejected run modified the existing model")
+	}
+
+	if readFile(t, filepath.Join(dir, "main.go")) != mainBefore {
+		t.Error("a rejected run rewired main.go")
+	}
+
+	if readFile(t, filepath.Join(dir, "config.json")) != cfgBefore {
+		t.Error("a rejected run rewired config.json")
 	}
 }

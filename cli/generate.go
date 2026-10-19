@@ -417,8 +417,12 @@ func renderGenerateContent(tmplName, outputPath string, data any) (string, error
 			}
 		}
 
+		// @file is rendered relative to the project the file lands in, the
+		// same way `sicky new` renders it. --output may be absolute or
+		// relative; either way the committed header must not carry the
+		// builder's directory layout.
 		fm := newFileMeta(gc.Name, gc.SPDX, gc.Holder, gc.Author)
-		fm.File = filepath.ToSlash(outputPath)
+		fm.File = relativeFile(projectRoot(gc.Root), outputPath)
 		fm.Package = packageOf(content)
 		fm.Brief = gc.Brief
 
