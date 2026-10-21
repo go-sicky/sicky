@@ -10,3 +10,6 @@ issue_*.md
 # `make cover` output (Makefile COVERPROFILE).
 coverage.out
 
+# AI Agents
+.opencode/
+

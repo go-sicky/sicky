@@ -147,7 +147,7 @@ Project-specific formatting rules beyond `gofmt`/`gofumpt` (apply to all `*.go` 
 ## 4. Key Packages & Directories
 - `/broker`: Messaging abstraction (`broker/broker.go`) + NATS, JetStream, NSQ implementations.
 - `/client`: Client abstraction + gRPC, HTTP, TCP, UDP, WebSocket implementations (top-level `client.Config` empty with `Ensure()`, sub-clients have `Ensure()` + `Validate()` where applicable). gRPC client (`client/grpc/grpc.go`): `tls_cert_pem`+`tls_key_pem` load a real `X509KeyPair` (TLS 1.2+, half-config fail-fast via `ErrIncompleteTLSConfig`, never silent plaintext); `Addr` mode dials directly, `Service` mode resolves via the registry pool (`resolveGRPCAddrs` from `Instance.Servers[type==grpc]`) with a `NotifyChan`-driven watcher goroutine (+30s resync, stopped on `Disconnect`).
-- `/cli`: CLI scaffolding — `sicky serve/new/generate/version/help` (`cli/sicky.go:46 Run()`), transports stdio/http.
+- `/cli`: CLI scaffolding — `sicky serve/new/generate/version/help` (`cli/sicky.go:46 Run()`), transports stdio/http. `sicky new` runs `git init` only when the target is not already inside a git working tree (`insideWorkTree`, asked of git itself), so scaffolding a service into a monorepo never nests a second repository.
 - `/cmd/sicky`: Entrypoint (`cmd/sicky/main.go`).
 - `/infra`: Infrastructure drivers — 10 files at `infra/*.go` (Redis, Bun/SQL, Badger, Ristretto, Mongo, Clickhouse, MQTT, NATS, S3, Elasticsearch). No interface — each is a standalone module. No `infra/interface.go`.
 - `/internal`: Internal helpers (`internal/context.go`, `internal/leakcheck` — the shared goroutine-leak policy every test package's `TestMain` uses).

@@ -417,9 +417,20 @@ func licenseInput(input string) string {
 
 // gitInit initializes a git repository in dir. It is best-effort: a missing
 // git binary or any init failure only warns and never fails scaffolding.
+//
+// A project created inside an existing working tree is left alone. `git init`
+// there nests a second repository whose history the enclosing one cannot see,
+// while the enclosing repository already tracks the new files - the monorepo
+// case, where a service is added next to its siblings rather than at the top.
 func gitInit(dir string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		fmt.Fprintln(os.Stderr, "sicky new: warn: git not found, skipped `git init`")
+
+		return
+	}
+
+	if insideWorkTree(dir) {
+		fmt.Println("  \u2714 Already inside a git repository, skipped `git init`")
 
 		return
 	}
@@ -434,6 +445,25 @@ func gitInit(dir string) {
 	}
 
 	fmt.Println("  \u2714 Git initialized")
+}
+
+// insideWorkTree reports whether dir already belongs to a git working tree.
+// It covers both an enclosing repository and a target that is itself one (a
+// --force re-run). git answers this for every layout - a .git directory, a
+// worktree .git file, a submodule, GIT_CEILING_DIRECTORIES - which is why the
+// check asks git instead of walking up looking for a .git entry. An error is
+// read as "not in a repository": gitInit is best-effort, and a failed probe
+// must not cost the user the repository they would otherwise get.
+func insideWorkTree(dir string) bool {
+	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd.Dir = dir
+
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(string(out)) == "true"
 }
 
 // defaultGoMetricsVersion is the fallback when the CLI build info is
