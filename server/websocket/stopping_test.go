@@ -16,17 +16,37 @@ import (
 )
 
 // Stop is not instantaneous: it flips running=false, then drains for up to
-// ShutdownTimeout (10s by default) while a live peer keeps the serve loop
-// busy. Every other server implementation in this module guards that window
-// with a stopping flag, so a Start landing inside it is refused rather than
-// obeyed. Websocket did not, and the result was worse than a second listener:
-// the new Start adds its serve and reaper goroutines to srv.wg, and the
-// in-flight Stop is already sitting on wg.Wait() for that same group.
+// ShutdownTimeout (10s by default). Every other server implementation in this
+// module guards that window with a stopping flag, so a Start landing inside it
+// is refused rather than obeyed. Websocket did not, and the result was worse
+// than a second listener: the new Start adds its serve and reaper goroutines to
+// srv.wg, and the in-flight Stop is already sitting on wg.Wait() for that same
+// group.
 //
 // So the concurrent Start did not merely race — it extended the drain it was
 // supposed to be waiting out, by up to a second shutdown timeout.
+//
+// The drain window is held open by a blocking beforeStop hook. An earlier
+// version held it open with a live, never-upgraded peer instead, which only
+// works once fasthttp has accepted the connection: when the scheduler ran Stop
+// to completion before the test reached Start, Start legitimately restarted the
+// server and the test reported its own restart as a failure.
 func TestStartDuringStopDrainIsRefused(t *testing.T) {
-	srv := New(&server.Options{Name: "drain"}, &Config{Address: "127.0.0.1:0", ShutdownTimeout: 3})
+	draining := make(chan struct{})
+	release := make(chan struct{})
+
+	opts := &server.Options{Name: "drain"}
+	// Stop sets running=false and stopping=true, then runs this hook before it
+	// shuts the app down, so a signal from it means the window is definitely
+	// open and the drain cannot finish until release is closed.
+	opts.BeforeStop(func() error {
+		close(draining)
+		<-release
+
+		return nil
+	})
+
+	srv := New(opts, &Config{Address: "127.0.0.1:0", ShutdownTimeout: 3})
 	if srv == nil {
 		t.Fatal("New returned nil")
 	}
@@ -35,22 +55,25 @@ func TestStartDuringStopDrainIsRefused(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	// A live, upgraded peer is what makes the drain take real time.
-	conn := dialRaw(t, srv.Addr().String())
-	defer conn.Close()
-
 	stopped := make(chan error, 1)
 	go func() { stopped <- srv.Stop() }()
 
-	// Wait until Stop has flipped running=false and is mid-drain. That
-	// transition is the window this test is about.
-	waitFor(t, func() bool { return !srv.Running() }, "Stop never left the running state")
+	// The hook runs mid-drain: running=false, stopping=true, wg not yet waited.
+	<-draining
 
 	started := srv.Start()
+
+	// Release the drain regardless of what Start did, or Stop would never
+	// return and a refusal bug would surface as a test timeout.
+	close(release)
 
 	if started != nil {
 		t.Errorf("Start during the drain returned %v; it must refuse rather than "+
 			"start a second listener inside the drain it is racing", started)
+	}
+
+	if srv.Running() {
+		t.Error("Start during the drain started a second server")
 	}
 
 	select {

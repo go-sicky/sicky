@@ -39,6 +39,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/go-sicky/sicky/logger"
+	"github.com/go-sicky/sicky/metrics"
 )
 
 // NewRecoveryInterceptor recovers panicking unary handlers and converts
@@ -87,6 +88,12 @@ func logPanic(cfg LoggerConfig, ctx context.Context, method, kind string, r any)
 	if cfg.Logger == nil {
 		cfg.Logger = logger.Logger
 	}
+
+	// Recovery is the only place that sees every recovered panic, so the
+	// framework-wide counter (AGENTS §3.6) is recorded here: the access
+	// logger re-panics precisely to keep recovery outermost, which means
+	// it observes the panic but must not own the settled outcome.
+	metrics.ServerPanicsTotal.WithLabelValues("grpc", method).Inc()
 
 	cfg.Logger.ErrorContext(
 		ctx,

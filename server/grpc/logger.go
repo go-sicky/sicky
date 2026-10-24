@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
@@ -61,6 +62,15 @@ func loggerConfigDefault(config ...LoggerConfig) LoggerConfig {
 	}
 }
 
+// Constant error text for the access log of a panicking handler. The panic
+// value is deliberately never logged here: recovery owns that record (it has
+// the stack and the value), and passing it to a second sink risks leaking
+// request data into a pipeline that expects only a failure string.
+const (
+	panicUnaryLogError  = "grpc handler panicked"
+	panicStreamLogError = "grpc stream handler panicked"
+)
+
 // NewAccessLoggerInterceptor creates a new AccessLoggerInterceptor.
 func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerInterceptor {
 	cfg := loggerConfigDefault(config...)
@@ -68,7 +78,7 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		cfg.Logger = logger.Logger
 	}
 
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 		var requestID, traceID, spanID, userAgent string
 
 		md, ok := metadata.FromIncomingContext(ctx)
@@ -103,39 +113,56 @@ func NewAccessLoggerInterceptor(config ...LoggerConfig) grpc.UnaryServerIntercep
 		}
 
 		start := time.Now()
-		resp, err := handler(ctx, req)
-		end := time.Now()
 
-		code := status.Code(err).String()
-		metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, code, end.Sub(start))
+		// Deferred so a panicking handler is still observed. Recovery is
+		// outermost, so a panic unwinds through this interceptor before
+		// recovery converts it; observed inline, the request would vanish
+		// from the access log and the RED metrics entirely. The re-panic
+		// keeps recovery outermost and keeps its Internal answer.
+		defer func() {
+			end := time.Now()
 
-		// Fixed-order slice: one alloc, stable field order for log
-		// indexing (a map here costs an extra alloc plus random order).
-		args := []any{
-			"pid", serverPID,
-			"status", 200,
-			"latency", end.Sub(start),
-			"method", info.FullMethod,
-			"user-agent", userAgent,
-			"request-id", requestID,
-			"trace-id", traceID,
-			"parent-span-id", spanID,
-		}
+			// Fixed-order slice: one alloc, stable field order for log
+			// indexing (a map here costs an extra alloc plus random order).
+			args := []any{
+				"pid", serverPID,
+				"status", 200,
+				"latency", end.Sub(start),
+				"method", info.FullMethod,
+				"user-agent", userAgent,
+				"request-id", requestID,
+				"trace-id", traceID,
+				"parent-span-id", spanID,
+			}
 
-		ll := logger.DebugLevel
-		msg := "grpc.request"
-		if err != nil {
-			ll = logger.ErrorLevel
+			if r := recover(); r != nil {
+				metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, codes.Internal.String(), end.Sub(start))
 
-			// Report the real gRPC code so error-rate dashboards see
-			// failures instead of a hardcoded 200.
-			args[3] = int(status.Code(err))
-			args = append(args, "error", err.Error())
-		}
+				args[3] = int(codes.Internal)
+				args = append(args, "error", panicUnaryLogError)
+				cfg.Logger.LogContext(ctx, logger.ErrorLevel, "grpc.request", args...)
 
-		cfg.Logger.LogContext(ctx, ll, msg, args...)
+				panic(r)
+			}
 
-		return resp, err
+			code := status.Code(err).String()
+			metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, code, end.Sub(start))
+
+			ll := logger.DebugLevel
+			msg := "grpc.request"
+			if err != nil {
+				ll = logger.ErrorLevel
+
+				// Report the real gRPC code so error-rate dashboards see
+				// failures instead of a hardcoded 200.
+				args[3] = int(status.Code(err))
+				args = append(args, "error", err.Error())
+			}
+
+			cfg.Logger.LogContext(ctx, ll, msg, args...)
+		}()
+
+		return handler(ctx, req)
 	}
 }
 
@@ -146,37 +173,51 @@ func NewStreamAccessLoggerInterceptor(config ...LoggerConfig) grpc.StreamServerI
 		cfg.Logger = logger.Logger
 	}
 
-	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
 		start := time.Now()
-		err := handler(srv, ss)
-		end := time.Now()
 
-		code := status.Code(err).String()
-		metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, code, end.Sub(start))
+		// Same contract as the unary interceptor: a panicking stream handler
+		// must still count and log before recovery turns it into Internal.
+		defer func() {
+			end := time.Now()
 
-		args := []any{
-			"pid", serverPID,
-			"status", 200,
-			"latency", end.Sub(start),
-			"method", info.FullMethod,
-			"client_stream", info.IsClientStream,
-			"server_stream", info.IsServerStream,
-		}
+			args := []any{
+				"pid", serverPID,
+				"status", 200,
+				"latency", end.Sub(start),
+				"method", info.FullMethod,
+				"client_stream", info.IsClientStream,
+				"server_stream", info.IsServerStream,
+			}
 
-		ll := logger.DebugLevel
-		msg := "grpc.stream"
-		if err != nil {
-			ll = logger.ErrorLevel
+			if r := recover(); r != nil {
+				metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, codes.Internal.String(), end.Sub(start))
 
-			// Report the real gRPC code so error-rate dashboards see
-			// failures instead of a hardcoded 200.
-			args[3] = int(status.Code(err))
-			args = append(args, "error", err.Error())
-		}
+				args[3] = int(codes.Internal)
+				args = append(args, "error", panicStreamLogError)
+				cfg.Logger.LogContext(ss.Context(), logger.ErrorLevel, "grpc.stream", args...)
 
-		cfg.Logger.LogContext(ss.Context(), ll, msg, args...)
+				panic(r)
+			}
 
-		return err
+			code := status.Code(err).String()
+			metrics.ObserveServerRequest("grpc", info.FullMethod, info.FullMethod, code, end.Sub(start))
+
+			ll := logger.DebugLevel
+			msg := "grpc.stream"
+			if err != nil {
+				ll = logger.ErrorLevel
+
+				// Report the real gRPC code so error-rate dashboards see
+				// failures instead of a hardcoded 200.
+				args[3] = int(status.Code(err))
+				args = append(args, "error", err.Error())
+			}
+
+			cfg.Logger.LogContext(ss.Context(), ll, msg, args...)
+		}()
+
+		return handler(srv, ss)
 	}
 }
 

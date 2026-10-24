@@ -71,6 +71,7 @@ type GRPCServer struct {
 	app           *grpc.Server
 	running       bool
 	stopping      bool
+	stopped       bool
 	addr          net.Addr
 	advertiseAddr net.Addr
 	metadata      utils.Metadata
@@ -265,6 +266,27 @@ func (srv *GRPCServer) Name() string {
 	return srv.options.Name
 }
 
+// stoppedErr reports a Start on a server whose grpc.Server instance has
+// already been stopped.
+//
+// A grpc.Server is single-use: handler registration is bound to that one
+// instance, so rebuilding it in Start would silently drop every handler
+// registered through Handle, and reusing it makes Serve return
+// ErrServerStopped while Start reports success and the registry advertises
+// an address nothing serves. Refuse honestly instead.
+func (srv *GRPCServer) stoppedErr() error {
+	srv.options.Logger.ErrorContext(
+		srv.ctx,
+		"grpc server cannot restart after stop",
+		"server", srv.String(),
+		"id", srv.options.ID,
+		"name", srv.options.Name,
+		"error", grpc.ErrServerStopped.Error(),
+	)
+
+	return grpc.ErrServerStopped
+}
+
 // Start starts the component.
 func (srv *GRPCServer) Start() error {
 	var (
@@ -276,7 +298,12 @@ func (srv *GRPCServer) Start() error {
 	srv.RLock()
 	running := srv.running
 	stopping := srv.stopping
+	stopped := srv.stopped
 	srv.RUnlock()
+	if stopped {
+		return srv.stoppedErr()
+	}
+
 	if running || stopping {
 		// running
 		return nil
@@ -287,6 +314,12 @@ func (srv *GRPCServer) Start() error {
 	srv.options.RunBeforeStart()
 
 	srv.Lock()
+
+	if srv.stopped {
+		srv.Unlock()
+
+		return srv.stoppedErr()
+	}
 
 	if srv.running || srv.stopping {
 		srv.Unlock()
@@ -484,6 +517,10 @@ func (srv *GRPCServer) Stop() error {
 	srv.Lock()
 	srv.running = false
 	srv.stopping = false
+	// Only a Stop that actually drained marks the instance spent: the
+	// early "not running" return above leaves a never-started server
+	// restartable, and the grpc.Server in that case has never served.
+	srv.stopped = true
 	srv.Unlock()
 
 	srv.options.Logger.InfoContext(

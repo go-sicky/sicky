@@ -97,6 +97,8 @@ var (
 	ErrBunDriverMissing     = errors.New("infra: bun driver missing")
 	ErrBunPoolInvalid       = errors.New("infra: bun pool setting is negative")
 	ErrBunSlowInvalid       = errors.New("infra: bun slow_duration is negative")
+	// ErrBunUnavailable marks a transaction request before Bun initialized.
+	ErrBunUnavailable = errors.New("infra: bun is not initialized")
 )
 
 // Driver names as written in config, matched case-insensitively. "postgresql"
@@ -436,6 +438,48 @@ func (c *BunConfig) Validate() error {
 	default:
 		return ErrBunUnsupportedDriver
 	}
+}
+
+type bunTxContextKey struct{}
+
+// WithBunTx returns a context carrying db as the current Bun executor. A nil
+// executor leaves the context unchanged.
+func WithBunTx(ctx context.Context, db bun.IDB) context.Context {
+	if db == nil {
+		return ctx
+	}
+
+	return context.WithValue(ctx, bunTxContextKey{}, db)
+}
+
+// BunDB returns the Bun executor carried by ctx, or the package-level Bun
+// handle when no transaction is active. It returns a nil interface when Bun
+// is uninitialized, so callers can compare the result with nil.
+func BunDB(ctx context.Context) bun.IDB {
+	if ctx != nil {
+		if db, ok := ctx.Value(bunTxContextKey{}).(bun.IDB); ok && db != nil {
+			return db
+		}
+	}
+
+	if Bun == nil {
+		return nil
+	}
+
+	return Bun
+}
+
+// RunInBunTx runs fn inside a Bun transaction and injects the transaction into
+// the context passed to fn. The transaction is committed when fn returns nil
+// and rolled back otherwise.
+func RunInBunTx(ctx context.Context, opts *sql.TxOptions, fn func(context.Context) error) error {
+	if Bun == nil {
+		return ErrBunUnavailable
+	}
+
+	return Bun.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
+		return fn(WithBunTx(ctx, tx))
+	})
 }
 
 /*

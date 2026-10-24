@@ -138,6 +138,16 @@ upgrade:
 	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) mod tidy
 	@echo
 
+swag:
+	@printf "\033[1;36m  Upgrading swag-go ...\033[0m\n"
+	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) install github.com/swaggo/swag/cmd/swag@latest
+	@echo
+
+doc:
+	@printf "\033[1;36m  Generating swagger definitions ...\033[0m\n"
+	@$(SWAG) init --parseDependency -d ./,./handler -o ./swagger
+	@echo
+
 grpc:
 	@printf "\033[1;36m  Upgrading gRPC compiler toolchains ...\033[0m\n"
 	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@latest
