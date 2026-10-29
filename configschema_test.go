@@ -135,6 +135,120 @@ func TestWarnUnknownConfigKeysDoesNotFailUnmarshal(t *testing.T) {
 	}
 }
 
+// Named infrastructure instances use a map whose keys are chosen by the
+// operator. The instance name is dynamic, but the fields under it are not:
+// a typo inside an instance must still be reported, while every valid field
+// and every instance name must stay silent.
+func TestConfigSchemaResolvesInstanceFields(t *testing.T) {
+	schema := buildConfigSchema(&nestedAppConfig{})
+
+	known := []string{
+		"sicky.infra.s3.instances",
+		"sicky.infra.s3.instances.gallery",
+		"sicky.infra.s3.instances.gallery.region",
+		"sicky.infra.s3.instances.gallery.bucket",
+		"sicky.infra.s3.instances.gallery.use_path_style",
+		"sicky.infra.s3.instances.any-other-name.region",
+		"sicky.infra.s3.default_instance",
+		"sicky.infra.s3.no_default",
+		"sicky.infra.redis.instances.cache.db",
+		"sicky.infra.ristretto.instances.hot.max_cost",
+	}
+
+	got := schema.unknownKeys(known)
+	if len(got) != 0 {
+		t.Fatalf("valid instance keys reported as unknown: %v", got)
+	}
+
+	typos := []string{
+		"sicky.infra.s3.instances.gallery.regin",
+		"sicky.infra.s3.instances.gallery.buckett",
+		"sicky.infra.redis.instances.cache.dbb",
+	}
+
+	got = schema.unknownKeys(typos)
+	for _, want := range typos {
+		if !slices.Contains(got, want) {
+			t.Errorf("%q must be reported as unknown; got %v", want, got)
+		}
+	}
+}
+
+// viper decodes the typed instance map exactly as an application config does.
+// The instance objects are complete configs: a field omitted from an instance
+// must stay zero even when the top-level block sets it.
+func TestConfigUnmarshalDecodesNamedInstances(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("json")
+
+	if err := v.ReadConfig(strings.NewReader(`{
+		"sicky": {
+			"infra": {
+				"s3": {
+					"region": "us-east-1",
+					"endpoint": "http://minio:9000",
+					"default_instance": "Gallery",
+					"instances": {
+						"Gallery": {"region": "eu-west-1", "bucket": "gallery", "use_path_style": true},
+						"avatars": {"region": "us-east-1", "bucket": "avatars"}
+					}
+				},
+				"redis": {
+					"addr": "127.0.0.1:6379",
+					"no_default": true,
+					"instances": {
+						"cache": {"addr": "127.0.0.1:6380", "db": 2}
+					}
+				}
+			}
+		}
+	}`)); err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	cfg := &nestedAppConfig{Sicky: &Config{}}
+	if err := v.Unmarshal(cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	s3 := cfg.Sicky.Infra.S3
+	if s3 == nil {
+		t.Fatal("s3 block missing")
+	}
+
+	if s3.DefaultInstance != "Gallery" {
+		t.Errorf("default_instance = %q, want the configured value", s3.DefaultInstance)
+	}
+
+	// viper lowercases keys; the instance name is normalized by the infra
+	// config resolver, not by the decoder.
+	gallery := s3.Instances["gallery"]
+	if gallery == nil {
+		t.Fatalf("instances = %v, want a lowercased gallery key", s3.Instances)
+	}
+
+	if gallery.Region != "eu-west-1" || gallery.Bucket != "gallery" || !gallery.UsePathStyle {
+		t.Errorf("gallery instance = %+v, want the configured fields", gallery)
+	}
+
+	if gallery.Endpoint != "" {
+		t.Errorf("gallery endpoint = %q, want empty: instances must not inherit the top-level endpoint", gallery.Endpoint)
+	}
+
+	redis := cfg.Sicky.Infra.Redis
+	if redis == nil || !redis.NoDefault {
+		t.Fatal("redis.no_default was not decoded")
+	}
+
+	if redis.Instances["cache"] == nil || redis.Instances["cache"].DB != 2 {
+		t.Errorf("redis cache instance = %+v, want db 2", redis.Instances["cache"])
+	}
+
+	if redis.Instances["cache"].Addr != "127.0.0.1:6380" {
+		t.Errorf("redis cache addr = %q, want the instance override", redis.Instances["cache"].Addr)
+	}
+}
+
 // Every key the current sensitiveEnvKeys list names must be a real field, or
 // binding it does nothing — the phantom-entry problem TestSensitiveEnvKeysHave
 // NoPhantomEntries guards by hand for two keys. This guards all of them by
@@ -149,3 +263,12 @@ func TestSensitiveEnvKeysAllNameRealFields(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

@@ -856,6 +856,19 @@ func (m *Manager) collectComponentHealth(reqCtx context.Context) []componentHeal
 	return components
 }
 
+// sortedInstanceNames returns the map keys in sorted order, so /health and
+// the probe fan-out are deterministic across requests.
+func sortedInstanceNames[T any](instances map[string]T) []string {
+	names := make([]string, 0, len(instances))
+	for name := range instances {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+
+	return names
+}
+
 // probeComponents performs one real fan-out over the configured
 // components. It is the singleflight leader body; see
 // collectComponentHealth.
@@ -868,43 +881,70 @@ func (m *Manager) probeComponents(reqCtx context.Context) []componentHealth {
 		ping func(ctx context.Context) error
 		// local reports configured-but-local-only state (no remote ping).
 		local func() (configured bool, unhealthy bool)
+		// configured reports whether the component/instance exists. It is
+		// nil for local checks, which determine it themselves.
+		configured func() bool
 	}
 
 	defs := []checkDef{
-		{name: componentRedis, ping: func(ctx context.Context) error {
-			rdb := infra.GetRedis()
-			if rdb == nil {
-				return nil
-			}
+		{
+			name:       componentRedis,
+			configured: func() bool { return infra.GetRedis() != nil },
+			ping: func(ctx context.Context) error {
+				rdb := infra.GetRedis()
+				if rdb == nil {
+					return nil
+				}
 
-			return rdb.Ping(ctx).Err()
-		}},
-		{name: componentBun, ping: func(ctx context.Context) error {
-			db := infra.GetBun()
-			if db == nil {
-				return nil
-			}
+				return rdb.Ping(ctx).Err()
+			},
+		},
+		{
+			name:       componentBun,
+			configured: func() bool { return infra.GetBun() != nil },
+			ping: func(ctx context.Context) error {
+				db := infra.GetBun()
+				if db == nil {
+					return nil
+				}
 
-			return db.PingContext(ctx)
-		}},
-		{name: componentClickhouse, ping: func(ctx context.Context) error {
-			ch := infra.GetClickHouse()
-			if ch == nil {
-				return nil
-			}
+				return db.PingContext(ctx)
+			},
+		},
+		{
+			name:       componentClickhouse,
+			configured: func() bool { return infra.GetClickHouse() != nil },
+			ping: func(ctx context.Context) error {
+				ch := infra.GetClickHouse()
+				if ch == nil {
+					return nil
+				}
 
-			return ch.Ping(ctx)
-		}},
-		{name: componentMongo, ping: func(ctx context.Context) error {
-			mg := infra.GetMongo()
-			if mg == nil {
-				return nil
-			}
+				return ch.Ping(ctx)
+			},
+		},
+		{
+			name:       componentMongo,
+			configured: func() bool { return infra.GetMongo() != nil },
+			ping: func(ctx context.Context) error {
+				mg := infra.GetMongo()
+				if mg == nil {
+					return nil
+				}
 
-			return mg.Ping(ctx, readpref.Primary())
-		}},
-		{name: componentElastic, ping: infra.PingElastic},
-		{name: componentS3, ping: infra.PingS3},
+				return mg.Ping(ctx, readpref.Primary())
+			},
+		},
+		{
+			name:       componentElastic,
+			configured: func() bool { return infra.GetElastic() != nil },
+			ping:       func(ctx context.Context) error { return infra.PingElastic(ctx) },
+		},
+		{
+			name:       componentS3,
+			configured: func() bool { return infra.GetS3() != nil },
+			ping:       func(ctx context.Context) error { return infra.PingS3(ctx) },
+		},
 		{name: componentRistretto, local: func() (bool, bool) { return infra.GetRistretto() != nil, false }},
 		{name: componentBadger, local: func() (bool, bool) { return infra.GetBadger() != nil, false }},
 		{name: componentNATS, local: func() (bool, bool) {
@@ -923,6 +963,126 @@ func (m *Manager) probeComponents(reqCtx context.Context) []componentHealth {
 
 			return true, !mc.IsConnected()
 		}},
+	}
+
+	// Named instances. The default alias is also in its component's snapshot,
+	// so /health reports both "s3" and "s3:gallery" for the same client.
+	redisNamed := infra.GetRedisInstances()
+	for _, name := range sortedInstanceNames(redisNamed) {
+		client := redisNamed[name]
+		instanceName := name
+		defs = append(defs, checkDef{
+			name:       componentRedis + ":" + name,
+			configured: func() bool { return infra.GetRedis(instanceName) != nil },
+			ping:       func(ctx context.Context) error { return client.Ping(ctx).Err() },
+		})
+	}
+
+	bunNamed := infra.GetBunInstances()
+	for _, name := range sortedInstanceNames(bunNamed) {
+		instance := bunNamed[name]
+		instanceName := name
+		defs = append(defs, checkDef{
+			name:       componentBun + ":" + name,
+			configured: func() bool { return infra.GetBun(instanceName) != nil },
+			ping:       func(ctx context.Context) error { return instance.PingContext(ctx) },
+		})
+	}
+
+	clickHouseNamed := infra.GetClickHouseInstances()
+	for _, name := range sortedInstanceNames(clickHouseNamed) {
+		instance := clickHouseNamed[name]
+		instanceName := name
+		defs = append(defs, checkDef{
+			name:       componentClickhouse + ":" + name,
+			configured: func() bool { return infra.GetClickHouse(instanceName) != nil },
+			ping:       func(ctx context.Context) error { return instance.Ping(ctx) },
+		})
+	}
+
+	mongoNamed := infra.GetMongoInstances()
+	for _, name := range sortedInstanceNames(mongoNamed) {
+		instance := mongoNamed[name]
+		instanceName := name
+		defs = append(defs, checkDef{
+			name:       componentMongo + ":" + name,
+			configured: func() bool { return infra.GetMongo(instanceName) != nil },
+			ping:       func(ctx context.Context) error { return instance.Ping(ctx, readpref.Primary()) },
+		})
+	}
+
+	elasticNamed := infra.GetElasticInstances()
+	for _, name := range sortedInstanceNames(elasticNamed) {
+		instance := name
+		defs = append(defs, checkDef{
+			name:       componentElastic + ":" + instance,
+			configured: func() bool { return infra.GetElastic(instance) != nil },
+			ping:       func(ctx context.Context) error { return infra.PingElastic(ctx, instance) },
+		})
+	}
+
+	s3Named := infra.GetS3Instances()
+	for _, name := range sortedInstanceNames(s3Named) {
+		instance := name
+		defs = append(defs, checkDef{
+			name:       componentS3 + ":" + instance,
+			configured: func() bool { return infra.GetS3(instance) != nil },
+			ping:       func(ctx context.Context) error { return infra.PingS3(ctx, instance) },
+		})
+	}
+
+	ristrettoNamed := infra.GetRistrettoInstances()
+	for _, name := range sortedInstanceNames(ristrettoNamed) {
+		instanceName := name
+		defs = append(defs, checkDef{
+			name: componentRistretto + ":" + name,
+			local: func() (bool, bool) {
+				return infra.GetRistretto(instanceName) != nil, false
+			},
+		})
+	}
+
+	badgerNamed := infra.GetBadgerInstances()
+	for _, name := range sortedInstanceNames(badgerNamed) {
+		instanceName := name
+		defs = append(defs, checkDef{
+			name: componentBadger + ":" + name,
+			local: func() (bool, bool) {
+				return infra.GetBadger(instanceName) != nil, false
+			},
+		})
+	}
+
+	natsNamed := infra.GetNATSInstances()
+	for _, name := range sortedInstanceNames(natsNamed) {
+		instance := natsNamed[name]
+		instanceName := name
+		defs = append(defs, checkDef{
+			name: componentNATS + ":" + name,
+			local: func() (bool, bool) {
+				if infra.GetNATS(instanceName) == nil {
+					return false, false
+				}
+
+				return true, !instance.IsConnected()
+			},
+		})
+	}
+
+	mqttNamed := infra.GetMQTTInstances()
+	for _, name := range sortedInstanceNames(mqttNamed) {
+		instance := mqttNamed[name]
+		instanceName := name
+		defs = append(defs, checkDef{
+			name: componentMQTT + ":" + name,
+			local: func() (bool, bool) {
+				if infra.GetMQTT(instanceName) == nil {
+					return false, false
+				}
+
+				return true, !instance.IsConnected()
+			},
+		})
 	}
 
 	// Snapshot business checkers once: sizing + fill share the same snapshot
@@ -956,19 +1116,8 @@ func (m *Manager) probeComponents(reqCtx context.Context) []componentHealth {
 			if d.ping != nil {
 				// Determine configured state first without blocking.
 				configured := true
-				switch d.name {
-				case componentRedis:
-					configured = infra.GetRedis() != nil
-				case componentBun:
-					configured = infra.GetBun() != nil
-				case componentClickhouse:
-					configured = infra.GetClickHouse() != nil
-				case componentMongo:
-					configured = infra.GetMongo() != nil
-				case componentElastic:
-					configured = infra.GetElastic() != nil
-				case componentS3:
-					configured = infra.GetS3() != nil
+				if d.configured != nil {
+					configured = d.configured()
 				}
 
 				if !configured {

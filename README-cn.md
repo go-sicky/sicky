@@ -92,7 +92,7 @@ timing 类字段 0 填默认、负值 abort，NATS 的 `max_reconnects: -1` 例�
   在这两种写法上调用 `Level()` 是**静默无效**的。要改阈值就改你自己传进去的那个 logger，
   要确认真实生效的级别用 `Enabled()`
 - **Manager 端点** — 实际注册 **8 个**（`manager.go:256-263`）：
-  `/metrics`（公开，给 Prometheus 抓）、`/health` + `/ready`（同一套聚合：10 个 infra + 注册的业务 checker；
+  `/metrics`（公开，给 Prometheus 抓）、`/health` + `/ready`（同一套聚合：10 个 infra + 全部具名实例 + 注册的业务 checker；
   只有 `unhealthy` 拉低整体状态，`not_configured` 上报但视为健康；infra 部分并发跑在 2s ctx 下，
   业务 checker 部分是串行的；后端错误文本不回显给调用方，未配置 token 时 NATS/MQTT 失联显示 `disconnected`、
   其余显示 `unhealthy`，详情只打服务端日志）、`/live`（静态 200，只做存活）、`/version`、`/info`、
@@ -376,7 +376,15 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "elastic":   { "addresses": ["http://localhost:9200"], "username": "", "password": "", "cloud_id": "", "api_key": "", "service_token": "", "certificate_fingerprint": "", "ca_cert_file": "", "timeout_sec": 5 },
     "clickhouse":{ "dsn": "clickhouse://..." },
     "mongo":     { "uri": "mongodb://localhost:27017", "db": "mydb", "max_pool_size": 0, "connect_timeout_sec": 0 },
-    "s3":        { "region": "us-east-1", "endpoint": "", "access_key": "", "secret_key": "", "session_token": "", "bucket": "", "use_path_style": false, "timeout": 5, "request_timeout_sec": 0 }
+    "s3":        { "region": "us-east-1", "endpoint": "", "access_key": "", "secret_key": "", "session_token": "", "bucket": "", "use_path_style": false, "timeout": 5, "request_timeout_sec": 0 },
+    // 多实例：任意组件块都可以加
+    //   "default_instance": "gallery",
+    //   "no_default": false,
+    //   "instances": { "gallery": { ...完整配置... } }
+    // instances 是完整配置，不继承顶层字段；
+    // 顶层配置完整时 default_instance 被忽略；
+    // no_default: true 时只创建具名实例。
+    // Ristretto 例外：顶层（含零值）永远是默认，default_instance 无效。
   },
 
   "tracer": {
@@ -679,6 +687,60 @@ _ = infra.GetBadger().Update(func(txn *badger.Txn) error {
 // 其余同理：infra.GetMongoDB("mydb")、infra.GetS3()、infra.GetNats()……
 ```
 
+#### 基础设施多实例
+
+所有 infra 组件都支持可选的具名实例。实例写在 `instances` 下，是**完整配置**，
+不继承顶层字段。
+
+```json
+{
+  "infra": {
+    "s3": {
+      "default_instance": "gallery",
+      "instances": {
+        "gallery": { "region": "us-east-1", "bucket": "gallery" },
+        "avatars": { "region": "eu-west-1", "bucket": "avatars" }
+      }
+    }
+  }
+}
+```
+
+```go
+// 配置在 infra.redis.instances.cache / .session。
+cache := infra.GetRedis("cache")
+session := infra.GetRedis("session")
+_ = cache
+_ = session
+
+// 不带名字仍然返回共享单例。
+defaultRedis := infra.GetRedis()
+
+// 共享单例也可以指定为某个具名实例：
+//   "default_instance": "cache"
+// 但顶层 redis 配置完整时该字段会被忽略。
+_ = defaultRedis
+
+// 清理单个具名引用或全部引用；两者都不负责 Close，
+// 关闭由 ShutdownX / sicky.Run 负责。
+infra.ClearRedis("cache")
+infra.ClearRedisAll()
+```
+
+- `InitX` 启动时创建默认实例和全部具名实例；任一具名实例构建失败会中止启动（fail-fast）。
+- `/health` 会同时上报 `redis:cache`、`s3:gallery` 等具名组件；指标使用相同的
+  `component:name` label。若某个具名实例被选为默认，它的操作指标仍打组件级
+  label，保证按组件的 dashboards 继续能看到它的 ops。
+- 顶层配置完整时 `default_instance` 被忽略；`no_default: true` 在全新初始化时只创建具名实例，
+  已存在的单例按 first-wins 保留。
+- Ristretto 是例外：顶层配置（含零值）永远是默认，`default_instance` 无效；
+  需要只建具名缓存时用 `no_default`。`no_default` + `default_instance` 仍然报冲突。
+- 具名实例按名称排序创建。同一配置块内归一化后重名的实例会被拒绝
+  （`ErrInstanceNameDuplicate`）；重复 `Init` 时 first-wins，保留已存在的实例。
+- 实例密钥可以通过环境变量提供，例如 `SICKY_INFRA_S3_INSTANCES_GALLERY_SECRET_KEY`；
+  前提是实例名已经出现在配置文件中。实例名里的 `-` 也会出现在环境变量名里，
+  如果要在 shell 里用 env override，建议实例名用 `_`。
+
 ### 生命周期 Hook
 
 ```go
@@ -772,7 +834,7 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 | `service` | Service 接口 + Standard（后台）、Interactive（CLI）、MCP（+ `mcp/protocol`） |
 | `registry` | Registry 接口 + Consul、Redis、Local（文件 JSON）—— `mdns` 已废弃（注释保留）；`pool.go` 有 `NotifyChan()`（`InitPool` 前为 nil，`PurgePool` 后保持稳定）供 gRPC client 这类实时订阅者用 |
 | `tracer` | Tracer 接口 + OTLP/gRPC、OTLP/HTTP、Stdout、Uptrace（Fiber 侧用 `server/fiber` 内建 tracer 中间件）；TCP/UDP/WebSocket 无 tracing（无标准载体，by design） |
-| `infra` | 10 个驱动（Redis、Bun、Ristretto、Badger、Elasticsearch、Clickhouse、MongoDB、MQTT、NATS、S3）—— 扁平 `infra/*.go`，无接口、无 `interface.go` |
+| `infra` | 11 个文件（10 个驱动 + `instances.go` 多实例辅助；Redis、Bun、Ristretto、Badger、Elasticsearch、Clickhouse、MongoDB、MQTT、NATS、S3）—— 扁平 `infra/*.go`，无接口、无 `interface.go` |
 | `job` | Job 接口 + Cron（gocron）、Ticker 实现 |
 | `runner` | Runner 接口 + Static goroutine 池 |
 | `logger` | 结构化日志（slog 底）+ Fiber/gRPC 适配器（`NewFiberMiddleware` 已废弃，见上） |

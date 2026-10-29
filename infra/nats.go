@@ -67,6 +67,14 @@ type NATSConfig struct {
 	// default); -1 retries forever (opt-in: a permanently down server
 	// then never surfaces as a startup error); other negatives abort.
 	MaxReconnects int `json:"max_reconnects" mapstructure:"max_reconnects" yaml:"max_reconnects"`
+	// DefaultInstance names the instance that also serves as the shared
+	// singleton when the top-level fields do not form a complete config.
+	DefaultInstance string `json:"default_instance" mapstructure:"default_instance" yaml:"default_instance"`
+	// NoDefault suppresses the shared singleton on a fresh init; only Instances are created.
+	NoDefault bool `json:"no_default" mapstructure:"no_default" yaml:"no_default"`
+	// Instances are complete NATS configurations. They do not inherit fields
+	// from the block above.
+	Instances map[string]*NATSConfig `json:"instances" mapstructure:"instances" yaml:"instances"`
 }
 
 // Deprecated: use NATSConfig.
@@ -118,8 +126,16 @@ func InitNATS(cfg *NATSConfig) (*nats.Conn, error) {
 		return nil, nil
 	}
 
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
 	conn, err := initNATS(cfg)
 	metrics.CountInfraInit("nats", err)
+	if err == nil && conn == nil {
+		// no_default: the component initialized, but there is no shared
+		// singleton to report as up.
+		metrics.SetInfraUp("nats", false)
+	}
 
 	return conn, err
 }
@@ -139,6 +155,176 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 		return nil, err
 	}
 
+	instances, names, err := cfg.resolveInstances()
+	if err != nil {
+		logger.Logger.Error(
+			"init NATS instances invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	identityErr := cfg.validateIdentity()
+	selection, err := resolveDefaultSelection(cfg.NoDefault, cfg.DefaultInstance, names, identityErr == nil, identityErr)
+	if err != nil {
+		logger.Logger.Error(
+			"init NATS default selection invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	if selection.Ignored != "" {
+		logger.Logger.Warn(
+			"nats default_instance ignored because the top-level config is complete",
+			"instance", selection.Ignored,
+		)
+	}
+
+	if cfg.NoDefault {
+		logger.Logger.Info("nats no_default is set; this block does not create a shared instance")
+	}
+
+	if !selection.UseTopLevel && selection.Instance != "" && cfg.DefaultInstance == "" {
+		if len(names) == 1 {
+			logger.Logger.Info(
+				"nats using the only named instance as the default",
+				"instance", selection.Instance,
+			)
+		} else {
+			logger.Logger.Warn(
+				"nats no default_instance configured; using the first instance in sorted order",
+				"instance", selection.Instance,
+			)
+		}
+	}
+
+	// Build first, register second: a failure never leaves a half-installed
+	// component behind. Existing first-wins entries are not rebuilt.
+	mu.RLock()
+	existingDefault := NATS
+	mu.RUnlock()
+
+	var topLevel *nats.Conn
+
+	if selection.UseTopLevel && existingDefault == nil {
+		topLevel, err = newNATSClient(cfg, "nats")
+		if err != nil {
+			// newNATSClient already logged the failure with the same
+			// instance label; a second identical line adds nothing.
+			return nil, err
+		}
+	}
+
+	built := make(map[string]*nats.Conn, len(names))
+	for _, name := range names {
+		if _, ok := natsInstances.get(name); ok {
+			logger.Logger.Warn("nats instance already initialized, keeping existing connection", "instance", name)
+
+			continue
+		}
+
+		conn, berr := newNATSClient(instances[name], "nats:"+name)
+		if berr != nil {
+			metrics.CountInfraInit("nats:"+name, berr)
+			logger.Logger.Error(
+				"init NATS instance failed",
+				"instance", name,
+				"error", berr.Error(),
+			)
+
+			rollbackNATSConnections(topLevel, built)
+
+			return nil, fmt.Errorf("nats instance %s: %w", name, berr)
+		}
+
+		metrics.CountInfraInit("nats:"+name, nil)
+		built[name] = conn
+	}
+
+	// Register under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	if topLevel != nil {
+		stored := false
+
+		mu.Lock()
+		if NATS == nil {
+			NATS = topLevel
+			Nats = topLevel
+			natsDefaultInstance = ""
+			stored = true
+		}
+
+		mu.Unlock()
+
+		if !stored {
+			logger.Logger.Warn("nats already initialized, closing duplicate connection")
+			closeNATSConnection(topLevel)
+		}
+	}
+
+	for _, name := range names {
+		conn, ok := built[name]
+		if !ok {
+			continue
+		}
+
+		if _, stored := natsInstances.putFirst(name, conn); !stored {
+			logger.Logger.Warn("nats instance already initialized, closing duplicate connection", "instance", name)
+			closeNATSConnection(conn)
+
+			continue
+		}
+
+		logger.Logger.InfoContext(
+			context.Background(),
+			"nats instance initialized",
+			"instance", name,
+			"url", redactDSN(instances[name].URL),
+			"tls", instances[name].EnableTLS,
+		)
+	}
+
+	// A named default is installed only when the shared singleton is still
+	// free; first-wins keeps an earlier top-level or alias default.
+	if !selection.UseTopLevel && selection.Instance != "" {
+		if conn, ok := natsInstances.get(selection.Instance); ok && conn != nil {
+			mu.Lock()
+			if NATS == nil {
+				NATS = conn
+				Nats = conn
+				natsDefaultInstance = selection.Instance
+			}
+			mu.Unlock()
+		}
+	}
+
+	mu.RLock()
+	conn := NATS
+	mu.RUnlock()
+
+	if topLevel != nil {
+		logger.Logger.InfoContext(
+			context.Background(),
+			"init NATS successful",
+			"instance", "nats",
+			"url", redactDSN(cfg.URL),
+		)
+	}
+
+	return conn, nil
+}
+
+// newNATSClient connects one connection from cfg. It touches no package-level
+// state, so a build that fails leaves nothing registered. label names the
+// component series: "nats" for the shared singleton, "nats:<name>" for a named
+// instance.
+func newNATSClient(cfg *NATSConfig, label string) (*nats.Conn, error) {
 	opts := []nats.Option{
 		nats.Timeout(time.Duration(cfg.TimeoutSec) * time.Second),
 		nats.ReconnectWait(time.Duration(cfg.ReconnectWaitSec) * time.Second),
@@ -162,6 +348,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 		if err != nil {
 			logger.Logger.Error(
 				"init NATS nkey failed",
+				"instance", label,
 				"nkey_file", cfg.NkeyFile,
 				"error", err.Error(),
 			)
@@ -184,6 +371,7 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 	if err != nil {
 		logger.Logger.Error(
 			"init NATS failed",
+			"instance", label,
 			"url", redactDSN(cfg.URL),
 			"error", err.Error(),
 		)
@@ -191,39 +379,28 @@ func initNATS(cfg *NATSConfig) (*nats.Conn, error) {
 		return nil, err
 	}
 
-	// Swap under the lock, release before anything that can block. This
-	// mu is a single package-global write lock guarding all ten
-	// singletons, so holding it across a duplicate's teardown (a 5s
-	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
-	// every Get* reader and every manager health probe for the duration.
-	// The success log moved out too: it is a synchronous write to the
-	// handler and must not run under the global lock either.
-	mu.Lock()
-
-	existing := NATS
-	if existing == nil {
-		NATS = nc
-		Nats = nc
-	}
-
-	mu.Unlock()
-
-	if existing != nil {
-		// First-wins: keep the existing singleton and drop the duplicate
-		// instead of leaking it.
-		logger.Logger.Warn("nats already initialized, closing duplicate connection")
-		nc.Close()
-
-		return existing, nil
-	}
-
-	logger.Logger.InfoContext(
-		context.Background(),
-		"init NATS successful",
-		"url", redactDSN(cfg.URL),
-	)
-
 	return nc, nil
+}
+
+// closeNATSConnection closes one connection. nats.Conn.Close returns nothing,
+// so there is no failure to log or return.
+func closeNATSConnection(conn *nats.Conn) {
+	if conn == nil {
+		return
+	}
+
+	conn.Close()
+}
+
+// rollbackNATSConnections closes everything one init call built but will not
+// register, so a failed build leaves no sockets or "up" series behind.
+func rollbackNATSConnections(defaultConn *nats.Conn, built map[string]*nats.Conn) {
+	closeNATSConnection(defaultConn)
+
+	for name, conn := range built {
+		closeNATSConnection(conn)
+		metrics.SetInfraUp("nats:"+name, false)
+	}
 }
 
 // Deprecated: use InitNATS.
@@ -253,14 +430,35 @@ func (c *NATSConfig) Ensure() *NATSConfig {
 	return c
 }
 
-// Validate rejects half-configured or illegal values.
+// Validate rejects half-configured or illegal values and resolves the named
+// instances (without mutating the caller's config).
 func (c *NATSConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
 
-	if strings.TrimSpace(c.URL) == "" {
-		return ErrNATSURLEmpty
+	if err := c.validateShape(); err != nil {
+		return err
+	}
+
+	_, names, err := c.resolveInstances()
+	if err != nil {
+		return err
+	}
+
+	identityErr := c.validateIdentity()
+	if _, err := resolveDefaultSelection(c.NoDefault, c.DefaultInstance, names, identityErr == nil, identityErr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateShape checks every value that does not depend on the connection
+// identity, so an instance can be rejected before anything dials.
+func (c *NATSConfig) validateShape() error {
+	if c == nil {
+		return nil
 	}
 
 	if c.TimeoutSec < 0 || c.ReconnectWaitSec < 0 || c.MaxReconnects < -1 {
@@ -299,6 +497,93 @@ func (c *NATSConfig) Validate() error {
 			}
 		}
 	}
+
+	return nil
+}
+
+// validateIdentity requires the field that addresses the server.
+func (c *NATSConfig) validateIdentity() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.URL) == "" {
+		return ErrNATSURLEmpty
+	}
+
+	return nil
+}
+
+func (c *NATSConfig) validateBase() error {
+	if err := c.validateShape(); err != nil {
+		return err
+	}
+
+	return c.validateIdentity()
+}
+
+// resolveInstances validates every declared instance and returns ensured
+// copies keyed by the normalized name. The caller's config is not mutated.
+func (c *NATSConfig) resolveInstances() (resolved map[string]*NATSConfig, names []string, err error) {
+	normalized, names, err := normalizeInstanceNames(c.Instances)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resolved = make(map[string]*NATSConfig, len(names))
+	for _, name := range names {
+		raw := normalized[name]
+		if raw.Instances != nil || raw.DefaultInstance != "" || raw.NoDefault {
+			return nil, nil, fmt.Errorf("%w: instances.%s", ErrInstanceNested, name)
+		}
+
+		instance := *raw
+		instance.Instances = nil
+		instance.DefaultInstance = ""
+		instance.NoDefault = false
+		instance.Ensure()
+
+		if err := instance.validateBase(); err != nil {
+			return nil, nil, fmt.Errorf("instances.%s: %w", name, err)
+		}
+
+		resolved[name] = &instance
+	}
+
+	return resolved, names, nil
+}
+
+// ShutdownNATS closes the shared connection and every named instance, then
+// clears their references. Named instances close first so a default alias is
+// closed exactly once.
+func ShutdownNATS() error {
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
+	instances := natsInstances.clear()
+
+	mu.Lock()
+	alias := natsDefaultInstance
+	defaultConn := NATS
+	NATS = nil
+	Nats = nil
+	natsDefaultInstance = ""
+	mu.Unlock()
+
+	if len(instances) == 0 && defaultConn == nil {
+		return nil
+	}
+
+	for name, conn := range instances {
+		closeNATSConnection(conn)
+		metrics.SetInfraUp("nats:"+name, false)
+	}
+
+	if defaultNeedsClose(alias, instances) {
+		closeNATSConnection(defaultConn)
+	}
+
+	metrics.SetInfraUp("nats", false)
 
 	return nil
 }

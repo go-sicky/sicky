@@ -239,7 +239,7 @@ package mdns
 // }
 
 /*
- * 	 variables:
+ * Local variables:
  * tab-width: 4
  * c-basic-offset: 4
  * End:

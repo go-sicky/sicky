@@ -64,6 +64,10 @@ func TestInitDoesNotHoldGlobalLockAcrossDuplicateTeardown(t *testing.T) {
 	ClearRedis()
 
 	t.Cleanup(func() {
+		if cache := GetRistretto(); cache != nil {
+			cache.Close()
+		}
+
 		ClearRistretto()
 		ClearRedis()
 	})
@@ -129,6 +133,10 @@ func TestInitKeepsFirstWinsSingleton(t *testing.T) {
 	ClearRedis()
 
 	t.Cleanup(func() {
+		if cache := GetRistretto(); cache != nil {
+			cache.Close()
+		}
+
 		ClearRistretto()
 		ClearRedis()
 	})
@@ -151,3 +159,12 @@ func TestInitKeepsFirstWinsSingleton(t *testing.T) {
 		t.Fatal("the first-wins singleton must survive a duplicate init")
 	}
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

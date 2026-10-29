@@ -33,6 +33,7 @@ package infra
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -56,6 +57,14 @@ type MongoConfig struct {
 	// ConnectTimeoutSec bounds initial dial/server selection. 0 keeps the
 	// driver default (30s); negative aborts startup.
 	ConnectTimeoutSec int `json:"connect_timeout_sec" mapstructure:"connect_timeout_sec" yaml:"connect_timeout_sec"`
+	// DefaultInstance names the instance that also serves as the shared
+	// singleton when the top-level fields do not form a complete config.
+	DefaultInstance string `json:"default_instance" mapstructure:"default_instance" yaml:"default_instance"`
+	// NoDefault suppresses the shared singleton on a fresh init; only Instances are created.
+	NoDefault bool `json:"no_default" mapstructure:"no_default" yaml:"no_default"`
+	// Instances are complete MongoDB configurations. They do not inherit
+	// fields from the block above.
+	Instances map[string]*MongoConfig `json:"instances" mapstructure:"instances" yaml:"instances"`
 }
 
 // ErrMongoURIEmpty aborts startup: a non-nil MongoConfig means "enable
@@ -75,8 +84,16 @@ func InitMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		return nil, nil
 	}
 
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
 	client, err := initMongo(cfg)
 	metrics.CountInfraInit("mongo", err)
+	if err == nil && client == nil {
+		// no_default: the component initialized, but there is no shared
+		// singleton to report as up.
+		metrics.SetInfraUp("mongo", false)
+	}
 
 	return client, err
 }
@@ -96,6 +113,187 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 		return nil, err
 	}
 
+	instances, names, err := cfg.resolveInstances()
+	if err != nil {
+		logger.Logger.Error(
+			"init mongo instances invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	identityErr := cfg.validateIdentity()
+	selection, err := resolveDefaultSelection(cfg.NoDefault, cfg.DefaultInstance, names, identityErr == nil, identityErr)
+	if err != nil {
+		logger.Logger.Error(
+			"init mongo default selection invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	if selection.Ignored != "" {
+		logger.Logger.Warn(
+			"mongo default_instance ignored because the top-level config is complete",
+			"instance", selection.Ignored,
+		)
+	}
+
+	if cfg.NoDefault {
+		logger.Logger.Info("mongo no_default is set; this block does not create a shared instance")
+	}
+
+	if !selection.UseTopLevel && selection.Instance != "" && cfg.DefaultInstance == "" {
+		if len(names) == 1 {
+			logger.Logger.Info(
+				"mongo using the only named instance as the default",
+				"instance", selection.Instance,
+			)
+		} else {
+			logger.Logger.Warn(
+				"mongo no default_instance configured; using the first instance in sorted order",
+				"instance", selection.Instance,
+			)
+		}
+	}
+
+	// Build first, register second: a failure never leaves a half-installed
+	// component behind. Existing first-wins entries are not rebuilt.
+	mu.RLock()
+	existingDefault := Mongo
+	mu.RUnlock()
+
+	var (
+		topLevel   *mongo.Client
+		topLevelDB string
+	)
+
+	if selection.UseTopLevel && existingDefault == nil {
+		topLevel, err = newMongoClient(cfg, "mongo")
+		if err != nil {
+			logger.Logger.Error(
+				"init mongo failed",
+				"uri", redactDSN(cfg.URI),
+				"error", err.Error(),
+			)
+
+			return nil, err
+		}
+
+		topLevelDB = effectiveMongoDB(cfg)
+	}
+
+	built := make(map[string]mongoInstance, len(names))
+	for _, name := range names {
+		if _, ok := mongoInstances.get(name); ok {
+			logger.Logger.Warn("mongo instance already initialized, keeping existing client", "instance", name)
+
+			continue
+		}
+
+		client, berr := newMongoClient(instances[name], instanceLabel("mongo", name, selection))
+		if berr != nil {
+			metrics.CountInfraInit("mongo:"+name, berr)
+			logger.Logger.Error(
+				"init mongo instance failed",
+				"instance", name,
+				"error", berr.Error(),
+			)
+
+			rollbackMongoClients(topLevel, built)
+
+			return nil, fmt.Errorf("mongo instance %s: %w", name, berr)
+		}
+
+		metrics.CountInfraInit("mongo:"+name, nil)
+		built[name] = mongoInstance{
+			client: client,
+			db:     effectiveMongoDB(instances[name]),
+		}
+	}
+
+	// Register under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	if topLevel != nil {
+		stored := false
+
+		mu.Lock()
+		if Mongo == nil {
+			Mongo = topLevel
+			mongoDBName = topLevelDB
+			mongoDefaultInstance = ""
+			stored = true
+		}
+
+		mu.Unlock()
+
+		if !stored {
+			logger.Logger.Warn("mongo already initialized, closing duplicate connection")
+			closeMongoClient(topLevel, "mongo")
+		}
+	}
+
+	for _, name := range names {
+		instance, ok := built[name]
+		if !ok {
+			continue
+		}
+
+		if _, stored := mongoInstances.putFirst(name, instance); !stored {
+			logger.Logger.Warn("mongo instance already initialized, closing duplicate connection", "instance", name)
+			closeMongoClient(instance.client, "mongo:"+name)
+
+			continue
+		}
+
+		logger.Logger.InfoContext(
+			context.Background(),
+			"mongo instance initialized",
+			"instance", name,
+			"uri", redactDSN(instances[name].URI),
+			"db", instance.db,
+		)
+	}
+
+	// A named default is installed only when the shared singleton is still
+	// free; first-wins keeps an earlier top-level or alias default.
+	if !selection.UseTopLevel && selection.Instance != "" {
+		if instance, ok := mongoInstances.get(selection.Instance); ok && instance.client != nil {
+			mu.Lock()
+			if Mongo == nil {
+				Mongo = instance.client
+				mongoDBName = instance.db
+				mongoDefaultInstance = selection.Instance
+			}
+			mu.Unlock()
+		}
+	}
+
+	mu.RLock()
+	client := Mongo
+	mu.RUnlock()
+
+	if topLevel != nil {
+		logger.Logger.Info(
+			"mongo initialized",
+			"uri", redactDSN(cfg.URI),
+			"db", topLevelDB,
+		)
+	}
+
+	return client, nil
+}
+
+// newMongoClient builds, monitors and pings one client. It touches no
+// package-level state, so a build that fails leaves nothing registered. The
+// label names the metric series: "mongo" for the shared singleton,
+// "mongo:<name>" for a named instance.
+func newMongoClient(cfg *MongoConfig, label string) (*mongo.Client, error) {
 	clientOpts := options.Client().ApplyURI(cfg.URI)
 	if cfg.MaxPoolSize > 0 {
 		clientOpts.SetMaxPoolSize(cfg.MaxPoolSize)
@@ -109,12 +307,12 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	// server-reported latency, no call-site changes needed.
 	clientOpts.SetMonitor(&event.CommandMonitor{
 		Succeeded: func(_ context.Context, e *event.CommandSucceededEvent) {
-			metrics.InfraOpsTotal.WithLabelValues("mongo", e.CommandName, "ok").Inc()
-			metrics.InfraOpDuration.WithLabelValues("mongo", e.CommandName).Observe(e.Duration.Seconds())
+			metrics.InfraOpsTotal.WithLabelValues(label, e.CommandName, "ok").Inc()
+			metrics.InfraOpDuration.WithLabelValues(label, e.CommandName).Observe(e.Duration.Seconds())
 		},
 		Failed: func(_ context.Context, e *event.CommandFailedEvent) {
-			metrics.InfraOpsTotal.WithLabelValues("mongo", e.CommandName, "error").Inc()
-			metrics.InfraOpDuration.WithLabelValues("mongo", e.CommandName).Observe(e.Duration.Seconds())
+			metrics.InfraOpsTotal.WithLabelValues(label, e.CommandName, "error").Inc()
+			metrics.InfraOpDuration.WithLabelValues(label, e.CommandName).Observe(e.Duration.Seconds())
 		},
 	})
 
@@ -122,6 +320,7 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	if err != nil {
 		logger.Logger.Error(
 			"mongo connect failed",
+			"instance", label,
 			"uri", redactDSN(cfg.URI),
 			"error", err.Error(),
 		)
@@ -130,69 +329,54 @@ func initMongo(cfg *MongoConfig) (*mongo.Client, error) {
 	}
 
 	// Ping to verify connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
 	defer cancel()
 
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		logger.Logger.Error(
 			"mongo ping failed",
+			"instance", label,
 			"uri", redactDSN(cfg.URI),
 			"error", err.Error(),
 		)
 
 		// Disconnect the handle opened above instead of leaking it.
-		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer dcancel()
-		if derr := client.Disconnect(dctx); derr != nil {
-			logger.Logger.Error(
-				"mongo disconnect after failed ping failed",
-				"error", derr.Error(),
-			)
-		}
+		closeMongoClient(client, label)
 
 		return nil, err
 	}
 
-	logger.Logger.Info(
-		"mongo initialized",
-		"uri", redactDSN(cfg.URI),
-		"db", cfg.DB,
-	)
-
-	// Swap under the lock, release before anything that can block. This
-	// mu is a single package-global write lock guarding all ten
-	// singletons, so holding it across a duplicate's teardown (a 5s
-	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
-	// every Get* reader and every manager health probe for the duration.
-	// The success log moved out too: it is a synchronous write to the
-	// handler and must not run under the global lock either.
-	mu.Lock()
-
-	existing := Mongo
-	if existing == nil {
-		Mongo = client
-		mongoDBName = effectiveMongoDB(cfg)
-	}
-
-	mu.Unlock()
-
-	if existing != nil {
-		// First-wins: keep the existing singleton and drop the duplicate
-		// instead of leaking it.
-		logger.Logger.Warn("mongo already initialized, closing duplicate connection")
-		dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer dcancel()
-		if derr := client.Disconnect(dctx); derr != nil {
-			logger.Logger.Error(
-				"mongo duplicate disconnect failed",
-				"error", derr.Error(),
-			)
-		}
-
-		return existing, nil
-	}
-
 	return client, nil
+}
+
+// closeMongoClient disconnects one client and logs a failure instead of
+// returning it: the caller is already on an error or duplicate path.
+func closeMongoClient(client *mongo.Client, label string) {
+	if client == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
+	defer cancel()
+
+	if derr := client.Disconnect(ctx); derr != nil {
+		logger.Logger.Error(
+			"mongo disconnect failed",
+			"instance", label,
+			"error", derr.Error(),
+		)
+	}
+}
+
+// rollbackMongoClients disconnects everything one init call built but will not
+// register, so a failed build leaves no sockets or "up" series behind.
+func rollbackMongoClients(defaultClient *mongo.Client, built map[string]mongoInstance) {
+	closeMongoClient(defaultClient, "mongo")
+
+	for name, instance := range built {
+		closeMongoClient(instance.client, "mongo:"+name)
+		metrics.SetInfraUp("mongo:"+name, false)
+	}
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
@@ -204,8 +388,46 @@ func (c *MongoConfig) Ensure() *MongoConfig {
 	return c
 }
 
-// Validate rejects half-configured or illegal values.
+// Validate rejects half-configured or illegal values and resolves the named
+// instances (without mutating the caller's config).
 func (c *MongoConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if err := c.validateShape(); err != nil {
+		return err
+	}
+
+	_, names, err := c.resolveInstances()
+	if err != nil {
+		return err
+	}
+
+	identityErr := c.validateIdentity()
+	if _, err := resolveDefaultSelection(c.NoDefault, c.DefaultInstance, names, identityErr == nil, identityErr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateShape checks every value that does not depend on the connection
+// identity, so an instance can be rejected before anything dials.
+func (c *MongoConfig) validateShape() error {
+	if c == nil {
+		return nil
+	}
+
+	if c.ConnectTimeoutSec < 0 {
+		return ErrMongoOptionInvalid
+	}
+
+	return nil
+}
+
+// validateIdentity requires the field that addresses the server.
+func (c *MongoConfig) validateIdentity() error {
 	if c == nil {
 		return nil
 	}
@@ -214,11 +436,46 @@ func (c *MongoConfig) Validate() error {
 		return ErrMongoURIEmpty
 	}
 
-	if c.ConnectTimeoutSec < 0 {
-		return ErrMongoOptionInvalid
+	return nil
+}
+
+func (c *MongoConfig) validateBase() error {
+	if err := c.validateShape(); err != nil {
+		return err
 	}
 
-	return nil
+	return c.validateIdentity()
+}
+
+// resolveInstances validates every declared instance and returns ensured
+// copies keyed by the normalized name. The caller's config is not mutated.
+func (c *MongoConfig) resolveInstances() (resolved map[string]*MongoConfig, names []string, err error) {
+	normalized, names, err := normalizeInstanceNames(c.Instances)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resolved = make(map[string]*MongoConfig, len(names))
+	for _, name := range names {
+		raw := normalized[name]
+		if raw.Instances != nil || raw.DefaultInstance != "" || raw.NoDefault {
+			return nil, nil, fmt.Errorf("%w: instances.%s", ErrInstanceNested, name)
+		}
+
+		instance := *raw
+		instance.Instances = nil
+		instance.DefaultInstance = ""
+		instance.NoDefault = false
+		instance.Ensure()
+
+		if err := instance.validateBase(); err != nil {
+			return nil, nil, fmt.Errorf("instances.%s: %w", name, err)
+		}
+
+		resolved[name] = &instance
+	}
+
+	return resolved, names, nil
 }
 
 // mongoDBName remembers the effective database for GetMongoDB: the
@@ -250,6 +507,32 @@ func GetMongoDB(name ...string) *mongo.Database {
 	return nil
 }
 
+// GetMongoDBOf returns a database handle for a named instance. An empty
+// instance name selects the shared singleton, so it behaves exactly like
+// GetMongoDB. An explicit name wins, then the instance's effective configured
+// database; an unknown instance or an unresolvable name returns nil.
+func GetMongoDBOf(instance string, name ...string) *mongo.Database {
+	id := normalizeInstanceName(instance)
+	if id == "" {
+		return GetMongoDB(name...)
+	}
+
+	inst, ok := mongoInstances.get(id)
+	if !ok || inst.client == nil {
+		return nil
+	}
+
+	if len(name) > 0 && strings.TrimSpace(name[0]) != "" {
+		return inst.client.Database(strings.TrimSpace(name[0]))
+	}
+
+	if inst.db != "" {
+		return inst.client.Database(inst.db)
+	}
+
+	return nil
+}
+
 // effectiveMongoDB resolves cfg.DB, falling back to the URI path database.
 func effectiveMongoDB(cfg *MongoConfig) string {
 	if cfg == nil {
@@ -265,6 +548,56 @@ func effectiveMongoDB(cfg *MongoConfig) string {
 	}
 
 	return ""
+}
+
+// ShutdownMongo disconnects the shared mongo client and every named instance,
+// then clears their references. Named instances are detached before closing so
+// a reader cannot observe a closed handle through the registry; a default
+// alias is disconnected exactly once. One 5s deadline bounds the component.
+func ShutdownMongo() error {
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
+	instances := mongoInstances.clear()
+
+	mu.Lock()
+	alias := mongoDefaultInstance
+	defaultClient := Mongo
+	Mongo = nil
+	mongoDBName = ""
+	mongoDefaultInstance = ""
+	mu.Unlock()
+
+	if len(instances) == 0 && defaultClient == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var errs []error
+
+	for name, instance := range instances {
+		if instance.client == nil {
+			continue
+		}
+
+		if cerr := instance.client.Disconnect(ctx); cerr != nil {
+			errs = append(errs, fmt.Errorf("mongo instance %s: %w", name, cerr))
+		}
+
+		metrics.SetInfraUp("mongo:"+name, false)
+	}
+
+	if defaultNeedsClose(alias, instances) && defaultClient != nil {
+		if cerr := defaultClient.Disconnect(ctx); cerr != nil {
+			errs = append(errs, fmt.Errorf("mongo: %w", cerr))
+		}
+	}
+
+	metrics.SetInfraUp("mongo", false)
+
+	return errors.Join(errs...)
 }
 
 /*

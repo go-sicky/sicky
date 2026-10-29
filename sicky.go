@@ -1416,89 +1416,35 @@ shutdown:
 	managerApp = nil
 
 	// Stop infra (errors are collected, never abort the sequence).
-	// Singletons are cleared after Close so a later Run() builds fresh
+	// Each Shutdown* closes the shared singleton and every named instance
+	// and clears their references so a later Run() builds fresh
 	// connections instead of reusing closed ones.
-	if r := infra.GetRistretto(); r != nil {
-		r.Close()
-		infra.ClearRistretto()
+	infraShutdowns := []struct {
+		name string
+		fn   func() error
+	}{
+		{"ristretto", infra.ShutdownRistretto},
+		{"badger", infra.ShutdownBadger},
+		{"elastic", infra.ShutdownElastic},
+		{"nats", infra.ShutdownNATS},
+		{"redis", infra.ShutdownRedis},
+		{"bun", infra.ShutdownBun},
+		{"clickhouse", infra.ShutdownClickHouse},
+		{"s3", infra.ShutdownS3},
+		{"mongo", infra.ShutdownMongo},
+		{"mqtt", infra.ShutdownMQTT},
 	}
 
-	if b := infra.GetBadger(); b != nil {
-		if cerr := b.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "badger close failed", "error", cerr.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("badger close: %w", cerr))
+	for _, shutdown := range infraShutdowns {
+		if cerr := shutdown.fn(); cerr != nil {
+			logger.Logger.ErrorContext(
+				options.Context,
+				"infra shutdown failed",
+				"infra", shutdown.name,
+				"error", cerr.Error(),
+			)
+			runErr = errors.Join(runErr, fmt.Errorf("%s shutdown: %w", shutdown.name, cerr))
 		}
-
-		infra.ClearBadger()
-	}
-
-	if e := infra.GetElastic(); e != nil {
-		ecloseCtx, ecloseCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		cerr := e.Close(ecloseCtx)
-		ecloseCancel()
-		if cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "elastic close failed", "error", cerr.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("elastic close: %w", cerr))
-		}
-
-		infra.ClearElastic()
-	}
-
-	if n := infra.GetNATS(); n != nil {
-		n.Close()
-		infra.ClearNats()
-	}
-
-	if rdb := infra.GetRedis(); rdb != nil {
-		if cerr := rdb.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "redis close failed", "error", cerr.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("redis close: %w", cerr))
-		}
-
-		infra.ClearRedis()
-	}
-
-	if db := infra.GetBun(); db != nil {
-		if cerr := db.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "bun close failed", "error", cerr.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("bun close: %w", cerr))
-		}
-
-		infra.ClearBun()
-	}
-
-	if chdb := infra.GetClickHouse(); chdb != nil {
-		if cerr := chdb.Close(); cerr != nil {
-			logger.Logger.ErrorContext(options.Context, "clickhouse close failed", "error", cerr.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("clickhouse close: %w", cerr))
-		}
-
-		infra.ClearClickHouse()
-	}
-
-	if s3c := infra.GetS3(); s3c != nil {
-		logger.Logger.InfoContext(
-			options.Context,
-			"s3 client shutdown (connection managed by AWS SDK)",
-		)
-		infra.ClearS3()
-	}
-
-	if m := infra.GetMongo(); m != nil {
-		mctx, mcancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if derr := m.Disconnect(mctx); derr != nil {
-			logger.Logger.ErrorContext(options.Context, "mongo disconnect failed", "error", derr.Error())
-			runErr = errors.Join(runErr, fmt.Errorf("mongo disconnect: %w", derr))
-		}
-
-		mcancel()
-		infra.ClearMongo()
-	}
-
-	if mc := infra.GetMQTT(); mc != nil {
-		// Give in-flight messages a grace period instead of dropping them.
-		mc.Disconnect(250)
-		infra.ClearMQTT()
 	}
 
 	// Wrappers

@@ -26,3 +26,12 @@ func (h *{{.ExportedName}}GRPC) Type() string {
 func (h *{{.ExportedName}}GRPC) Register(app *grpc.Server) {
 {{if .WithProto}}	proto.Register{{.ExportedName}}Server(app, h)
 {{end}}}
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

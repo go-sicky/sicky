@@ -26,6 +26,10 @@ type configSchema struct {
 	// nodes is every path those Configs occupy: leaves and the intermediate
 	// segments on the way to them.
 	nodes map[string]struct{}
+	// mapValues records map-typed fields whose values are structs (or nil
+	// for an open map). The next path segment after such a node is a
+	// runtime key, not a declared field.
+	mapValues map[string]reflect.Type
 }
 
 // buildConfigSchema walks the caller's type and records where its Config
@@ -36,7 +40,10 @@ type configSchema struct {
 // a service with no database and says nothing: the block simply is not there.
 // An operator who misspells `address` as `adresss` gets the same silence.
 func buildConfigSchema(raw any) configSchema {
-	schema := configSchema{nodes: map[string]struct{}{}}
+	schema := configSchema{
+		nodes:     map[string]struct{}{},
+		mapValues: map[string]reflect.Type{},
+	}
 
 	var walk func(t reflect.Type, prefix string, depth int)
 
@@ -142,8 +149,27 @@ func (s *configSchema) record(prefix string, t reflect.Type, depth int) {
 		path := joinKey(prefix, name)
 		s.nodes[path] = struct{}{}
 
-		if ft := indirect(field.Type); ft != nil && ft.Kind() == reflect.Struct {
+		ft := indirect(field.Type)
+		if ft == nil {
+			continue
+		}
+
+		if ft.Kind() == reflect.Struct {
 			s.record(path, ft, depth+1)
+
+			continue
+		}
+
+		if ft.Kind() == reflect.Map {
+			vt := indirect(ft.Elem())
+			if vt != nil && vt.Kind() == reflect.Struct {
+				s.mapValues[path] = vt
+			} else {
+				// A map of scalars/interface values has no declared
+				// children; treat every descendant as known rather than
+				// inventing warnings for dynamic keys.
+				s.mapValues[path] = nil
+			}
 		}
 	}
 }
@@ -194,6 +220,14 @@ func (s configSchema) unknownKeys(keys []string) []string {
 			continue
 		}
 
+		if known, bad := s.resolveMapKey(key); known {
+			continue
+		} else if bad != "" {
+			unknown = append(unknown, bad)
+
+			continue
+		}
+
 		if bad := s.firstUnknownSegment(key); bad != "" {
 			unknown = append(unknown, bad)
 		}
@@ -202,6 +236,115 @@ func (s configSchema) unknownKeys(keys []string) []string {
 	slices.Sort(unknown)
 
 	return slices.Compact(unknown)
+}
+
+// resolveMapKey resolves a key that falls under a map-typed field. The segment
+// after the map path is the runtime key; the rest must match the map's value
+// struct. It returns the first unresolved path segment when the key is not
+// valid.
+func (s configSchema) resolveMapKey(key string) (known bool, bad string) {
+	for path, valueType := range s.mapValues {
+		if key == path {
+			return true, ""
+		}
+
+		prefix := path + "."
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		rest := strings.TrimPrefix(key, prefix)
+		parts := strings.Split(rest, ".")
+		if len(parts) == 1 {
+			// The runtime key itself (the instance name).
+			return true, ""
+		}
+
+		if valueType == nil {
+			return true, ""
+		}
+
+		return resolveStructFields(valueType, parts[1:], prefix+parts[0]+".")
+	}
+
+	return false, ""
+}
+
+// resolveStructFields walks a struct type using mapstructure tags. prefix is
+// the path already consumed, used to name the first unresolved segment.
+func resolveStructFields(t reflect.Type, segments []string, prefix string) (known bool, bad string) {
+	if len(segments) == 0 {
+		return true, ""
+	}
+
+	t = indirect(t)
+	if t == nil {
+		return false, prefix + segments[0]
+	}
+
+	if t.Kind() != reflect.Struct {
+		return false, prefix + segments[0]
+	}
+
+	for field := range t.Fields() {
+		if !field.IsExported() {
+			continue
+		}
+
+		name, options, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")
+
+		if name == "-" {
+			continue
+		}
+
+		if name == "" {
+			name = field.Name
+		}
+
+		if options == mapstructureSquash {
+			if ok, bad := resolveStructFields(field.Type, segments, prefix); ok {
+				return true, ""
+			} else if bad != "" {
+				return false, bad
+			}
+
+			continue
+		}
+
+		if name != segments[0] {
+			continue
+		}
+
+		ft := indirect(field.Type)
+		if ft == nil {
+			return false, prefix + segments[0]
+		}
+
+		if ft.Kind() == reflect.Map {
+			if len(segments) == 1 {
+				return true, ""
+			}
+
+			vt := indirect(ft.Elem())
+			if vt == nil || vt.Kind() != reflect.Struct {
+				return true, ""
+			}
+
+			return resolveStructFields(vt, segments[2:], prefix+segments[0]+"."+segments[1]+".")
+		}
+
+		if ft.Kind() == reflect.Struct {
+			return resolveStructFields(ft, segments[1:], prefix+segments[0]+".")
+		}
+
+		if len(segments) == 1 {
+			return true, ""
+		}
+
+		return false, prefix + segments[0]
+	}
+
+	return false, prefix + segments[0]
 }
 
 // firstUnknownSegment returns the shortest prefix of key that is not a node,
@@ -220,3 +363,12 @@ func (s configSchema) firstUnknownSegment(key string) string {
 
 	return ""
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

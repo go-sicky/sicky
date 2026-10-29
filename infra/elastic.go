@@ -64,6 +64,14 @@ type ElasticConfig struct {
 	// It does not bound regular API calls: pass a context deadline per
 	// call (manager health uses a 2s context).
 	TimeoutSec int `json:"timeout_sec" mapstructure:"timeout_sec" yaml:"timeout_sec"`
+	// DefaultInstance names the instance that also serves as the shared
+	// singleton when the top-level fields do not form a complete config.
+	DefaultInstance string `json:"default_instance" mapstructure:"default_instance" yaml:"default_instance"`
+	// NoDefault suppresses the shared singleton on a fresh init; only Instances are created.
+	NoDefault bool `json:"no_default" mapstructure:"no_default" yaml:"no_default"`
+	// Instances are complete Elasticsearch configurations. They do not
+	// inherit fields from the block above.
+	Instances map[string]*ElasticConfig `json:"instances" mapstructure:"instances" yaml:"instances"`
 }
 
 // ErrElasticNoEndpoint aborts startup: a non-nil ElasticConfig means
@@ -92,8 +100,16 @@ func InitElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		return nil, nil
 	}
 
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
 	client, err := initElastic(cfg)
 	metrics.CountInfraInit("elastic", err)
+	if err == nil && client == nil {
+		// no_default: the component initialized, but there is no shared
+		// singleton to report as up.
+		metrics.SetInfraUp("elastic", false)
+	}
 
 	return client, err
 }
@@ -113,6 +129,176 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		return nil, err
 	}
 
+	instances, names, err := cfg.resolveInstances()
+	if err != nil {
+		logger.Logger.Error(
+			"init elasticsearch instances invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	identityErr := cfg.validateIdentity()
+	selection, err := resolveDefaultSelection(cfg.NoDefault, cfg.DefaultInstance, names, identityErr == nil, identityErr)
+	if err != nil {
+		logger.Logger.Error(
+			"init elasticsearch default selection invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	if selection.Ignored != "" {
+		logger.Logger.Warn(
+			"elasticsearch default_instance ignored because the top-level config is complete",
+			"instance", selection.Ignored,
+		)
+	}
+
+	if cfg.NoDefault {
+		logger.Logger.Info("elasticsearch no_default is set; this block does not create a shared instance")
+	}
+
+	if !selection.UseTopLevel && selection.Instance != "" && cfg.DefaultInstance == "" {
+		if len(names) == 1 {
+			logger.Logger.Info(
+				"elasticsearch using the only named instance as the default",
+				"instance", selection.Instance,
+			)
+		} else {
+			logger.Logger.Warn(
+				"elasticsearch no default_instance configured; using the first instance in sorted order",
+				"instance", selection.Instance,
+			)
+		}
+	}
+
+	// Build first, register second: a failure never leaves a half-installed
+	// component behind. Existing first-wins entries are not rebuilt.
+	mu.RLock()
+	existingDefault := Elastic
+	mu.RUnlock()
+
+	var topLevel *elasticsearch.Client
+
+	if selection.UseTopLevel && existingDefault == nil {
+		topLevel, err = newElasticClient(cfg, "elastic")
+		if err != nil {
+			logger.Logger.Error(
+				"init elasticsearch failed",
+				"endpoint", cfg.endpoint(),
+				"error", err.Error(),
+			)
+
+			return nil, err
+		}
+	}
+
+	built := make(map[string]*elasticsearch.Client, len(names))
+	for _, name := range names {
+		if _, ok := elasticInstances.get(name); ok {
+			logger.Logger.Warn("elasticsearch instance already initialized, keeping existing client", "instance", name)
+
+			continue
+		}
+
+		client, berr := newElasticClient(instances[name], "elastic:"+name)
+		if berr != nil {
+			metrics.CountInfraInit("elastic:"+name, berr)
+			logger.Logger.Error(
+				"init elasticsearch instance failed",
+				"instance", name,
+				"error", berr.Error(),
+			)
+
+			rollbackElasticClients(topLevel, built)
+
+			return nil, fmt.Errorf("elastic instance %s: %w", name, berr)
+		}
+
+		metrics.CountInfraInit("elastic:"+name, nil)
+		built[name] = client
+	}
+
+	// Register under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	if topLevel != nil {
+		stored := false
+
+		mu.Lock()
+		if Elastic == nil {
+			Elastic = topLevel
+			elasticDefaultInstance = ""
+			stored = true
+		}
+
+		mu.Unlock()
+
+		if !stored {
+			logger.Logger.Warn("elasticsearch already initialized, closing duplicate client")
+			closeElasticClient(topLevel, "elastic")
+		}
+	}
+
+	for _, name := range names {
+		client, ok := built[name]
+		if !ok {
+			continue
+		}
+
+		if _, stored := elasticInstances.putFirst(name, client); !stored {
+			logger.Logger.Warn("elasticsearch instance already initialized, closing duplicate client", "instance", name)
+			closeElasticClient(client, "elastic:"+name)
+
+			continue
+		}
+
+		logger.Logger.InfoContext(
+			context.Background(),
+			"elasticsearch instance initialized",
+			"instance", name,
+			"endpoint", instances[name].endpoint(),
+		)
+	}
+
+	// A named default is installed only when the shared singleton is still
+	// free; first-wins keeps an earlier top-level or alias default.
+	if !selection.UseTopLevel && selection.Instance != "" {
+		if client, ok := elasticInstances.get(selection.Instance); ok && client != nil {
+			mu.Lock()
+			if Elastic == nil {
+				Elastic = client
+				elasticDefaultInstance = selection.Instance
+			}
+			mu.Unlock()
+		}
+	}
+
+	mu.RLock()
+	client := Elastic
+	mu.RUnlock()
+
+	if topLevel != nil {
+		logger.Logger.InfoContext(
+			context.Background(),
+			"init Elasticsearch successful",
+			"endpoint", cfg.endpoint(),
+		)
+	}
+
+	return client, nil
+}
+
+// newElasticClient builds one client and runs the startup cluster check. It
+// touches no package-level state, so a build that fails leaves nothing
+// registered. label names the instance in logs: "elastic" for the shared
+// singleton, "elastic:<name>" for a named instance.
+func newElasticClient(cfg *ElasticConfig, label string) (*elasticsearch.Client, error) {
 	esCfg := elasticsearch.Config{
 		Addresses:              cfg.Addresses,
 		Username:               cfg.Username,
@@ -128,6 +314,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 		if err != nil {
 			logger.Logger.Error(
 				"elasticsearch CA cert unreadable",
+				"instance", label,
 				"ca_cert_file", cfg.CACertFile,
 				"error", err.Error(),
 			)
@@ -142,6 +329,7 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	if err != nil {
 		logger.Logger.Error(
 			"elasticsearch initialize failed",
+			"instance", label,
 			"endpoint", cfg.endpoint(),
 			"error", err.Error(),
 		)
@@ -157,61 +345,47 @@ func initElastic(cfg *ElasticConfig) (*elasticsearch.Client, error) {
 	if err := pingElastic(ictx, client); err != nil {
 		logger.Logger.Error(
 			"elasticsearch cluster check failed",
+			"instance", label,
 			"endpoint", cfg.endpoint(),
 			"error", err.Error(),
 		)
 
-		cctx, ccancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
-		defer ccancel()
-		if cerr := client.Close(cctx); cerr != nil {
-			logger.Logger.Error(
-				"elasticsearch close after failed check failed",
-				"error", cerr.Error(),
-			)
-		}
+		closeElasticClient(client, label)
 
 		return nil, err
 	}
 
-	// Swap under the lock, release before anything that can block. This
-	// mu is a single package-global write lock guarding all ten
-	// singletons, so holding it across a duplicate's teardown (a 5s
-	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
-	// every Get* reader and every manager health probe for the duration.
-	// The success log moved out too: it is a synchronous write to the
-	// handler and must not run under the global lock either.
-	mu.Lock()
-
-	existing := Elastic
-	if existing == nil {
-		Elastic = client
-	}
-
-	mu.Unlock()
-
-	if existing != nil {
-		// First-wins: keep the existing singleton and drop the duplicate
-		// instead of leaking it.
-		logger.Logger.Warn("elasticsearch already initialized, closing duplicate client")
-		cctx, ccancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
-		defer ccancel()
-		if cerr := client.Close(cctx); cerr != nil {
-			logger.Logger.Error(
-				"elasticsearch duplicate close failed",
-				"error", cerr.Error(),
-			)
-		}
-
-		return existing, nil
-	}
-
-	logger.Logger.InfoContext(
-		context.Background(),
-		"init Elasticsearch successful",
-		"endpoint", cfg.endpoint(),
-	)
-
 	return client, nil
+}
+
+// closeElasticClient closes one client and logs a failure instead of
+// returning it: the caller is already on an error or duplicate path.
+func closeElasticClient(client *elasticsearch.Client, label string) {
+	if client == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeoutSec*time.Second)
+	defer cancel()
+
+	if cerr := client.Close(ctx); cerr != nil {
+		logger.Logger.Error(
+			"elasticsearch close failed",
+			"instance", label,
+			"error", cerr.Error(),
+		)
+	}
+}
+
+// rollbackElasticClients closes everything one init call built but will not
+// register, so a failed build leaves no transports or "up" series behind.
+func rollbackElasticClients(defaultClient *elasticsearch.Client, built map[string]*elasticsearch.Client) {
+	closeElasticClient(defaultClient, "elastic")
+
+	for name, client := range built {
+		closeElasticClient(client, "elastic:"+name)
+		metrics.SetInfraUp("elastic:"+name, false)
+	}
 }
 
 // endpoint renders a log-safe endpoint label: never credentials.
@@ -249,7 +423,24 @@ func pingElastic(ctx context.Context, client *elasticsearch.Client) error {
 }
 
 // PingElastic checks the shared singleton; nil means not configured.
-func PingElastic(ctx context.Context) error {
+func PingElastic(ctx context.Context, name ...string) error {
+	if n := firstInstanceName(name); n != "" {
+		client, ok := elasticInstances.get(n)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrInstanceNotFound, n)
+		}
+
+		if client == nil {
+			return nil
+		}
+
+		start := time.Now()
+		err := pingElastic(ctx, client)
+		metrics.ObserveInfraOp("elastic:"+n, "ping", start, err)
+
+		return err
+	}
+
 	c := GetElastic()
 	if c == nil {
 		return nil
@@ -276,8 +467,55 @@ func (c *ElasticConfig) Ensure() *ElasticConfig {
 	return c
 }
 
-// Validate rejects half-configured or illegal values.
+// Validate rejects half-configured or illegal values and resolves the named
+// instances (without mutating the caller's config). A missing top-level
+// endpoint is only an error when no instance can serve as the default, so the
+// identity verdict is handed to resolveDefaultSelection rather than returned
+// immediately.
 func (c *ElasticConfig) Validate() error {
+	if c == nil {
+		return nil
+	}
+
+	if err := c.validateShape(); err != nil {
+		return err
+	}
+
+	_, names, err := c.resolveInstances()
+	if err != nil {
+		return err
+	}
+
+	identityErr := c.validateIdentity()
+	if _, err := resolveDefaultSelection(c.NoDefault, c.DefaultInstance, names, identityErr == nil, identityErr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateShape checks every value that does not depend on the connection
+// identity, so an instance can be rejected before anything dials.
+func (c *ElasticConfig) validateShape() error {
+	if c == nil {
+		return nil
+	}
+
+	if c.TimeoutSec < 0 {
+		return ErrElasticTimeoutInvalid
+	}
+
+	if strings.TrimSpace(c.CACertFile) != "" {
+		if _, err := os.Stat(c.CACertFile); err != nil {
+			return fmt.Errorf("%w: %s", ErrElasticCACertUnreadable, c.CACertFile)
+		}
+	}
+
+	return nil
+}
+
+// validateIdentity requires an endpoint: addresses or a CloudID.
+func (c *ElasticConfig) validateIdentity() error {
 	if c == nil {
 		return nil
 	}
@@ -297,17 +535,95 @@ func (c *ElasticConfig) Validate() error {
 		}
 	}
 
-	if c.TimeoutSec < 0 {
-		return ErrElasticTimeoutInvalid
+	return nil
+}
+
+func (c *ElasticConfig) validateBase() error {
+	if err := c.validateShape(); err != nil {
+		return err
 	}
 
-	if strings.TrimSpace(c.CACertFile) != "" {
-		if _, err := os.Stat(c.CACertFile); err != nil {
-			return fmt.Errorf("%w: %s", ErrElasticCACertUnreadable, c.CACertFile)
+	return c.validateIdentity()
+}
+
+// resolveInstances validates every declared instance and returns ensured
+// copies keyed by the normalized name. The caller's config is not mutated.
+func (c *ElasticConfig) resolveInstances() (resolved map[string]*ElasticConfig, names []string, err error) {
+	normalized, names, err := normalizeInstanceNames(c.Instances)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resolved = make(map[string]*ElasticConfig, len(names))
+	for _, name := range names {
+		raw := normalized[name]
+		if raw.Instances != nil || raw.DefaultInstance != "" || raw.NoDefault {
+			return nil, nil, fmt.Errorf("%w: instances.%s", ErrInstanceNested, name)
+		}
+
+		instance := *raw
+		instance.Instances = nil
+		instance.DefaultInstance = ""
+		instance.NoDefault = false
+		instance.Ensure()
+
+		if err := instance.validateBase(); err != nil {
+			return nil, nil, fmt.Errorf("instances.%s: %w", name, err)
+		}
+
+		resolved[name] = &instance
+	}
+
+	return resolved, names, nil
+}
+
+// ShutdownElastic closes the shared elastic client and every named instance,
+// then clears their references. Named instances are detached before closing
+// so a reader cannot observe a closed handle through the registry; a default
+// alias is closed exactly once. One 5s deadline bounds the whole component.
+func ShutdownElastic() error {
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
+	instances := elasticInstances.clear()
+
+	mu.Lock()
+	alias := elasticDefaultInstance
+	defaultClient := Elastic
+	Elastic = nil
+	elasticDefaultInstance = ""
+	mu.Unlock()
+
+	if len(instances) == 0 && defaultClient == nil {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var errs []error
+
+	for name, client := range instances {
+		if client == nil {
+			continue
+		}
+
+		if cerr := client.Close(ctx); cerr != nil {
+			errs = append(errs, fmt.Errorf("elastic instance %s: %w", name, cerr))
+		}
+
+		metrics.SetInfraUp("elastic:"+name, false)
+	}
+
+	if defaultNeedsClose(alias, instances) && defaultClient != nil {
+		if cerr := defaultClient.Close(ctx); cerr != nil {
+			errs = append(errs, fmt.Errorf("elastic: %w", cerr))
 		}
 	}
 
-	return nil
+	metrics.SetInfraUp("elastic", false)
+
+	return errors.Join(errs...)
 }
 
 /*

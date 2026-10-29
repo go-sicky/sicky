@@ -161,6 +161,58 @@ func TestSensitiveEnvStillWorksForFlatTarget(t *testing.T) {
 	}
 }
 
+// A named instance's secret can be supplied by environment even when only the
+// instance name/bucket is in the file. The binding must target the instance
+// path, not the component-level key the operator never wrote.
+func TestSensitiveEnvReachesNamedInstance(t *testing.T) {
+	t.Setenv("SICKY_INFRA_S3_INSTANCES_GALLERY_SECRET_KEY", "instance-secret")
+
+	v := viper.New()
+	v.SetEnvPrefix(DefaultEnvPrefix)
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	v.SetConfigType("json")
+
+	if err := v.ReadConfig(strings.NewReader(`{
+		"sicky": {
+			"infra": {
+				"s3": {
+					"region": "us-east-1",
+					"instances": {
+						"gallery": {"region": "us-east-1", "bucket": "gallery"}
+					}
+				}
+			}
+		}
+	}`)); err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	cfg := &nestedAppConfig{Sicky: &Config{}}
+	bound := bindSensitiveEnvFor(v, cfg, DefaultEnvPrefix)
+
+	if err := v.Unmarshal(cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if cfg.Sicky.Infra == nil || cfg.Sicky.Infra.S3 == nil {
+		t.Fatal("s3 block missing")
+	}
+
+	instance := cfg.Sicky.Infra.S3.Instances["gallery"]
+	if instance == nil {
+		t.Fatal("s3.instances.gallery missing after unmarshal")
+	}
+
+	if instance.SecretKey != "instance-secret" {
+		t.Errorf("instance secret = %q, want the env value", instance.SecretKey)
+	}
+
+	if !slices.Contains(bound, "SICKY_INFRA_S3_INSTANCES_GALLERY_SECRET_KEY") {
+		t.Error("the instance binding was not reported as bound; the ignored-variable check would misreport it")
+	}
+}
+
 // configPrefixes is what makes the fix depth-independent, so it is tested
 // directly rather than only through its effect.
 func TestConfigPrefixesFindsEveryNesting(t *testing.T) {
@@ -243,3 +295,12 @@ func TestConfigPrefixesRespectsSquash(t *testing.T) {
 		}
 	}
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

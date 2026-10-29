@@ -32,6 +32,7 @@ package sicky
 
 import (
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -83,12 +84,14 @@ var sensitiveEnvKeys = []string{
 	"infra.redis.password",
 	"infra.redis.enable_tls",
 	"infra.redis.tls_skip_verify",
+	"infra.nats.url",
 	"infra.nats.token",
 	"infra.nats.password",
 	"infra.nats.enable_tls",
 	"infra.nats.creds_file",
 	"infra.nats.nkey_file",
 	"infra.nats.root_ca_file",
+	"infra.mqtt.broker",
 	"infra.mqtt.password",
 	"infra.mqtt.enable_tls",
 	"infra.mqtt.ca_file",
@@ -143,12 +146,67 @@ func bindSensitiveEnvAt(v *viper.Viper, prefix, envPrefix string) {
 // fact bound and read.
 func bindSensitiveEnvFor(v *viper.Viper, raw any, envPrefix string) []string {
 	prefixes := configPrefixes(raw)
+	schema := buildConfigSchema(raw)
 	bound := make([]string, 0, len(prefixes)*len(sensitiveEnvKeys))
 
 	for _, prefix := range prefixes {
 		for _, key := range sensitiveEnvKeys {
 			bound = append(bound, bindEnvKey(v, prefix, key, envPrefix))
+			bound = append(bound, bindInstanceEnvKeys(v, schema, prefix, key, envPrefix)...)
 		}
+	}
+
+	return bound
+}
+
+// bindInstanceEnvKeys binds a sensitive key for every instance declared under
+// the key's parent config. A variable such as
+// SICKY_INFRA_S3_INSTANCES_GALLERY_SECRET_KEY is only resolvable when the
+// instance name is already present in the configuration file; viper cannot
+// discover a map key that exists only in the environment.
+func bindInstanceEnvKeys(v *viper.Viper, schema configSchema, prefix, key, envPrefix string) []string {
+	idx := strings.LastIndex(key, ".")
+	if idx <= 0 {
+		return nil
+	}
+
+	parent, leaf := key[:idx], key[idx+1:]
+	instancesKey := parent + ".instances"
+	fullInstancesKey := joinKey(prefix, instancesKey)
+
+	if _, ok := schema.mapValues[fullInstancesKey]; !ok {
+		return nil
+	}
+
+	raw, ok := v.Get(fullInstancesKey).(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(raw))
+	for name := range raw {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+
+	bound := make([]string, 0, len(names))
+	for _, name := range names {
+		relative := instancesKey + "." + name + "." + leaf
+		full := joinKey(prefix, relative)
+		nameVar := envName(envPrefix, relative)
+
+		if err := v.BindEnv(full, nameVar); err != nil {
+			logger.Logger.Warn(
+				"environment binding failed",
+				"key", full,
+				"error", err.Error(),
+			)
+
+			continue
+		}
+
+		bound = append(bound, nameVar)
 	}
 
 	return bound
@@ -212,3 +270,12 @@ func warnIgnoredEnv(v *viper.Viper, prefix string, bound []string) {
 		)
 	}
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

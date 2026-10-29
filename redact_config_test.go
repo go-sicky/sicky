@@ -52,10 +52,20 @@ func populatedConfig() *Config {
 			Headers: map[string]string{"authorization": canary},
 		},
 		Infra: &InfraConfig{
-			Bun:        &infra.BunConfig{DSN: canary},
+			Bun: &infra.BunConfig{
+				DSN: canary,
+				Instances: map[string]*infra.BunConfig{
+					"reporting": {DSN: canary},
+				},
+			},
 			Clickhouse: &infra.ClickHouseConfig{DSN: canary},
 			Mongo:      &infra.MongoConfig{URI: canary},
-			Redis:      &infra.RedisConfig{Password: canary},
+			Redis: &infra.RedisConfig{
+				Password: canary,
+				Instances: map[string]*infra.RedisConfig{
+					"cache": {Password: canary},
+				},
+			},
 			Nats: &infra.NATSConfig{
 				Token:      canary,
 				Password:   canary,
@@ -71,6 +81,13 @@ func populatedConfig() *Config {
 				AccessKey:    canary,
 				SecretKey:    canary,
 				SessionToken: canary,
+				Instances: map[string]*infra.S3Config{
+					"gallery": {
+						AccessKey:    canary,
+						SecretKey:    canary,
+						SessionToken: canary,
+					},
+				},
 			},
 			Elastic: &infra.ElasticConfig{
 				Password:     canary,
@@ -129,30 +146,33 @@ func TestPopulatedConfigActuallyCarriesTheCanaries(t *testing.T) {
 	cfg := populatedConfig()
 
 	fields := map[string]string{
-		"manager.auth_token":          cfg.Manager.AuthToken,
-		"manager.tls_cert_pem":        cfg.Manager.TLSCertPEM,
-		"manager.tls_key_pem":         cfg.Manager.TLSKeyPEM,
-		"tracer.dsn":                  cfg.Tracer.DSN,
-		"tracer.headers":              cfg.Tracer.Headers["authorization"],
-		"infra.bun.dsn":               cfg.Infra.Bun.DSN,
-		"infra.clickhouse.dsn":        cfg.Infra.Clickhouse.DSN,
-		"infra.mongo.uri":             cfg.Infra.Mongo.URI,
-		"infra.redis.password":        cfg.Infra.Redis.Password,
-		"infra.nats.token":            cfg.Infra.Nats.Token,
-		"infra.nats.password":         cfg.Infra.Nats.Password,
-		"infra.nats.creds_file":       cfg.Infra.Nats.CredsFile,
-		"infra.nats.nkey_file":        cfg.Infra.Nats.NkeyFile,
-		"infra.nats.root_ca_file":     cfg.Infra.Nats.RootCAFile,
-		"infra.mqtt.password":         cfg.Infra.MQTT.Password,
-		"infra.mqtt.ca_file":          cfg.Infra.MQTT.CAFile,
-		"infra.s3.access_key":         cfg.Infra.S3.AccessKey,
-		"infra.s3.secret_key":         cfg.Infra.S3.SecretKey,
-		"infra.s3.session_token":      cfg.Infra.S3.SessionToken,
-		"infra.elastic.password":      cfg.Infra.Elastic.Password,
-		"infra.elastic.api_key":       cfg.Infra.Elastic.APIKey,
-		"infra.elastic.service_token": cfg.Infra.Elastic.ServiceToken,
-		"infra.elastic.ca_cert_file":  cfg.Infra.Elastic.CACertFile,
-		"registry.redis.password":     cfg.Registry.Redis.Password,
+		"manager.auth_token":                    cfg.Manager.AuthToken,
+		"manager.tls_cert_pem":                  cfg.Manager.TLSCertPEM,
+		"manager.tls_key_pem":                   cfg.Manager.TLSKeyPEM,
+		"tracer.dsn":                            cfg.Tracer.DSN,
+		"tracer.headers":                        cfg.Tracer.Headers["authorization"],
+		"infra.bun.dsn":                         cfg.Infra.Bun.DSN,
+		"infra.bun.instances.reporting.dsn":     cfg.Infra.Bun.Instances["reporting"].DSN,
+		"infra.clickhouse.dsn":                  cfg.Infra.Clickhouse.DSN,
+		"infra.mongo.uri":                       cfg.Infra.Mongo.URI,
+		"infra.redis.password":                  cfg.Infra.Redis.Password,
+		"infra.redis.instances.cache.password":  cfg.Infra.Redis.Instances["cache"].Password,
+		"infra.nats.token":                      cfg.Infra.Nats.Token,
+		"infra.nats.password":                   cfg.Infra.Nats.Password,
+		"infra.nats.creds_file":                 cfg.Infra.Nats.CredsFile,
+		"infra.nats.nkey_file":                  cfg.Infra.Nats.NkeyFile,
+		"infra.nats.root_ca_file":               cfg.Infra.Nats.RootCAFile,
+		"infra.mqtt.password":                   cfg.Infra.MQTT.Password,
+		"infra.mqtt.ca_file":                    cfg.Infra.MQTT.CAFile,
+		"infra.s3.access_key":                   cfg.Infra.S3.AccessKey,
+		"infra.s3.secret_key":                   cfg.Infra.S3.SecretKey,
+		"infra.s3.session_token":                cfg.Infra.S3.SessionToken,
+		"infra.s3.instances.gallery.secret_key": cfg.Infra.S3.Instances["gallery"].SecretKey,
+		"infra.elastic.password":                cfg.Infra.Elastic.Password,
+		"infra.elastic.api_key":                 cfg.Infra.Elastic.APIKey,
+		"infra.elastic.service_token":           cfg.Infra.Elastic.ServiceToken,
+		"infra.elastic.ca_cert_file":            cfg.Infra.Elastic.CACertFile,
+		"registry.redis.password":               cfg.Registry.Redis.Password,
 	}
 
 	for name, value := range fields {
@@ -174,3 +194,12 @@ func TestPopulatedConfigActuallyCarriesTheCanaries(t *testing.T) {
 	// and survives a future rename of the longer one.
 	t.Logf("%d credential fields checked", len(fields))
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

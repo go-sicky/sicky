@@ -44,3 +44,12 @@ import "errors"
 // errors.New allocates a distinct value per call site. They are now aliases
 // of this one, so their exported names still resolve and any of them matches.
 var ErrIncompleteTLSConfig = errors.New("incomplete TLS configuration: both tls_cert_pem and tls_key_pem must be set")
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

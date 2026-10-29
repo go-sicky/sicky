@@ -53,7 +53,7 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 - **Uptrace** — Managed tracing via Uptrace SaaS
 - **Prometheus metrics** — `sicky_`-prefixed RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
 - **Structured logging** — slog-based logger with Fiber/gRPC adapters. `logger.Level()` is only effective on a logger this package built, which is `NewGeneral(nil)` / `NewGRPC(nil)`: `NewGeneral()` adopts `slog.Default()` and `NewGeneral(l)` adopts `l`, and both own their own threshold, so `Level()` on those forms is a silent no-op. Configure the level on the logger you supply, and use `Enabled()` to ask what is actually enabled.
-- **Manager endpoints** — 8 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` + `/ready` (10 infra + registered business checkers; only `unhealthy` degrades; backend error text redacted), `/live` (static 200, liveness only), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only. Optional `manager.tls_cert_pem`/`tls_key_pem` serve the manager over HTTPS.
+- **Manager endpoints** — 8 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` + `/ready` (10 infra + every named infra instance + registered business checkers; only `unhealthy` degrades; backend error text redacted), `/live` (static 200, liveness only), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only. Optional `manager.tls_cert_pem`/`tls_key_pem` serve the manager over HTTPS.
 
 ### Background Jobs & Concurrency
 - **Cron** — gocron/v2-based cron job scheduler
@@ -315,7 +315,16 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "elastic":   { "addresses": ["http://localhost:9200"], "username": "", "password": "", "cloud_id": "", "api_key": "", "service_token": "", "ca_cert_file": "", "timeout_sec": 5 }, // timeout_sec = startup check only; per-request via ctx
     "clickhouse":{ "dsn": "clickhouse://..." },
     "mongo":     { "uri": "mongodb://localhost:27017", "db": "mydb", "max_pool_size": 0, "connect_timeout_sec": 0 }, // 0 = driver defaults
-    "s3":        { "region": "us-east-1", "endpoint": "", "bucket": "", "use_path_style": false, "timeout": 5, "request_timeout_sec": 0 } // region required; bucket optional; endpoint for MinIO/LocalStack; 0 = SDK default
+    "s3":        { "region": "us-east-1", "endpoint": "", "bucket": "", "use_path_style": false, "timeout": 5, "request_timeout_sec": 0 }, // region required; bucket optional; endpoint for MinIO/LocalStack; 0 = SDK default
+    // Multi-instance: any component block may add
+    //   "default_instance": "gallery",
+    //   "no_default": false,
+    //   "instances": { "gallery": { ...complete config... } }
+    // Instances are complete configs and do not inherit the block above.
+    // default_instance is ignored when the top-level config is complete;
+    // no_default: true builds only named instances. Ristretto is the
+    // exception: its top-level config is always the default, so
+    // default_instance is ignored there.
   },
 
   "tracer": {
@@ -589,6 +598,67 @@ _ = infra.GetBadger().Update(func(txn *badger.Txn) error {
 // Others: infra.GetMongoDB("mydb"), infra.GetS3(), infra.GetNats(), ...
 ```
 
+#### Multi-instance infrastructure
+
+Every infra component accepts optional named instances. They are complete
+configs under `instances`; they do **not** inherit the top-level block.
+
+```json
+{
+  "infra": {
+    "s3": {
+      "default_instance": "gallery",
+      "instances": {
+        "gallery": { "region": "us-east-1", "bucket": "gallery" },
+        "avatars": { "region": "eu-west-1", "bucket": "avatars" }
+      }
+    }
+  }
+}
+```
+
+```go
+// Configured with infra.redis.instances.cache / .session.
+cache := infra.GetRedis("cache")
+session := infra.GetRedis("session")
+_ = cache
+_ = session
+
+// No name still returns the shared singleton.
+defaultRedis := infra.GetRedis()
+
+// The shared singleton can be one of the instances:
+//   "default_instance": "cache"
+// is ignored when the top-level redis block is complete.
+_ = defaultRedis
+
+// Clear one named reference, or all references (neither closes a connection;
+// ShutdownX / sicky.Run owns closing).
+infra.ClearRedis("cache")
+infra.ClearRedisAll()
+```
+
+- `initX` builds the default and every declared instance at startup. Any
+  named instance that fails to build aborts startup (fail-fast).
+- `/health` reports `redis:cache`, `s3:gallery`, ... next to the base
+  component; metrics use the same `component:name` label value. A named
+  instance selected as the default keeps the component label for its
+  operation hook, so per-component dashboards still see its ops.
+- `default_instance` is ignored when the top-level config is complete.
+  `no_default: true` creates only named instances on a fresh init; an
+  already-registered singleton is kept first-wins.
+- Ristretto is the exception: its top-level config is always the default, so
+  `default_instance` is ignored there; use `no_default` to omit the default
+  cache. `no_default` + `default_instance` is still a validation error.
+- Named instances are initialized in sorted name order. Names that normalize
+  to the same key inside one block are rejected (`ErrInstanceNameDuplicate`);
+  a repeated `Init` keeps the first registration (first-wins). Their secrets
+  can be supplied by environment, e.g.
+  `SICKY_INFRA_S3_INSTANCES_GALLERY_SECRET_KEY`, when the instance name is
+  present in the config file. A name containing `-` also puts `-` in the
+  environment variable name; prefer `_` if you plan to use env overrides from a
+  shell.
+
 ### Lifecycle Hooks
 
 ```go
@@ -669,7 +739,7 @@ sicky help        # also: sicky serve -h, sicky new -h
 | `service` | Service interface + Standard (background), Interactive (CLI), MCP (+ `mcp/protocol`) |
 | `registry` | Registry interface + Consul, Redis, Local (file JSON) — `mdns` deprecated (commented, kept) |
 | `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace (Fiber side uses the built-in `server/fiber` tracer middleware) |
-| `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 10 files, no interface |
+| `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 11 files (10 drivers + `instances.go`), no interface |
 | `job` | Job interface + Cron (gocron), Ticker implementations |
 | `runner` | Runner interface + Static goroutine pool implementation |
 | `logger` | Structured logger (slog-based), Fiber/gRPC adapters |

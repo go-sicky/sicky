@@ -496,13 +496,13 @@ func initDBFunc(exportedName string) string {
 func initdb() error {
 	ctx := context.Background()
 
-	if infra.Bun == nil {
+	if infra.GetBun() == nil {
 		logger.Logger.FatalContext(ctx, "database connection is not initialized")
 	}
 
 	// uuid_generate_v4() comes from uuid-ossp, which a clean PostgreSQL
 	// database does not have installed.
-	if _, err := infra.Bun.ExecContext(ctx, %s); err != nil {
+	if _, err := infra.GetBun().ExecContext(ctx, %s); err != nil {
 		return err
 	}
 
@@ -1389,3 +1389,12 @@ func lineIndent(src []byte, offset int) string {
 
 	return string(src[start:end])
 }
+
+/*
+ * Local variables:
+ * tab-width: 4
+ * c-basic-offset: 4
+ * End:
+ * vim600: sw=4 ts=4 fdm=marker
+ * vim<600: sw=4 ts=4
+ */

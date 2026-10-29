@@ -34,6 +34,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -78,6 +80,14 @@ type BunConfig struct {
 	MaxIdleConns       int `json:"max_idle_conns"         mapstructure:"max_idle_conns"         yaml:"max_idle_conns"`
 	ConnMaxLifetimeSec int `json:"conn_max_lifetime_sec"  mapstructure:"conn_max_lifetime_sec"  yaml:"conn_max_lifetime_sec"`
 	ConnMaxIdleTimeSec int `json:"conn_max_idle_time_sec" mapstructure:"conn_max_idle_time_sec" yaml:"conn_max_idle_time_sec"`
+	// DefaultInstance names the instance that also serves as the shared
+	// singleton when the top-level fields do not form a complete config.
+	DefaultInstance string `json:"default_instance" mapstructure:"default_instance" yaml:"default_instance"`
+	// NoDefault suppresses the shared singleton on a fresh init; only Instances are created.
+	NoDefault bool `json:"no_default" mapstructure:"no_default" yaml:"no_default"`
+	// Instances are complete SQL configurations. They do not inherit fields
+	// from the block above.
+	Instances map[string]*BunConfig `json:"instances" mapstructure:"instances" yaml:"instances"`
 }
 
 // Bun is a shared infra value.
@@ -156,20 +166,33 @@ func detectBunDriver(dsn string) string {
 
 // bunMetricsHook records every query into sicky_infra_ops. It is always
 // attached (unlike the debug-only bundebug hook) so SQL latency/error is
-// observed in production without verbose logging.
-type bunMetricsHook struct{}
+// observed in production without verbose logging. label names the component
+// series: "bun" for the shared singleton, "bun:<name>" for a named instance.
+type bunMetricsHook struct {
+	label string
+}
 
-func (bunMetricsHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
+// component returns the metric label, defaulting to the shared series when the
+// hook was built without one.
+func (h bunMetricsHook) component() string {
+	if h.label == "" {
+		return "bun"
+	}
+
+	return h.label
+}
+
+func (h bunMetricsHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
 	return ctx
 }
 
-func (bunMetricsHook) AfterQuery(_ context.Context, event *bun.QueryEvent) {
+func (h bunMetricsHook) AfterQuery(_ context.Context, event *bun.QueryEvent) {
 	op := event.Operation()
 	if op == "" {
 		op = "query"
 	}
 
-	metrics.ObserveInfraOp("bun", op, event.StartTime, event.Err)
+	metrics.ObserveInfraOp(h.component(), op, event.StartTime, event.Err)
 }
 
 // InitBun is part of the public API.
@@ -178,19 +201,21 @@ func InitBun(cfg *BunConfig) (*bun.DB, error) {
 		return nil, nil
 	}
 
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
 	db, err := initBun(cfg)
 	metrics.CountInfraInit("bun", err)
+	if err == nil && db == nil {
+		// no_default: the component initialized, but there is no shared
+		// singleton to report as up.
+		metrics.SetInfraUp("bun", false)
+	}
 
 	return db, err
 }
 
 func initBun(cfg *BunConfig) (*bun.DB, error) {
-	var (
-		sqldb *sql.DB
-		err   error
-		db    *bun.DB
-	)
-
 	if cfg == nil {
 		return nil, nil
 	}
@@ -206,6 +231,182 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		return nil, err
 	}
 
+	instances, names, err := cfg.resolveInstances()
+	if err != nil {
+		logger.Logger.Error(
+			"init bun instances invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	identityErr := cfg.validateIdentity()
+	selection, err := resolveDefaultSelection(cfg.NoDefault, cfg.DefaultInstance, names, identityErr == nil, identityErr)
+	if err != nil {
+		logger.Logger.Error(
+			"init bun default selection invalid",
+			"error", err.Error(),
+		)
+
+		return nil, err
+	}
+
+	if selection.Ignored != "" {
+		logger.Logger.Warn(
+			"database default_instance ignored because the top-level config is complete",
+			"instance", selection.Ignored,
+		)
+	}
+
+	if cfg.NoDefault {
+		logger.Logger.Info("database no_default is set; this block does not create a shared instance")
+	}
+
+	if !selection.UseTopLevel && selection.Instance != "" && cfg.DefaultInstance == "" {
+		if len(names) == 1 {
+			logger.Logger.Info(
+				"database using the only named instance as the default",
+				"instance", selection.Instance,
+			)
+		} else {
+			logger.Logger.Warn(
+				"database no default_instance configured; using the first instance in sorted order",
+				"instance", selection.Instance,
+			)
+		}
+	}
+
+	// Build first, register second: a failure never leaves a half-installed
+	// component behind. Existing first-wins entries are not rebuilt.
+	mu.RLock()
+	existingDefault := Bun
+	mu.RUnlock()
+
+	var topLevel *bun.DB
+
+	if selection.UseTopLevel && existingDefault == nil {
+		topLevel, err = newBunClient(cfg, "bun")
+		if err != nil {
+			logger.Logger.Error(
+				"init bun failed",
+				"driver", cfg.Driver,
+				"error", err.Error(),
+			)
+
+			return nil, err
+		}
+	}
+
+	built := make(map[string]*bun.DB, len(names))
+	for _, name := range names {
+		if _, ok := bunInstances.get(name); ok {
+			logger.Logger.Warn("database instance already initialized, keeping existing client", "instance", name)
+
+			continue
+		}
+
+		db, berr := newBunClient(instances[name], instanceLabel("bun", name, selection))
+		if berr != nil {
+			metrics.CountInfraInit("bun:"+name, berr)
+			logger.Logger.Error(
+				"init bun instance failed",
+				"instance", name,
+				"error", berr.Error(),
+			)
+
+			rollbackBunClients(topLevel, built)
+
+			return nil, fmt.Errorf("bun instance %s: %w", name, berr)
+		}
+
+		metrics.CountInfraInit("bun:"+name, nil)
+		built[name] = db
+	}
+
+	// Register under the lock, release before anything that can block. This
+	// mu is a single package-global write lock guarding all ten
+	// singletons, so holding it across a duplicate's teardown (a 5s
+	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
+	// every Get* reader and every manager health probe for the duration.
+	if topLevel != nil {
+		stored := false
+
+		mu.Lock()
+		if Bun == nil {
+			Bun = topLevel
+			bunDefaultInstance = ""
+			stored = true
+		}
+
+		mu.Unlock()
+
+		if !stored {
+			logger.Logger.Warn("database already initialized, closing duplicate connection")
+			closeBunClient(topLevel, "bun")
+		}
+	}
+
+	for _, name := range names {
+		db, ok := built[name]
+		if !ok {
+			continue
+		}
+
+		if _, stored := bunInstances.putFirst(name, db); !stored {
+			logger.Logger.Warn("database instance already initialized, closing duplicate connection", "instance", name)
+			closeBunClient(db, "bun:"+name)
+
+			continue
+		}
+
+		logger.Logger.InfoContext(
+			context.Background(),
+			"database instance initialized",
+			"instance", name,
+			"driver", instances[name].Driver,
+		)
+	}
+
+	// A named default is installed only when the shared singleton is still
+	// free; first-wins keeps an earlier top-level or alias default.
+	if !selection.UseTopLevel && selection.Instance != "" {
+		if db, ok := bunInstances.get(selection.Instance); ok && db != nil {
+			mu.Lock()
+			if Bun == nil {
+				Bun = db
+				bunDefaultInstance = selection.Instance
+			}
+
+			mu.Unlock()
+		}
+	}
+
+	mu.RLock()
+	db := Bun
+	mu.RUnlock()
+
+	if topLevel != nil {
+		logger.Logger.Info(
+			"database initialized",
+			"driver", cfg.Driver,
+			"debug", cfg.Debug,
+			"max_open_conns", cfg.MaxOpenConns,
+		)
+	}
+
+	return db, nil
+}
+
+// newBunClient opens, pings and configures one Bun handle. It touches no
+// package-level state, so a build that fails leaves nothing registered.
+func newBunClient(cfg *BunConfig, label string) (*bun.DB, error) {
+	var (
+		sqldb *sql.DB
+		err   error
+		db    *bun.DB
+	)
+
 	switch strings.ToLower(cfg.Driver) {
 	case driverMySQL:
 		// MySQL
@@ -213,6 +414,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		if err != nil {
 			logger.Logger.Error(
 				"database open failed",
+				"instance", label,
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -227,6 +429,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		if err != nil {
 			logger.Logger.Error(
 				"database open failed",
+				"instance", label,
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -241,6 +444,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		if err != nil {
 			logger.Logger.Error(
 				"database open failed",
+				"instance", label,
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -255,6 +459,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 		if err != nil {
 			logger.Logger.Error(
 				"database open failed",
+				"instance", label,
 				"driver", cfg.Driver,
 				"error", err.Error(),
 			)
@@ -281,18 +486,13 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	if err != nil {
 		logger.Logger.Error(
 			"database initialize failed",
+			"instance", label,
 			"driver", cfg.Driver,
 			"error", err.Error(),
 		)
 
 		// Close the handle opened above instead of leaking it.
-		if cerr := db.Close(); cerr != nil {
-			logger.Logger.Error(
-				"database close after failed ping failed",
-				"driver", cfg.Driver,
-				"error", cerr.Error(),
-			)
-		}
+		closeBunClient(db, label)
 
 		return nil, err
 	}
@@ -304,6 +504,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	if cfg.MaxOpenConns <= 0 {
 		logger.Logger.Warn(
 			"database connection pool unbounded; set max_open_conns to cap it",
+			"instance", label,
 			"driver", cfg.Driver,
 		)
 	} else {
@@ -327,6 +528,7 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	if cfg.Verbose {
 		logger.Logger.Warn(
 			"database verbose query logging enabled; bound arguments may contain secrets",
+			"instance", label,
 			"driver", cfg.Driver,
 		)
 	}
@@ -341,47 +543,36 @@ func initBun(cfg *BunConfig) (*bun.DB, error) {
 	}
 
 	// Metrics hook is unconditional: production needs query RED too.
-	db.AddQueryHook(bunMetricsHook{})
-
-	logger.Logger.Info(
-		"database initialized",
-		"driver", cfg.Driver,
-		"debug", cfg.Debug,
-		"max_open_conns", cfg.MaxOpenConns,
-	)
-
-	// Swap under the lock, release before anything that can block. This
-	// mu is a single package-global write lock guarding all ten
-	// singletons, so holding it across a duplicate's teardown (a 5s
-	// Disconnect, a Close that flushes, paho's quiesce sleep) stalls
-	// every Get* reader and every manager health probe for the duration.
-	// The success log moved out too: it is a synchronous write to the
-	// handler and must not run under the global lock either.
-	mu.Lock()
-
-	existing := Bun
-	if existing == nil {
-		Bun = db
-	}
-
-	mu.Unlock()
-
-	if existing != nil {
-		// First-wins: keep the existing singleton and drop the duplicate
-		// instead of leaking it.
-		logger.Logger.Warn("database already initialized, closing duplicate connection")
-		if cerr := db.Close(); cerr != nil {
-			logger.Logger.Error(
-				"database duplicate close failed",
-				"driver", cfg.Driver,
-				"error", cerr.Error(),
-			)
-		}
-
-		return existing, nil
-	}
+	db.AddQueryHook(bunMetricsHook{label: label})
 
 	return db, nil
+}
+
+// closeBunClient closes one client and logs a failure instead of returning it:
+// the caller is already on an error or duplicate path.
+func closeBunClient(db *bun.DB, label string) {
+	if db == nil {
+		return
+	}
+
+	if cerr := db.Close(); cerr != nil {
+		logger.Logger.Error(
+			"database close failed",
+			"instance", label,
+			"error", cerr.Error(),
+		)
+	}
+}
+
+// rollbackBunClients closes everything one init call built but will not
+// register, so a failed build leaves no pools, sockets or "up" series behind.
+func rollbackBunClients(defaultDB *bun.DB, built map[string]*bun.DB) {
+	closeBunClient(defaultDB, "bun")
+
+	for name, db := range built {
+		closeBunClient(db, "bun:"+name)
+		metrics.SetInfraUp("bun:"+name, false)
+	}
 }
 
 // Ensure fills zero-valued fields with defaults and returns the receiver (nil-safe).
@@ -401,18 +592,46 @@ func (c *BunConfig) Ensure() *BunConfig {
 	return c
 }
 
-// Validate rejects half-configured or illegal values.
+// Validate rejects half-configured or illegal values and resolves the named
+// instances (without mutating the caller's config).
 func (c *BunConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
 
-	if strings.TrimSpace(c.DSN) == "" {
-		return ErrBunDSNEmpty
+	if err := c.validateShape(); err != nil {
+		return err
+	}
+
+	_, names, err := c.resolveInstances()
+	if err != nil {
+		return err
+	}
+
+	identityErr := c.validateIdentity()
+	if _, err := resolveDefaultSelection(c.NoDefault, c.DefaultInstance, names, identityErr == nil, identityErr); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateShape checks every value that does not depend on the connection
+// identity, so an instance can be rejected before anything dials. An explicit
+// driver outside the allow-list is a typo, not an absent driver.
+func (c *BunConfig) validateShape() error {
+	if c == nil {
+		return nil
 	}
 
 	if c.SlowDuration < 0 {
 		return ErrBunSlowInvalid
+	}
+
+	// Pool/lifetime settings: negative aborts, zero keeps driver default.
+	if c.MaxOpenConns < 0 || c.MaxIdleConns < 0 ||
+		c.ConnMaxLifetimeSec < 0 || c.ConnMaxIdleTimeSec < 0 {
+		return ErrBunPoolInvalid
 	}
 
 	// Resolve the same way Ensure does, without mutating: Validate must
@@ -423,21 +642,78 @@ func (c *BunConfig) Validate() error {
 	}
 
 	if driver == "" {
-		return ErrBunDriverMissing
+		// An absent driver is an identity problem, reported by
+		// validateIdentity once the DSN is known to be present.
+		return nil
 	}
 
 	switch strings.ToLower(driver) {
 	case driverPostgres, driverPostgresql, "pg", driverMySQL, driverMSSQL, driverSQLite, driverDM:
-		// Pool/lifetime settings: negative aborts, zero keeps driver default.
-		if c.MaxOpenConns < 0 || c.MaxIdleConns < 0 ||
-			c.ConnMaxLifetimeSec < 0 || c.ConnMaxIdleTimeSec < 0 {
-			return ErrBunPoolInvalid
-		}
-
 		return nil
 	default:
 		return ErrBunUnsupportedDriver
 	}
+}
+
+// validateIdentity requires the fields that address the database.
+func (c *BunConfig) validateIdentity() error {
+	if c == nil {
+		return nil
+	}
+
+	if strings.TrimSpace(c.DSN) == "" {
+		return ErrBunDSNEmpty
+	}
+
+	driver := strings.TrimSpace(c.Driver)
+	if driver == "" {
+		driver = detectBunDriver(c.DSN)
+	}
+
+	if driver == "" {
+		return ErrBunDriverMissing
+	}
+
+	return nil
+}
+
+func (c *BunConfig) validateBase() error {
+	if err := c.validateShape(); err != nil {
+		return err
+	}
+
+	return c.validateIdentity()
+}
+
+// resolveInstances validates every declared instance and returns ensured
+// copies keyed by the normalized name. The caller's config is not mutated.
+func (c *BunConfig) resolveInstances() (resolved map[string]*BunConfig, names []string, err error) {
+	normalized, names, err := normalizeInstanceNames(c.Instances)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	resolved = make(map[string]*BunConfig, len(names))
+	for _, name := range names {
+		raw := normalized[name]
+		if raw.Instances != nil || raw.DefaultInstance != "" || raw.NoDefault {
+			return nil, nil, fmt.Errorf("%w: instances.%s", ErrInstanceNested, name)
+		}
+
+		instance := *raw
+		instance.Instances = nil
+		instance.DefaultInstance = ""
+		instance.NoDefault = false
+		instance.Ensure()
+
+		if err := instance.validateBase(); err != nil {
+			return nil, nil, fmt.Errorf("instances.%s: %w", name, err)
+		}
+
+		resolved[name] = &instance
+	}
+
+	return resolved, names, nil
 }
 
 type bunTxContextKey struct{}
@@ -445,11 +721,31 @@ type bunTxContextKey struct{}
 // WithBunTx returns a context carrying db as the current Bun executor. A nil
 // executor leaves the context unchanged.
 func WithBunTx(ctx context.Context, db bun.IDB) context.Context {
-	if db == nil {
+	if isNilBunIDB(db) {
 		return ctx
 	}
 
 	return context.WithValue(ctx, bunTxContextKey{}, db)
+}
+
+// isNilBunIDB reports whether db is nil even when it is a typed nil stored in
+// the bun.IDB interface. A plain db == nil check misses that case and stores a
+// concrete nil in the context, which BunDB would then hand to a caller.
+func isNilBunIDB(db bun.IDB) bool {
+	if db == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(db)
+	kind := value.Kind()
+	nilable := kind == reflect.Chan ||
+		kind == reflect.Func ||
+		kind == reflect.Interface ||
+		kind == reflect.Map ||
+		kind == reflect.Pointer ||
+		kind == reflect.Slice
+
+	return nilable && value.IsNil()
 }
 
 // BunDB returns the Bun executor carried by ctx, or the package-level Bun
@@ -457,29 +753,93 @@ func WithBunTx(ctx context.Context, db bun.IDB) context.Context {
 // is uninitialized, so callers can compare the result with nil.
 func BunDB(ctx context.Context) bun.IDB {
 	if ctx != nil {
-		if db, ok := ctx.Value(bunTxContextKey{}).(bun.IDB); ok && db != nil {
+		if db, ok := ctx.Value(bunTxContextKey{}).(bun.IDB); ok && !isNilBunIDB(db) {
 			return db
 		}
 	}
 
-	if Bun == nil {
+	db := GetBun()
+	if db == nil {
 		return nil
 	}
 
-	return Bun
+	return db
 }
 
 // RunInBunTx runs fn inside a Bun transaction and injects the transaction into
 // the context passed to fn. The transaction is committed when fn returns nil
 // and rolled back otherwise.
 func RunInBunTx(ctx context.Context, opts *sql.TxOptions, fn func(context.Context) error) error {
-	if Bun == nil {
+	db := GetBun()
+	if db == nil {
 		return ErrBunUnavailable
 	}
 
-	return Bun.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
+	return db.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
 		return fn(WithBunTx(ctx, tx))
 	})
+}
+
+// RunInBunTxIns runs fn inside a transaction on the named Bun instance. An
+// empty instance name selects the shared singleton, so it then behaves exactly
+// like RunInBunTx.
+func RunInBunTxIns(ctx context.Context, instance string, opts *sql.TxOptions, fn func(context.Context) error) error {
+	db := GetBun(instance)
+	if db == nil {
+		return ErrBunUnavailable
+	}
+
+	return db.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
+		return fn(WithBunTx(ctx, tx))
+	})
+}
+
+// ShutdownBun closes the shared bun and every named instance, then clears
+// their references. Named instances are detached before closing so a reader
+// cannot observe a closed handle through the registry; a default alias is
+// closed exactly once.
+//
+//nolint:dupl // each component owns its globals; the detach/close/metrics shape is deliberately uniform
+func ShutdownBun() error {
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+
+	instances := bunInstances.clear()
+
+	mu.Lock()
+	alias := bunDefaultInstance
+	defaultDB := Bun
+	Bun = nil
+	bunDefaultInstance = ""
+	mu.Unlock()
+
+	if len(instances) == 0 && defaultDB == nil {
+		return nil
+	}
+
+	var errs []error
+
+	for name, db := range instances {
+		if db == nil {
+			continue
+		}
+
+		if cerr := db.Close(); cerr != nil {
+			errs = append(errs, fmt.Errorf("bun instance %s: %w", name, cerr))
+		}
+
+		metrics.SetInfraUp("bun:"+name, false)
+	}
+
+	if defaultNeedsClose(alias, instances) && defaultDB != nil {
+		if cerr := defaultDB.Close(); cerr != nil {
+			errs = append(errs, fmt.Errorf("bun: %w", cerr))
+		}
+	}
+
+	metrics.SetInfraUp("bun", false)
+
+	return errors.Join(errs...)
 }
 
 /*
