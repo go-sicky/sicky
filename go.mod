@@ -35,13 +35,13 @@ require (
 	github.com/go-co-op/gocron/v2 v2.23.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/godoes/gorm-dameng v0.7.2
-	github.com/gofiber/contrib/v3/swaggo v1.0.14
-	github.com/gofiber/contrib/v3/websocket v1.2.9
+	github.com/gofiber/contrib/v3/swaggo v1.0.15
+	github.com/gofiber/contrib/v3/websocket v1.2.10
 	github.com/gofiber/fiber/v3 v3.6.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.35.0
 	github.com/nats-io/nats.go v1.55.0
-	github.com/ncruces/go-sqlite3 v0.35.6
+	github.com/ncruces/go-sqlite3 v0.36.0
 	github.com/nsqio/go-nsq v1.1.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/redis/go-redis/v9 v9.23.0
@@ -76,7 +76,7 @@ require (
 
 require (
 	github.com/hashicorp/go-uuid v1.0.4 // indirect
-	github.com/pandatix/go-abnf v0.5.1 // indirect
+	github.com/pandatix/go-abnf v0.5.3 // indirect
 )
 
 require (
@@ -162,7 +162,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35401 // indirect
+	github.com/ncruces/go-sqlite3-wasm/v6 v6.4.35401 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect

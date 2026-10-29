@@ -24,7 +24,7 @@ import (
 // — so the same variable needs the key `sicky.manager.auth_token`, and binding
 // only the flat one silently drops it.
 //
-// That is not a theoretical gap. It disabled all 32 sensitiveEnvKeys entries
+// That is not a theoretical gap. It disabled every sensitiveEnvKeys entry
 // for every generated application: SICKY_MANAGER_AUTH_TOKEN, SICKY_TRACER_DSN,
 // SICKY_INFRA_BUN_DSN and the rest were accepted by the operator, logged by
 // the ignored-variable check as known, and never read.

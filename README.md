@@ -4,7 +4,7 @@
 
 A modular, extensible Go framework for building robust microservices and networked applications.
 
-[![Go Version](https://img.shields.io/badge/Go-1.26.0-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26.9-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Go-Sicky provides a unified, pluggable architecture that abstracts away infrastructure, communication protocols, and service management, letting you focus on business logic.
@@ -51,8 +51,8 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 ### Observability
 - **OpenTelemetry tracing** — OTLP/gRPC, OTLP/HTTP, Stdout exporters; B3 propagation
 - **Uptrace** — Managed tracing via Uptrace SaaS
-- **Prometheus metrics** — `sicky_`-prefixed RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go`, `process`) via Manager `/metrics`
-- **Structured logging** — slog-based logger with Fiber/gRPC adapters. `logger.Level()` is only effective on a logger this package built, which is `NewGeneral(nil)` / `NewGRPC(nil)`: `NewGeneral()` adopts `slog.Default()` and `NewGeneral(l)` adopts `l`, and both own their own threshold, so `Level()` on those forms is a silent no-op. Configure the level on the logger you supply, and use `Enabled()` to ask what is actually enabled.
+- **Prometheus metrics** — `sicky_`-prefixed RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go_collector`, `process_collector`) via Manager `/metrics`
+- **Structured logging** — slog-based structured logger with a gRPC adapter. `logger.Level()` is only effective on a logger this package built, which is `NewGeneral(nil)` / `NewGRPC(nil)`: `NewGeneral()` adopts `slog.Default()` and `NewGeneral(l)` adopts `l`, and both own their own threshold, so `Level()` on those forms is a silent no-op. Configure the level on the logger you supply, and use `Enabled()` to ask what is actually enabled.
 - **Manager endpoints** — 8 built-in endpoints: `/metrics` (public, Prometheus scraping), `/health` + `/ready` (10 infra + every named infra instance + registered business checkers; only `unhealthy` degrades; backend error text redacted), `/live` (static 200, liveness only), `/version`, `/info`, `/config` (gated by `expose_config`, secrets redacted, Bearer-or-loopback), `/services` (Bearer-or-loopback). Set `manager.auth_token` to require `Authorization: Bearer` on `/config` and `/services`; without a token those two are loopback-only. Optional `manager.tls_cert_pem`/`tls_key_pem` serve the manager over HTTPS.
 
 ### Background Jobs & Concurrency
@@ -66,16 +66,13 @@ Go-Sicky provides a unified, pluggable architecture that abstracts away infrastr
 - Pluggable transport: stdio or HTTP (SSE at `/mcp` + POST at `/mcp/message`)
 
 ### CLI
-- `sicky new` — Scaffold new projects (Standard / MCP / Interactive)
-- `sicky generate` — Generate handlers, tools, resources, documentation
-- `sicky serve` — Run as MCP server
-- `sicky version` — Print version info
+- All 11 commands are registered and implemented: `serve` (MCP server), `mcp` (alias of serve), `run` (`go run .`, `--watch` restarts), `doctor` (toolchain/config/port checks), `info` (runtime info), `config` (validate/init/show), `proto` (build/new), `new` (scaffold Standard / MCP / Interactive; `--model` wires bun models into a new standard project), `generate` (16 schematics), `version`, `help`
 
 ---
 
 ## Installation
 
-Requires Go 1.26.0 or later.
+Requires Go 1.26.9 or later.
 
 ```bash
 go install github.com/go-sicky/sicky/cmd/sicky@latest
@@ -187,7 +184,7 @@ Access the health endpoint at `http://localhost:8888/health` and your API at `ht
 │          or remote consul://) + env SICKY_ + Must* checks     │
 │        → returns error (never os.Exit; ErrVersionShown for -V)│
 │  Run(): beforeStart → Infra(10) → Tracer(4) → Registry(3)     │
-│        → Broker(3) → Flag callbacks → Manager(6 endpoints)    │
+│        → Broker(3) → Flag callbacks → Manager(8 endpoints)    │
 │        → Services.Start + Registry.Register → afterStart       │
 │        → wait (TERM/INT/QUIT/ABRT shutdown, HUP reloads,      │
 │          or Context cancel) → beforeStop → Services.Stop      │
@@ -211,7 +208,7 @@ Access the health endpoint at `http://localhost:8888/health` and your API at `ht
 └──────────────────────────────────────────────────────────────┘
 ```
 
-> Full lifecycle order: `sicky.go:253-870`. See `AGENTS.md §2.1` for detailed phase breakdown.
+> Full lifecycle order: `sicky.go:507` (`Run`). See `AGENTS.md §2.1` for detailed phase breakdown.
 
 ### Self-Registration Pattern
 
@@ -242,13 +239,13 @@ Go-Sicky uses [Viper](https://github.com/spf13/viper) for configuration, support
 
 ### Config File Locations
 
-Config files are searched in order (`sicky.go:140-143`):
+Config files are searched in order (`sicky.go:254-261`):
 1. `/etc/<config>.json`
 2. `/etc/<app_name>/<config>.json`
 3. `$HOME/.<app_name>/<config>.json`
 4. `./<config>.json`
 
-`<config>` defaults to `config` (`--config/-C` flag, `sicky.go:99`) and extension defaults to `json` (`--config-type` flag, `sicky.go:100`).
+`<config>` defaults to `config` (`--config/-C` flag, `sicky.go:101`) and extension defaults to `json` (`--config-type` flag, `sicky.go:102`).
 
 ### Remote Config
 
@@ -260,7 +257,7 @@ Prefix the config path with a scheme for remote providers:
 
 ### Environment Variables
 
-All config keys are available as environment variables with the `SICKY_` prefix (dots replaced with underscores):
+Environment overrides use the `SICKY_` prefix with dots replaced by underscores, but **only keys viper already knows resolve**: keys present in the config file, flag values, and the explicitly bound sensitive keys (manager auth/TLS, tracer DSN, infra credentials, ... — see `env.go`). A `SICKY_*` variable that resolves to no known key is ignored with a Warn, so the `SICKY_MANAGER_ADDRESS` example below only takes effect when the config file already defines `manager.address`:
 
 ```bash
 SICKY_LOG_LEVEL=debug
@@ -330,6 +327,7 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
   "tracer": {
     "type": "grpc",          // none | grpc | http | stdout | uptrace
     "endpoint": "localhost:4317",
+    "insecure": true,        // false or omitted = TLS; a plaintext collector (localhost:4317) needs true
     "sample_rate": 1.0,
     "compress": false,
     "timeout": 30,
@@ -713,24 +711,51 @@ fail := utils.FailT[any](utils.CodeNotFound, "").
 
 ## CLI
 
+All 11 commands are registered and implemented (`cli/sicky.go` `Run()`):
+
+| Command | Purpose |
+|---|---|
+| `serve` (alias `s`) | Run as MCP server (`--transport stdio\|http`, `--listen`, `--token`, `--allowed-hosts`, `--name`, `--version`) |
+| `mcp` | Synonym of `serve` (same implementation, different usage label) |
+| `run` (alias `r`) | Run the business project via `go run .` (`-C/--config`, `--config-type`, `-w/--watch` restarts on `*.go` change) |
+| `doctor` | Check toolchain (go/protoc/docker), go.mod, config, ports |
+| `info` (alias `i`) | Print version + runtime + module info |
+| `config` (alias `c`) | Config helpers: `validate` / `init` / `show` |
+| `proto` (alias `p`) | Protobuf helpers: `build` / `new` |
+| `new` (alias `n`) | Scaffold a project (`--type standard\|mcp\|interactive`, `--module`, `--output/-o`, `--no-grpc`, `--fiber`, `--http`, `--model`) |
+| `generate` (alias `g`) | Generate code in an existing project (16 schematics, see below) |
+| `version` (alias `v`) | Print version information |
+| `help` | Show usage |
+
 ```bash
 # Scaffold a new standard microservice (project name is required positional arg)
 sicky new myapp --type standard --module github.com/myorg/myapp
 # Optional: --output/-o <dir> (default "."), --no-grpc, --fiber/--fiber=false, --http
+# --model User,Order: generate bun models and wire them into the new project
+# (requires --type standard and an HTTP server; standard projects generate the
+# app/auth/HTTP layering — handler/auth.http.go, service/auth.go, app/)
 
 # Scaffold an MCP server
 sicky new my-mcp --type mcp --module github.com/myorg/my-mcp
 
-# Generate handler/tool/resource/prompt (name is positional, no --name flag)
+# Generate code (16 schematics: handler, model, tool, resource, prompt, doc,
+# server, client, service, broker, job, middleware, proto, config, docker, k8s)
 sicky generate handler User --type fiber   # or --type http
+sicky generate model User                  # bun model; flags: --output <dir>, --force, --no-wire
 sicky generate tool Search
 sicky generate resource Article
 sicky generate prompt Greet
 sicky generate doc
+sicky generate config
+sicky generate docker
+sicky generate k8s
 
 # Run as MCP server (transport: stdio or http)
 sicky serve --transport stdio --name my-mcp
 sicky serve --transport http --listen :3000
+
+# Run the business project (watch mode restarts on *.go changes)
+sicky run --watch
 
 # Print version / help
 sicky version
@@ -750,14 +775,14 @@ sicky help        # also: sicky serve -h, sicky new -h
 | `service` | Service interface + Standard (background), Interactive (CLI), MCP (+ `mcp/protocol`) |
 | `registry` | Registry interface + Consul, Redis, Local (file JSON) — `mdns` deprecated (commented, kept) |
 | `tracer` | Tracer interface + OTLP/gRPC, OTLP/HTTP, Stdout, Uptrace (Fiber side uses the built-in `server/fiber` tracer middleware) |
-| `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 11 files (10 drivers + `instances.go`), no interface |
+| `infra` | Infrastructure drivers (Redis, Bun, Ristretto, Badger, Elasticsearch, Clickhouse, MongoDB, MQTT, NATS, S3) — 12 files (10 drivers + `instances.go` + `infra.go` shared `mu`/`Get*`/`Clear*`), no interface |
 | `job` | Job interface + Cron (gocron), Ticker implementations |
 | `runner` | Runner interface + Static goroutine pool implementation |
-| `logger` | Structured logger (slog-based), Fiber/gRPC adapters |
-| `metrics` | Prometheus `sicky_*` RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go`, `process`) |
+| `logger` | Structured logger (slog-based) with a gRPC adapter |
+| `metrics` | Prometheus `sicky_*` RED metrics (server/client/broker/job/runner/registry/infra/manager) + 3 collectors (`build_info`, `go_collector`, `process_collector`) |
 | `utils` | Helpers — `metadata`, `net` (IP/`Net2fd`), `http` envelopes, `debug`, `misc` |
 | `internal` | Internal request `Context` (ID, AppName, broker/registry/tracer/logger carriers) |
-| `cli` | CLI entry point — `sicky new/generate/serve/version/help` (`cli/sicky.go`) |
+| `cli` | CLI entry point — all 11 `sicky` commands (`serve`/`s`, `mcp`, `run`/`r`, `doctor`, `info`/`i`, `config`/`c`, `proto`/`p`, `new`/`n`, `generate`/`g`, `version`/`v`, `help`; `cli/sicky.go`) |
 | `cmd` | Binary entry point (`cmd/sicky/main.go`) |
 
 ---
@@ -785,7 +810,7 @@ The pre-commit hook runs `make verify`, so a commit cannot land without it. Use 
 
 ## Observability & Operations
 
-- **Metrics**: when adding a server/client protocol, add a counter in `metrics/metrics.go` and call `.Inc()` at the correct insertion point — for servers in the access-log interceptor/middleware before the handler runs (TCP/UDP/WebSocket before the `OnData` loop), for clients as the first statement of `Call()`/`Invoke`.
+- **Metrics**: when adding a server/client protocol, add a counter in `metrics/metrics.go` and observe it at the correct insertion point — for servers in the access-log interceptor/middleware **after the handler returns** (status and duration are then known; TCP/UDP/WebSocket observe per message inside the `OnData` loop), for clients around the real RPC (`Invoke`/`Do`); `Call()` is a stub and must stay metric-free.
 - **Health**: business checks go through `RegisterHealthChecker`, which merges them into `/health` + `/ready` (same 2s context, error text redacted). Never start a separate metrics/health port — everything goes through the Manager.
 - **Tracing**: `tracer.type` selects `grpc|http|stdout` for standard OTLP (explicit exporter + provider) and `uptrace` for the uptrace-go SDK (which owns its provider). Server interceptors (fiber/http/grpc) extract through the unified propagator and re-inject W3C + B3 downstream; `tracestate` is passed through only, never stored or sanitized. `SkipPaths` defaults to skipping `/health`, `/metrics`, `/docs` (explicitly empty means trace everything).
 - **Logs & secrets**: infra logs Info on success and Error on failure; DSN/URI userinfo, passwords, tokens, api-keys and secrets never enter logs (DSNs go through `redactDSN()`, everything else records only endpoint/username). Remote addresses such as `consul://user:pass@...` are `Redacted()` automatically.
@@ -802,9 +827,7 @@ Kept as-is per the actual code — not deleted, not hidden:
 - `server/grpc/metadata.go` `NewMetadataInterceptor`: a no-op placeholder, deliberately unwired.
 - `logger/fiber.go`, `tracer/fiber.go`: deleted in the v3 migration (zero references); the Fiber side uses `server/fiber`'s built-in chain.
 - The scaffold's `tool.go.gotmpl` (`ReadResource`/`GetPrompt`) and `resource.go.gotmpl` (`CallTool`/`GetPrompt`) return an explicit `not implemented` error (matching `project/mcp/handler.go.gotmpl`), not a silent `nil, nil`.
-- CLI dangling commands and generate stubs (see [CLI](#cli)) — defined but unregistered.
 - `manager.enable_swagger` / `swagger_path`: kept unimplemented (see above).
-- `config.ErrTracerNoEndpoint`: defined, currently unused by `Validate()` (a missing OTLP endpoint falls back to the exporter default).
 - By-design defaults: the Manager binds `127.0.0.1:8888` (loopback only — an external bind must be configured explicitly); TLS is 1.2+ only; `0` means disabled/unlimited; gRPC keepalive, NATS exhaustion and friends stay as they are; a non-positive `BodyLimit` fills the default (no opt-out in this version); negative TCP/UDP timeouts, session counts and rate limits are clamped with a loud log rather than aborting startup.
 
 ---

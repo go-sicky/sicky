@@ -4,7 +4,7 @@
 
 一个模块化、可扩展的 Go 微服务与网络应用业务框架。
 
-[![Go Version](https://img.shields.io/badge/Go-1.26.0-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26.9-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Go-Sicky 提供统一、可插拔的架构，把基础设施、通信协议、服务治理这些脏活抽象掉，让你只写业务逻辑。
@@ -84,14 +84,14 @@ timing 类字段 0 填默认、负值 abort，NATS 的 `max_reconnects: -1` 例�
 - **OpenTelemetry tracing** — OTLP/gRPC、OTLP/HTTP、Stdout 三种标准 exporter；Uptrace 走独立 SDK（见下）
 - **Uptrace** — `dsn` 方式接入 Uptrace SaaS（`sample_rate` 在 Uptrace 模式下被忽略，服务端采样）
 - **传播协议** — W3C TraceContext + W3C Baggage + B3（single/multi）双发；`tracer.InstallPropagator()` 由 `sicky.go` 在 tracer 初始化成功后统一安装一次
-- **Prometheus metrics** — `sicky_` 前缀的 RED 指标（server/client/broker/job/runner/registry/infra/manager）+ 3 个 collector（`build_info`、`go`、`process`），由 Manager `/metrics` 统一暴露，不要另起 metrics 端口
-- **结构化日志** — 基于 slog 的内置 logger，带 Fiber/gRPC 适配器。⚠️ `logger.NewFiberMiddleware` 是已废弃的遗产（现已无计数），
-  不要和 `server/fiber` 内置链路同时挂载，否则 `sicky_server_requests_total{server="fiber"}` 会 double-count。
+- **Prometheus metrics** — `sicky_` 前缀的 RED 指标（server/client/broker/job/runner/registry/infra/manager）+ 3 个 collector（`build_info`、`go_collector`、`process_collector`），由 Manager `/metrics` 统一暴露，不要另起 metrics 端口
+- **结构化日志** — 基于 slog 的内置 logger。`logger/` 只有 general 实现和 gRPC 适配器
+  （`logger/fiber.go` 已在 v3 迁移中删除），Fiber 的日志/追踪走 `server/fiber` 内置链路。
   ⚠️ `logger.Level()` 只在本包自己构造 handler 时有效，也就是 `NewGeneral(nil)` / `NewGRPC(nil)`；
   `NewGeneral()` 采用 `slog.Default()`、`NewGeneral(l)` 采用 `l`，两者自己持有阈值，
   在这两种写法上调用 `Level()` 是**静默无效**的。要改阈值就改你自己传进去的那个 logger，
   要确认真实生效的级别用 `Enabled()`
-- **Manager 端点** — 实际注册 **8 个**（`manager.go:256-263`）：
+- **Manager 端点** — 实际注册 **8 个**（`manager.go:262-269`）：
   `/metrics`（公开，给 Prometheus 抓）、`/health` + `/ready`（同一套聚合：10 个 infra + 全部具名实例 + 注册的业务 checker；
   只有 `unhealthy` 拉低整体状态，`not_configured` 上报但视为健康；infra 部分并发跑在 2s ctx 下，
   业务 checker 部分是串行的；后端错误文本不回显给调用方，未配置 token 时 NATS/MQTT 失联显示 `disconnected`、
@@ -116,13 +116,13 @@ timing 类字段 0 填默认、负值 abort，NATS 的 `max_reconnects: -1` 例�
 
 ### CLI
 
-`sicky new/generate/serve/version/help`，详见 [CLI](#cli) 章节（含不可达命令标注）。
+`sicky serve/mcp/run/doctor/info/config/proto/new/generate/version/help` 共 11 个命令，全部注册并有实现，详见 [CLI](#cli) 章节。
 
 ---
 
 ## 安装
 
-要求 Go 1.26.0 及以上。
+要求 Go 1.26.9 及以上。
 
 ```bash
 go install github.com/go-sicky/sicky/cmd/sicky@latest
@@ -268,7 +268,7 @@ go run main.go
 
 - **自注册模式**：每个实现的 `New()` 都会调包级 `Set(self)` 把自己塞进全局 map
   （如 `broker.Set(brk)`、`server.Set(srv)`）。编排器 `Run()` 时遍历已注册实例。
-  `server` 包有 `Set/Get` 但**没有 `Default()`**（和 broker/registry/tracer/service 不一样）。
+  `server` 包与 broker/registry/tracer/service 等一致，有 `Set/Get/Default()`（`server/server.go:106`）。
 - **启动失败**：任何一步失败都把 error join 进返回值，并走完整 shutdown 链，库内绝不 `os.Exit`。
 - **停机顺序是先摘注册再停服务**（`Deregister` → `Stop`），启动失败的 service 只 Stop 一次，不会 double-stop。
 - **SIGHUP**：只触发 `OnReload` 回调（独立 goroutine，进程继续服务），不再触发关机。
@@ -329,6 +329,11 @@ SICKY_LOG_LEVEL=debug
 SICKY_MANAGER_ADDRESS=:9999
 SICKY_INFRA_REDIS_ADDR=localhost:6379
 ```
+
+⚠️ 并非「所有配置键都能用环境变量覆盖」：viper 只解析**已知键**——配置文件里出现过的键、
+flags、以及显式绑定的 38 个敏感键（`manager.auth_token`、`tracer.dsn`、`infra.redis.password` 等）。
+例如 `SICKY_MANAGER_ADDRESS` 只有配置文件已有 `manager.address` 键时才生效；
+其余对 viper 陌生的 `SICKY_*` 变量会被忽略并打 Warn（`env.go warnIgnoredEnv`，提示该键必须先存在于配置文件）。
 
 ⚠️ Viper 的 `AutomaticEnv` 对 int 字段做类型-coerce 失败时会静默置零。
 `validateConfig()` 会在 `beforeStart` 之前把非法值钳回默认并打 Warn（不清零启动）：
@@ -392,7 +397,8 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
     "service_name": "",
     "service_version": "",
     "endpoint": "localhost:4317",
-    "insecure": false,
+    // insecure 省略或 false 都走 TLS；明文 collector（如本地 4317）需要 true
+    "insecure": true,
     "headers": {},
     "sample_rate": 1.0,
     "compress": false,
@@ -434,7 +440,8 @@ SICKY_INFRA_REDIS_ADDR=localhost:6379
 - `infra.mongo`：库名优先级 显式参数 > `cfg.db` > URI path；健康检查用 `readpref.Primary()` ping。
 - `tracer`：`type: none|grpc|http|stdout|uptrace`（默认示例里写 `none` 即关闭）；
   `service_name/version` 为空回退到 `AppName/Version`；`uptrace` 必须配 `dsn`（`sample_rate` 会被忽略）；
-  标准 OTLP 三件套缺 `endpoint` 时按 exporter 默认走，不强制 abort（`ErrTracerNoEndpoint` 已定义但当前未使用）。
+  标准 OTLP 三件套中 `type: grpc|http` 缺 `endpoint` 时直接返回 `ErrTracerNoEndpoint` 并中止启动
+  （`none`/`stdout` 不需要 endpoint，不会触发该错误）。
 - `registry.local`：路径必须绝对路径，相对路径 fail-fast；`cleanup_on_start` 只清 `<uuid>.json`。
 - 时间单位注意：http/fiber 用 `time.Duration`（viper 里写 `"10s"`），tcp/udp/manager 用 int 秒——历史原因未统一，改了会 break 现有配置，故保持现状。
 
@@ -796,23 +803,38 @@ fail := utils.FailT[any](utils.CodeNotFound, "").
 
 ## CLI
 
-实际可达命令只有 5 个（`cli/sicky.go:51 Run()`）：`serve|new|generate|version|help`
-（各有单字母别名 `s/n/g/v`；无参默认进 `serve`；`-` 开头透传给 `serve`；未知命令 exit 1）。
+11 个命令全部注册并有实现（`cli/sicky.go:51 Run()` 分发）：`serve|s`、`mcp`、`run|r`、
+`doctor`、`info|i`、`config|c`（`validate|init|show`）、`proto|p`、`new|n`、`generate|g`、
+`version|v`、`help`（无参默认进 `serve`；`-` 开头透传给 `serve`；未知命令 exit 1）。
+
+- `serve` — 运行 MCP server（`--transport stdio|http`；`--listen`、`--token`、`--allowed-hosts`、`--name`、`--version`）
+- `mcp` — `serve` 的同义命令（同一实现，仅 usage 名不同）
+- `run` — 构建并运行当前项目（`--watch` 监听文件变更自动重启）
+- `doctor` — 环境/配置体检
+- `info` — 打印应用与运行时信息
+- `config` — 配置工具（`validate|init|show`）
+- `proto` — protobuf 辅助（`build|new`）
+- `new` — 项目脚手架
+- `generate` — 代码生成
+- `version` / `help` — 版本 / 帮助
 
 ```bash
 # 脚手架：标准微服务（项目名是必填位置参数）
 sicky new myapp --type standard --module github.com/myorg/myapp
-# 可选：--output/-o <dir>（默认 "."）、--no-grpc、--fiber/--fiber=false、--http
+# 可选：--output/-o <dir>（默认 "."）、--no-grpc、--fiber/--fiber=false、--http、
+#       --model <name[,name...]>（把 bun model 接线进新项目；要求 --type standard + HTTP）
 
 # 脚手架：MCP server
 sicky new my-mcp --type mcp --module github.com/myorg/my-mcp
 
-# 生成 handler/tool/resource/prompt（名字是位置参数，没有 --name flag）
+# 生成 handler/tool/resource/prompt/model（名字是位置参数，没有 --name flag）
 sicky generate handler User --type fiber   # 或 --type http
 sicky generate tool Search
 sicky generate resource Article
 sicky generate prompt Greet
 sicky generate doc
+# model：生成 bun model 并接线（--output <dir>、--force 覆盖已有文件、--no-wire 只写文件不改 config/main）
+sicky generate model order
 
 # 以 MCP server 运行（--name/--version 也可用）
 sicky serve --transport stdio --name my-mcp
@@ -824,12 +846,11 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 ```
 
 `new` 缺省进交互式提问（standard/mcp/interactive + gRPC/Fiber/net/http/Proto 追问）。
+`new --type standard` 现在会生成 app/auth/HTTP 分层（`handler/auth.http.go`、`service/auth.go`、`app/`）。
 
-> ⚠️ 不可达功能（保留标注，当前调了会报 `unknown command`）：
-> `sicky config（validate|init|show）`、`sicky proto（build|new）`、`sicky doctor`、
-> `sicky info`、`sicky run/run --watch`、`sicky mcp` —— `cli/*.go` 里有实现，
-> 但 `Run()` 的 switch 没引用。同时 `generate` 还有 `server/client/service/broker/job/middleware/proto/config/docker/k8s`
-> 共 9 个 stub 生成器同样无分发入口、不可达。文档如实保留，将来要么注册要么删除，本次不动代码。
+`generate` 共 16 个 schematic，全部经 `generateRun` 分发（`cli/generate.go:60-98`）：
+`handler`（`--type fiber|http`）、`model`（见上）、`tool`、`resource`、`prompt`、`doc`、
+`server`、`client`、`service`、`broker`、`job`、`middleware`、`proto`、`config`、`docker`、`k8s`。
 
 ---
 
@@ -838,20 +859,20 @@ sicky help        # 另有：sicky serve -h、sicky new -h
 | 包 | 说明 |
 |---|---|
 | `sicky` | 编排器 —— `Init()`（返回 error；`ErrVersionShown`/`ErrAlreadyInitialized` 哨兵）、`Run()`（返回 join 后的 error，优雅关机）、`Viper()`、`ConfigUnmarshal()`、生命周期 hook（`Before/AfterStart/Stop`，HUP 触发 `OnReload`）、`FlagSwitch`、Manager |
-| `server` | Server 接口 + Fiber、gRPC、net/http（bunrouter）、TCP、UDP、WebSocket 实现（有 `Set/Get` 无 `Default()`） |
+| `server` | Server 接口 + Fiber、gRPC、net/http（bunrouter）、TCP、UDP、WebSocket 实现（有 `Set/Get/Default`） |
 | `broker` | Broker 接口 + NATS、JetStream、NSQ 实现 |
 | `client` | Client 接口 + gRPC、HTTP、TCP、UDP、WebSocket 实现（gRPC 支持 TLS 1.2+ mTLS fail-fast 和基于注册池的服务发现；发现模式有 NotifyChan watcher + 30s resync，`Disconnect` 停） |
 | `service` | Service 接口 + Standard（后台）、Interactive（CLI）、MCP（+ `mcp/protocol`） |
 | `registry` | Registry 接口 + Consul、Redis、Local（文件 JSON）—— `mdns` 已废弃（注释保留）；`pool.go` 有 `NotifyChan()`（`InitPool` 前为 nil，`PurgePool` 后保持稳定）供 gRPC client 这类实时订阅者用 |
 | `tracer` | Tracer 接口 + OTLP/gRPC、OTLP/HTTP、Stdout、Uptrace（Fiber 侧用 `server/fiber` 内建 tracer 中间件）；TCP/UDP/WebSocket 无 tracing（无标准载体，by design） |
-| `infra` | 11 个文件（10 个驱动 + `instances.go` 多实例辅助；Redis、Bun、Ristretto、Badger、Elasticsearch、Clickhouse、MongoDB、MQTT、NATS、S3）—— 扁平 `infra/*.go`，无接口、无 `interface.go` |
+| `infra` | 12 个文件（10 个驱动 + `instances.go` 多实例辅助 + `infra.go` 共享 `mu` 与 `Get*`/`Clear*`；Redis、Bun、Ristretto、Badger、Elasticsearch、Clickhouse、MongoDB、MQTT、NATS、S3）—— 扁平 `infra/*.go`，无接口、无 `interface.go` |
 | `job` | Job 接口 + Cron（gocron）、Ticker 实现 |
 | `runner` | Runner 接口 + Static goroutine 池 |
-| `logger` | 结构化日志（slog 底）+ Fiber/gRPC 适配器（`NewFiberMiddleware` 已废弃，见上） |
-| `metrics` | Prometheus 11 个 counter（6 server + 5 client）+ 3 个 collector（`build_info`、`go`、`process`）；gRPC `Call()` 只 bump counter 满足接口，真实 unary 计数在 `Invoke`，`NewStream` 无 counter |
+| `logger` | 结构化日志（slog 底）+ gRPC 适配器（`logger/fiber.go` 已在 v3 迁移中删除，Fiber 侧走 `server/fiber` 内建链路） |
+| `metrics` | Prometheus 8 族（server/client/broker/job/runner/registry/infra/manager）40+ 个指标（23 counter + 9 histogram + 8 gauge）+ 3 个 collector（`build_info`、`go_collector`、`process_collector`）；client 指标只在真实 RPC 入口计数（gRPC `Invoke`/`NewStream` 的 `sicky_client_stream_open_total`、HTTP `Do`），`Call()` 是占位实现（返回 `client.ErrClientNotImplemented`，不打指标） |
 | `utils` | `metadata`、`net`（IP 解析/`Net2fd`/`Advertise`）、`http` envelope（含 `Pagination`）、`debug`、`misc`、`backoff`（`NewBackoff` capped 指数+jitter + `NewLogSampler` 限频）、`errors`（错误码注册表 + `CodedError` + 泛型 `EnvelopeT[T]`） |
 | `internal` | 内部请求 `Context`（ID、AppName、Version、Branch、Metadata、StartTime、broker/registry/tracer/logger 载体） |
-| `cli` | CLI 分发 —— 可达 `serve/new/generate/version/help`（`cli/sicky.go:51 Run()`） |
+| `cli` | CLI 分发 —— 11 个命令全部注册并有实现：`serve/mcp/run/doctor/info/config/proto/new/generate/version/help`（`cli/sicky.go:51 Run()`） |
 | `cmd` | 二进制入口（`cmd/sicky/main.go`，仅 `os.Exit(cli.Run())`） |
 
 ---
@@ -880,7 +901,8 @@ pre-commit hook 执行的就是 `make verify`，所以提交不可能绕过它�
 ## 可观测性与运维
 
 - **指标**：新加 server/client 协议时，去 `metrics/metrics.go` 加 counter 并在正确位置 `.Inc()`：
-  server 在 access-log 拦截器/中间件调 handler 前（TCP/UDP/WS 在 `OnData` 循环前），client 在 `Call()`/`Invoke` 第一句。
+  server 在访问日志拦截器/中间件里 **handler 返回后**观测（此时 status/耗时已知；TCP/UDP/WS 在 `OnData` 循环里按消息观测），
+  client 在真实 RPC 入口的第一句（gRPC `Invoke`/`NewStream`、HTTP `Do`；`Call()` 是占位实现，返回 `ErrClientNotImplemented`，不打指标）。
 - **健康**：业务检查走 `RegisterHealthChecker`，自动并入 `/health` + `/ready`（同 2s ctx，错误文本脱敏）。
   不要另起 metrics/health 端口，一律走 Manager。
 - **追踪**：`tracer.type` 选 `grpc|http|stdout` 走标准 OTLP（显式 exporter+provider），
@@ -903,13 +925,11 @@ pre-commit hook 执行的就是 `make verify`，所以提交不可能绕过它�
 按实际代码如实保留，不删除、不隐瞒：
 
 - `registry/mdns/`：100% 注释，纪念保留，不支持，不引 `zeroconf`。
-- `server/grpc/metadata.go:40 NewMetadataInterceptor`：no-op 占位，故意不接线。
+- `server/grpc/metadata.go:43 NewMetadataInterceptor`：no-op 占位，故意不接线。
 - `logger/fiber.go`、`tracer/fiber.go`：v3 迁移时已删除（零引用）；Fiber 侧统一用 `server/fiber` 内建链路。
 - 脚手架里 `tool.go.gotmpl`（`ReadResource`/`GetPrompt`）、`resource.go.gotmpl`（`CallTool`/`GetPrompt`）
   会返回显式 `not implemented` error（和 `project/mcp/handler.go.gotmpl` 一致），不是静默 `nil, nil`。
-- CLI 悬空命令与 generate stub（见 [CLI](#cli)），有定义、无注册。
 - `manager.enable_swagger` / `swagger_path`：保留未实现（见上）。
-- `config.ErrTracerNoEndpoint`：已定义、当前 `Validate()` 未使用（OTLP 缺 endpoint 走 exporter 默认）。
 - 默认值 by-design：Manager 默认 `127.0.0.1:8888`（仅本机，外网需显式配置）；TLS 只做 1.2+；`0`=禁用/不限 cracking；gRPC keepalive、NATS 耗尽等保持现状；
   `BodyLimit` 非正填默认（本版无 opt-out）；TCP/UDP 负超时/会话数/限流钳制 + 大声记日志（不断言 abort）。
 
