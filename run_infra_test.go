@@ -31,7 +31,7 @@ func TestRunShutsDownNamedInfraInstances(t *testing.T) {
 
 	options = testOptions()
 	options.Context = ctx
-	options.MustInfra = []string{"ristretto"}
+	options.MustInfra = []string{"ristretto:hot"}
 
 	svc := &fakeService{opts: &service.Options{ID: uuid.New(), Name: "fake"}}
 	service.Clear()
@@ -59,6 +59,10 @@ func TestRunShutsDownNamedInfraInstances(t *testing.T) {
 
 	if infra.GetRistretto("hot") != nil {
 		t.Fatal("Run must shut down every named infra instance")
+	}
+
+	if MustInfraSnapshot()["ristretto:hot"] {
+		t.Fatal("the named MustInfra requirement must be consumed")
 	}
 }
 

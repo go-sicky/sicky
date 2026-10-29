@@ -713,6 +713,12 @@ session := infra.GetRedis("session")
 _ = cache
 _ = session
 
+// S3 的 client 和 bucket 一起取，适合构造 storage provider。
+s3Client := infra.GetS3("gallery")
+s3Bucket := infra.GetS3Bucket("gallery")
+_ = s3Client
+_ = s3Bucket
+
 // 不带名字仍然返回共享单例。
 defaultRedis := infra.GetRedis()
 
@@ -733,6 +739,10 @@ infra.ClearRedisAll()
   label，保证按组件的 dashboards 继续能看到它的 ops。
 - 顶层配置完整时 `default_instance` 被忽略；`no_default: true` 在全新初始化时只创建具名实例，
   已存在的单例按 first-wins 保留。
+- `GetS3Bucket(name)` 返回共享单例或具名实例的 bucket。`GetS3("default")` 不是保留别名：
+  单例用 `GetS3()` / `GetS3("")`，或者真的把实例命名为 `default`。
+- `sicky.Options.MustInfra` 接受 `component` 或 `component:instance`（如 `s3:public`）；
+  后者要求该具名实例已经注册。
 - Ristretto 是例外：顶层配置（含零值）永远是默认，`default_instance` 无效；
   需要只建具名缓存时用 `no_default`。`no_default` + `default_instance` 仍然报冲突。
 - 具名实例按名称排序创建。同一配置块内归一化后重名的实例会被拒绝

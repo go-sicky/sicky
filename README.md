@@ -624,6 +624,12 @@ session := infra.GetRedis("session")
 _ = cache
 _ = session
 
+// S3 keeps the client and bucket together; fetch both for a storage provider.
+s3Client := infra.GetS3("gallery")
+s3Bucket := infra.GetS3Bucket("gallery")
+_ = s3Client
+_ = s3Bucket
+
 // No name still returns the shared singleton.
 defaultRedis := infra.GetRedis()
 
@@ -647,6 +653,11 @@ infra.ClearRedisAll()
 - `default_instance` is ignored when the top-level config is complete.
   `no_default: true` creates only named instances on a fresh init; an
   already-registered singleton is kept first-wins.
+- `GetS3Bucket(name)` returns the bucket for the shared singleton or a named
+  instance. `GetS3("default")` is not a reserved alias: use `GetS3()` or
+  `GetS3("")` for the singleton, or name an instance literally `default`.
+- `sicky.Options.MustInfra` accepts `component` or `component:instance`
+  (`s3:public`); the latter requires that exact instance to be registered.
 - Ristretto is the exception: its top-level config is always the default, so
   `default_instance` is ignored there; use `no_default` to omit the default
   cache. `no_default` + `default_instance` is still a validation error.

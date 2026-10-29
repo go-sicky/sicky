@@ -119,6 +119,18 @@ func TestInitS3NamedInstances(t *testing.T) {
 		t.Fatal("GetS3(gallery) = nil, want a client")
 	}
 
+	if got := GetS3Bucket(); got != "avatars" {
+		t.Fatalf("GetS3Bucket() = %q, want the sorted-first default avatars", got)
+	}
+
+	if got := GetS3Bucket("gallery"); got != "gallery" {
+		t.Fatalf("GetS3Bucket(gallery) = %q, want gallery", got)
+	}
+
+	if got := GetS3Bucket("missing"); got != "" {
+		t.Fatalf("GetS3Bucket(missing) = %q, want empty", got)
+	}
+
 	if err := PingS3(context.Background(), "missing"); !errors.Is(err, ErrInstanceNotFound) {
 		t.Fatalf("PingS3(missing) = %v, want ErrInstanceNotFound", err)
 	}
@@ -167,6 +179,14 @@ func TestInitS3NoDefault(t *testing.T) {
 	if GetS3("gallery") == nil {
 		t.Fatal("GetS3(gallery) = nil, want the named instance")
 	}
+
+	if got := GetS3Bucket(); got != "" {
+		t.Fatalf("GetS3Bucket() = %q, want empty with no_default", got)
+	}
+
+	if got := GetS3Bucket("gallery"); got != "gallery" {
+		t.Fatalf("GetS3Bucket(gallery) = %q, want gallery", got)
+	}
 }
 
 func TestInitS3DefaultInstanceAlias(t *testing.T) {
@@ -189,6 +209,14 @@ func TestInitS3DefaultInstanceAlias(t *testing.T) {
 
 	if GetS3Instances()["gallery"] != GetS3() {
 		t.Fatal("the named snapshot must expose the same alias client")
+	}
+
+	if got := GetS3Bucket(); got != "gallery" {
+		t.Fatalf("GetS3Bucket() = %q, want the alias bucket gallery", got)
+	}
+
+	if got := GetS3Bucket("avatars"); got != "avatars" {
+		t.Fatalf("GetS3Bucket(avatars) = %q, want avatars", got)
 	}
 
 	ClearS3("gallery")
@@ -218,6 +246,10 @@ func TestClearS3All(t *testing.T) {
 
 	if GetS3() != nil || GetS3("gallery") != nil {
 		t.Fatal("ClearS3All must clear the default and every named instance")
+	}
+
+	if got := GetS3Bucket(); got != "" {
+		t.Fatalf("GetS3Bucket() after ClearS3All = %q, want empty", got)
 	}
 }
 

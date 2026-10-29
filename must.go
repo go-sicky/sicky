@@ -11,6 +11,8 @@ import (
 	"maps"
 	"strings"
 	"sync"
+
+	"github.com/go-sicky/sicky/infra"
 )
 
 // mustMu guards MustInfra, MustBroker and MustRegistry.
@@ -68,10 +70,12 @@ func MustRegistryRequired() bool {
 // republishing the result so a reader polling MustInfraSnapshot sees what is
 // about to be required.
 //
-// Names are lowercased and trimmed, so " Bun " and "bun" are the same
-// component. A blank entry is silently dropped — it is not a typo — while an
-// unrecognized one is reported through warn with the string the caller wrote,
-// not the normalized form, so the warning quotes what is actually in the
+// Names are lowercased and trimmed. An entry is either a component name
+// ("s3") or a named instance ("s3:public"); the latter requires that exact
+// instance to be registered. A blank entry is silently dropped — it is not a
+// typo — while an unrecognized component, or a colon with no instance name,
+// is reported through warn with the string the caller wrote, not the
+// normalized form, so the warning quotes what is actually in the
 // configuration.
 func mustInfraPending(required []string, warn func(string)) map[string]bool {
 	mustMu.RLock()
@@ -86,10 +90,15 @@ func mustInfraPending(required []string, warn func(string)) map[string]bool {
 			continue
 		}
 
-		if !isKnownInfraComponent(key) {
+		component, instance, hasInstance := strings.Cut(key, ":")
+		if !isKnownInfraComponent(component) || (hasInstance && strings.TrimSpace(instance) == "") {
 			warn(name)
 
 			continue
+		}
+
+		if hasInstance {
+			key = component + ":" + strings.TrimSpace(instance)
 		}
 
 		pending[key] = true
@@ -98,6 +107,40 @@ func mustInfraPending(required []string, warn func(string)) map[string]bool {
 	publishMustInfra(pending)
 
 	return pending
+}
+
+// mustInfraInstanceExists reports whether a "component:instance" requirement
+// is registered. The component is already known when this is called.
+func mustInfraInstanceExists(key string) bool {
+	component, instance, ok := strings.Cut(key, ":")
+	if !ok || instance == "" {
+		return false
+	}
+
+	switch component {
+	case componentBadger:
+		return infra.GetBadger(instance) != nil
+	case componentBun:
+		return infra.GetBun(instance) != nil
+	case componentClickhouse:
+		return infra.GetClickHouse(instance) != nil
+	case componentElastic:
+		return infra.GetElastic(instance) != nil
+	case componentMQTT:
+		return infra.GetMQTT(instance) != nil
+	case componentMongo:
+		return infra.GetMongo(instance) != nil
+	case componentNATS:
+		return infra.GetNATS(instance) != nil
+	case componentRedis:
+		return infra.GetRedis(instance) != nil
+	case componentRistretto:
+		return infra.GetRistretto(instance) != nil
+	case componentS3:
+		return infra.GetS3(instance) != nil
+	default:
+		return false
+	}
 }
 
 // publishMustInfra replaces the exported set with a snapshot of pending.

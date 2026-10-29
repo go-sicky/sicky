@@ -252,7 +252,8 @@ func GetRistrettoInstances() map[string]*ristretto.Cache[string, any] {
 	return ristrettoInstances.snapshot()
 }
 
-// GetS3 returns the s3. With a name it returns the named instance.
+// GetS3 returns the s3. With a name it returns the named instance. An empty
+// name returns the shared singleton; "default" is not a reserved alias.
 func GetS3(name ...string) *s3.Client {
 	if n := firstInstanceName(name); n != "" {
 		if instance, ok := s3Instances.get(n); ok {

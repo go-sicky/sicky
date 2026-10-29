@@ -82,6 +82,27 @@ type S3Config struct {
 // s3Bucket mirrors the configured bucket for PingS3. Guarded by mu.
 var s3Bucket string
 
+// GetS3Bucket returns the bucket configured for the shared S3 client, or for
+// the named instance when a name is given. It returns "" when the component or
+// instance is not configured, or when that instance has no bucket. An empty
+// name returns the shared singleton; "default" is not a reserved alias — only
+// an instance literally named "default".
+func GetS3Bucket(name ...string) string {
+	if n := firstInstanceName(name); n != "" {
+		instance, ok := s3Instances.get(n)
+		if !ok {
+			return ""
+		}
+
+		return instance.bucket
+	}
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	return s3Bucket
+}
+
 // PingS3 checks the shared singleton for /health; nil means not configured
 // (healthy-by-absence, following the other local checks). With a name it
 // checks that named instance instead.

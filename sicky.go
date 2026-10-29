@@ -761,18 +761,30 @@ func Run(cfg *Config) error {
 		consumeMustInfra(pendingMustInfra, componentS3)
 	}
 
-	// Check infra
+	// Check infra. A "component:instance" entry is satisfied only when that
+	// exact named instance registered; a base component entry is consumed at
+	// its Init* call above.
 	for name, must := range pendingMustInfra {
-		if must {
-			logger.Logger.ErrorContext(
-				options.Context,
-				"must infrastructure is not initialized",
-				"infra", name,
-			)
-			runErr = errors.Join(runErr, fmt.Errorf("%w: %s", ErrMustInfraNotInitialized, name))
-			goto shutdown
+		if !must {
+			continue
 		}
+
+		if strings.Contains(name, ":") && mustInfraInstanceExists(name) {
+			pendingMustInfra[name] = false
+
+			continue
+		}
+
+		logger.Logger.ErrorContext(
+			options.Context,
+			"must infrastructure is not initialized",
+			"infra", name,
+		)
+		runErr = errors.Join(runErr, fmt.Errorf("%w: %s", ErrMustInfraNotInitialized, name))
+		goto shutdown
 	}
+
+	publishMustInfra(pendingMustInfra)
 
 	// Tracer (dual-track: standard OTLP grpc/http/stdout vs Uptrace SDK).
 	// ServiceName/Version fall back to AppName/Version when unset.

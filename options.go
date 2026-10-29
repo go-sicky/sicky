@@ -54,7 +54,10 @@ type Options struct {
 	DisableConfig  bool
 	DisableManager bool
 
-	Silence      bool
+	Silence bool
+	// MustInfra lists required infrastructure. An entry is a component name
+	// ("s3", "redis") or a named instance ("s3:public"); the latter requires
+	// that exact instance to be registered.
 	MustInfra    []string
 	MustBroker   bool
 	MustRegistry bool

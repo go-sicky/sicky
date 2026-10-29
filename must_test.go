@@ -9,6 +9,7 @@ package sicky
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -156,6 +157,68 @@ func TestMustInfraPendingDropsUnknownComponents(t *testing.T) {
 
 	if len(warned) != 1 || warned[0] != "not-a-component" {
 		t.Errorf("warned = %v, want exactly the unknown name (the blank entry is not a typo)", warned)
+	}
+}
+
+// A component:instance entry is a first-class requirement. It is normalized,
+// an empty instance is malformed, and an unknown component stays rejected.
+func TestMustInfraPendingAcceptsNamedInstance(t *testing.T) {
+	restore := snapshotGlobals()
+	defer restore()
+
+	var warned []string
+
+	pending := mustInfraPending(
+		[]string{"s3:Public", "s3:", "foo:bar"},
+		func(name string) { warned = append(warned, name) },
+	)
+
+	if !pending["s3:public"] {
+		t.Errorf("pending = %v, want the normalized s3:public requirement", pending)
+	}
+
+	for _, absent := range []string{"s3:", "foo:bar"} {
+		if _, ok := pending[absent]; ok {
+			t.Errorf("%q must not become a requirement", absent)
+		}
+	}
+
+	if len(warned) != 2 {
+		t.Errorf("warned = %v, want the empty instance and the unknown component", warned)
+	}
+}
+
+// A named requirement that no Init* registered must fail startup and stay
+// visible in the exported set, just like a missing base component.
+func TestMustNamedInstanceMissingFailsRun(t *testing.T) {
+	restore := snapshotGlobals()
+	defer restore()
+
+	_ = infra.ShutdownRistretto()
+	t.Cleanup(func() { _ = infra.ShutdownRistretto() })
+
+	options = testOptions()
+	options.Context = context.Background()
+	options.MustInfra = []string{"ristretto:missing"}
+	service.Clear()
+
+	err := Run(&Config{
+		Manager: &ManagerConfig{Enable: new(false)},
+		Infra: &InfraConfig{
+			Ristretto: &infra.RistrettoConfig{
+				NoDefault: true,
+				Instances: map[string]*infra.RistrettoConfig{
+					"hot": {NumCounters: 100, MaxCost: 100, BufferItems: 64},
+				},
+			},
+		},
+	})
+	if !errors.Is(err, ErrMustInfraNotInitialized) {
+		t.Fatalf("Run() = %v, want ErrMustInfraNotInitialized", err)
+	}
+
+	if !MustInfraSnapshot()["ristretto:missing"] {
+		t.Error("the missing named requirement must stay visible after a failed startup")
 	}
 }
 
