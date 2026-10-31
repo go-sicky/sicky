@@ -35,6 +35,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/gofiber/fiber/v3"
@@ -206,11 +207,34 @@ func New(opts *server.Options, cfg *Config) *FiberServer {
 	}
 
 	if len(corsCfg.AllowedOrigins) > 0 {
-		corsMiddleware = cors.New(cors.Config{
+		corsHandler := cors.New(cors.Config{
 			AllowOrigins:     corsCfg.AllowedOrigins,
+			AllowMethods:     corsMethods(corsCfg),
+			AllowHeaders:     corsHeaderList(corsCfg.AllowedHeaders),
+			ExposeHeaders:    corsHeaderList(corsCfg.ExposedHeaders),
 			AllowCredentials: corsCfg.AllowCredentials,
 			MaxAge:           corsCfg.MaxAge,
 		})
+
+		// Fiber echoes Access-Control-Request-Headers when AllowHeaders is
+		// empty, but emits nothing when the preflight names none. Advertise
+		// the framework default there, matching server/http's fallback, so
+		// the two stacks answer the same preflight identically.
+		corsMiddleware = func(c fiber.Ctx) error {
+			if err := corsHandler(c); err != nil {
+				return err
+			}
+
+			if len(corsCfg.AllowedHeaders) == 0 &&
+				c.Method() == fiber.MethodOptions &&
+				c.Get(fiber.HeaderOrigin) != "" &&
+				c.Get(fiber.HeaderAccessControlRequestMethod) != "" &&
+				c.Get(fiber.HeaderAccessControlRequestHeaders) == "" {
+				c.Set(fiber.HeaderAccessControlAllowHeaders, strings.Join(defaultCORSAllowedHeaders, ", "))
+			}
+
+			return nil
+		}
 	}
 
 	app.Use(

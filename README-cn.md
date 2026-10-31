@@ -484,12 +484,18 @@ srv.App().Post("/users", createUser)
 
 > CORS 两个 HTTP 栈都是默认拒绝：`cors.allowed_origins` 为空就不发 `Access-Control-Allow-Origin`。
 > `"*"` + `allow_credentials: true` 非法（`Validate()` 拒绝，server 构造 fail-closed 到 deny-all）。
+> `allowed_headers` 留空时预检会回显浏览器的 `Access-Control-Request-Headers`（请求未带时回退到框架默认头），
+> 未知的自定义请求头不会再弄挂预检；`allowed_methods` 默认为 `GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, QUERY`；
+> `exposed_headers` 用于允许浏览器脚本读取 `X-Request-ID` 这类响应头。
 >
 > ```go
 > srv := srvFiber.New(&server.Options{Name: "api"}, &srvFiber.Config{
 >     Address: ":8080",
 >     CORS: &srvFiber.CORSConfig{
 >         AllowedOrigins:   []string{"https://app.example.com"},
+>         AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Api-Key"},
+>         AllowedMethods:   []string{"GET", "POST", "PATCH"},
+>         ExposedHeaders:   []string{"X-Request-ID"},
 >         AllowCredentials: true,
 >     },
 > })

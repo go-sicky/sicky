@@ -103,6 +103,38 @@ const (
 	DefaultServerErrorLevel = "error"
 )
 
+// corsRequestIDHeader is the response header the propagation middleware
+// writes; advertised by default so a browser client can read it once
+// ExposedHeaders is configured.
+const corsRequestIDHeader = "X-Request-ID"
+
+// The preflight advertisement used when AllowedMethods/AllowedHeaders are
+// unset. They mirror server/http exactly so the two stacks advertise the
+// same capabilities; preflight methods are advisory, the router still
+// decides which methods a route answers, and an unset header list echoes
+// the request's Access-Control-Request-Headers instead of using this one.
+var (
+	defaultCORSAllowedMethods = []string{
+		"GET",
+		"HEAD",
+		"POST",
+		"PUT",
+		"PATCH",
+		"DELETE",
+		"OPTIONS",
+		"QUERY",
+	}
+	defaultCORSAllowedHeaders = []string{
+		"Content-Type",
+		"Authorization",
+		corsRequestIDHeader,
+		"X-B3-Traceid",
+		"X-B3-Spanid",
+		"X-B3-Parentspanid",
+		"X-B3-Sampled",
+	}
+)
+
 // DefaultAccessLogger is a shared fiber value.
 var DefaultAccessLogger = &AccessLoggerConfig{
 	RequestIDContextKey:    DefaultRequestIDContextKey,
@@ -174,7 +206,21 @@ type Config struct {
 // disables the CORS middleware entirely (deny by default); use an
 // explicit "*" entry only for public APIs, never with AllowCredentials.
 type CORSConfig struct {
-	AllowedOrigins   []string `json:"allowed_origins"   mapstructure:"allowed_origins"   yaml:"allowed_origins"`
+	AllowedOrigins []string `json:"allowed_origins" mapstructure:"allowed_origins" yaml:"allowed_origins"`
+	// AllowedMethods is the preflight Access-Control-Allow-Methods list.
+	// An empty list advertises the framework default, which matches
+	// server/http (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, QUERY).
+	AllowedMethods []string `json:"allowed_methods" mapstructure:"allowed_methods" yaml:"allowed_methods"`
+	// AllowedHeaders is the preflight Access-Control-Allow-Headers list.
+	// An empty list echoes the request's Access-Control-Request-Headers
+	// instead, so a client header the framework has never heard of cannot
+	// break the preflight. When the request names none, the framework
+	// default (Content-Type, Authorization, X-Request-ID, B3) is used.
+	AllowedHeaders []string `json:"allowed_headers" mapstructure:"allowed_headers" yaml:"allowed_headers"`
+	// ExposedHeaders lists response headers browser scripts may read
+	// (Access-Control-Expose-Headers). Empty exposes none beyond the CORS
+	// simple response headers.
+	ExposedHeaders   []string `json:"exposed_headers"   mapstructure:"exposed_headers"   yaml:"exposed_headers"`
 	AllowCredentials bool     `json:"allow_credentials" mapstructure:"allow_credentials" yaml:"allow_credentials"`
 	MaxAge           int      `json:"max_age"           mapstructure:"max_age"           yaml:"max_age"`
 }
@@ -189,11 +235,16 @@ func (c *CORSConfig) Ensure() *CORSConfig {
 		c.MaxAge = DefaultCORSMaxAge
 	}
 
+	// AllowedMethods/AllowedHeaders/ExposedHeaders are deliberately left
+	// untouched: an empty list means "unset" and is resolved when the
+	// response is built, so filling it here would erase the difference
+	// between an operator omitting the key and asking for nothing.
 	return c
 }
 
 // Validate rejects wildcard-origin with credentials (browsers forbid it
-// and it leaks authenticated responses to any site).
+// and it leaks authenticated responses to any site) and validates the
+// method/header lists, which are written into response headers.
 func (c *CORSConfig) Validate() error {
 	if c == nil {
 		return nil
@@ -208,6 +259,18 @@ func (c *CORSConfig) Validate() error {
 		}
 	}
 
+	if err := validateCORSTokens("allowed_methods", c.AllowedMethods); err != nil {
+		return err
+	}
+
+	if err := validateCORSTokens("allowed_headers", c.AllowedHeaders); err != nil {
+		return err
+	}
+
+	if err := validateCORSTokens("exposed_headers", c.ExposedHeaders); err != nil {
+		return err
+	}
+
 	if !c.AllowCredentials {
 		return nil
 	}
@@ -218,7 +281,115 @@ func (c *CORSConfig) Validate() error {
 		return errors.New("fiber: AllowedOrigins \"*\" cannot be combined with AllowCredentials")
 	}
 
+	// A literal "*" in a credentialed response is not a wildcard, so the
+	// browser rejects the very headers it was meant to allow - the config
+	// would look correct and fail every credentialed preflight.
+	for _, field := range []struct {
+		name   string
+		values []string
+	}{
+		{"allowed_methods", c.AllowedMethods},
+		{"allowed_headers", c.AllowedHeaders},
+		{"exposed_headers", c.ExposedHeaders},
+	} {
+		if hasCORSWildcard(field.values) {
+			return fmt.Errorf("fiber: %s \"*\" cannot be combined with AllowCredentials", field.name)
+		}
+	}
+
 	return nil
+}
+
+// corsTokenChars is the RFC 9110 token tail: everything a header name or
+// method may carry besides alphanumerics.
+const corsTokenChars = "!#$%&'*+-.^_`|~" //nolint:gosec // RFC 9110 token characters, not a credential
+
+// validCORSToken reports whether value is a valid HTTP header name/method.
+func validCORSToken(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	for i := range len(value) {
+		c := value[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			continue
+		}
+
+		if !strings.ContainsRune(corsTokenChars, rune(c)) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// validateCORSTokens trims and checks one CORS list. "*" is legal for the
+// three CORS response lists when it stands alone; a bare "*" mixed with
+// explicit entries would be emitted literally by browsers, so it is
+// rejected instead of silently ignored.
+func validateCORSTokens(field string, values []string) error {
+	for i, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			return fmt.Errorf("fiber: %s[%d] is empty", field, i)
+		}
+
+		if value == "*" {
+			if i != 0 || len(values) != 1 {
+				return fmt.Errorf("fiber: %s[%d] \"*\" must be the only entry", field, i)
+			}
+
+			continue
+		}
+
+		if strings.ContainsRune(value, '*') {
+			return fmt.Errorf("fiber: %s[%d] %q: \"*\" must be the only entry", field, i, value)
+		}
+
+		if !validCORSToken(value) {
+			return fmt.Errorf("fiber: %s[%d] %q is not a valid HTTP token", field, i, value)
+		}
+	}
+
+	return nil
+}
+
+// hasCORSWildcard reports whether the trimmed list carries the "*" entry.
+func hasCORSWildcard(values []string) bool {
+	return slices.ContainsFunc(values, func(value string) bool {
+		return strings.TrimSpace(value) == "*"
+	})
+}
+
+// corsMethods renders the preflight Access-Control-Allow-Methods list,
+// falling back to the framework default for an empty (or all-blank) list.
+func corsMethods(cfg *CORSConfig) []string {
+	methods := make([]string, 0, len(cfg.AllowedMethods))
+	for _, method := range cfg.AllowedMethods {
+		if method = strings.ToUpper(strings.TrimSpace(method)); method != "" {
+			methods = append(methods, method)
+		}
+	}
+
+	if len(methods) == 0 {
+		return slices.Clone(defaultCORSAllowedMethods)
+	}
+
+	return methods
+}
+
+// corsHeaderList trims and drops blank entries. An empty result keeps
+// fiber's echo behavior for Access-Control-Request-Headers.
+func corsHeaderList(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+
+	return cleaned
 }
 
 // validOrigin mirrors what fiber's cors middleware accepts: "*" or a

@@ -388,13 +388,16 @@ srv.App().Get("/users", listUsers)
 srv.App().Post("/users", createUser)
 ```
 
-> CORS is deny-by-default on both HTTP stacks: with empty `cors.allowed_origins` no `Access-Control-Allow-Origin` headers are emitted. Combining `"*"` with `allow_credentials: true` is rejected (`CORSConfig.Validate()`) and fails closed to deny-all. Example:
+> CORS is deny-by-default on both HTTP stacks: with empty `cors.allowed_origins` no `Access-Control-Allow-Origin` headers are emitted. Combining `"*"` with `allow_credentials: true` is rejected (`CORSConfig.Validate()`) and fails closed to deny-all. `allowed_headers` left empty makes the preflight echo the browser's `Access-Control-Request-Headers` (falling back to the framework headers when none are named), so a client header the framework has never heard of cannot break the preflight; `allowed_methods` defaults to `GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, QUERY`; `exposed_headers` grants browser scripts read access to response headers such as `X-Request-ID`. Example:
 >
 > ```go
 > srv := srvFiber.New(&server.Options{Name: "api"}, &srvFiber.Config{
 >     Address: ":8080",
 >     CORS: &srvFiber.CORSConfig{
 >         AllowedOrigins:   []string{"https://app.example.com"},
+>         AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Api-Key"},
+>         AllowedMethods:   []string{"GET", "POST", "PATCH"},
+>         ExposedHeaders:   []string{"X-Request-ID"},
 >         AllowCredentials: true,
 >     },
 > })
